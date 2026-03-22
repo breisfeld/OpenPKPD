@@ -277,6 +277,15 @@ cython_debug/
 # Poetry local configuration file - https://python-poetry.org/docs/configuration/#local-configuration
 poetry.toml
 
+### Local tool caches and scratch directories ###
+.r-lib/
+.uv-cache/
+.claude/
+.local/
+.xdg-data/
+artifacts/
+main.py
+
 # ruff
 .ruff_cache/
 

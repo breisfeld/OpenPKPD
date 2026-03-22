@@ -239,8 +239,18 @@ build-installer:
 build-installer-cli:
     uv run --extra packaging python scripts/build_installer.py --skip-gui
 
+# Bump the version in all canonical locations
+# Usage: just bump-version 0.3.0
+bump-version version:
+    {{uv_base}} python scripts/bump_version.py {{ version }}
+
+# Show the current version
+show-version:
+    @{{uv_base}} python scripts/bump_version.py
+
 # Build the source distribution and wheel
 build:
+    rm -rf dist/
     uv build
 
 # Publish to TestPyPI (reads PYPI_TEST_API_TOKEN from .env)

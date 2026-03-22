@@ -5,7 +5,7 @@ This project follows [Semantic Versioning](https://semver.org).
 
 ---
 
-## Unreleased — 2026-03-04
+## 0.2.1 — 2026-03-22
 
 ### Changed
 
@@ -137,18 +137,11 @@ This project follows [Semantic Versioning](https://semver.org).
 
 ---
 
-## Planned — 0.2.0
-
-- ADVAN6/8/13 (general nonlinear ODE via `diffrax`)
-- ADVAN5/7 (general linear, matrix exponential)
-- ADVAN11/12 (3-compartment IV/oral)
-- ADVAN10 (Michaelis-Menten elimination)
-- Full regression test suite vs NONMEM 7.5 reference runs
+## Planned — 0.3.0
 
 ## Planned — 0.3.0
 
-- NUTS/BAYES (NumPyro + PyMC)
-- `$MIXTURE` finite mixture models
-- `$PRIOR` MAP estimation
-- Inter-occasion variability (IOV)
-- `$SIMULATION` Monte Carlo
+- ADVAN5/7 (general linear, matrix exponential)
+- NUTS/BAYES full posterior (NumPyro + PyMC) — currently at prototype maturity
+- Trust-region optimizer for improved FOCEI convergence on non-convex surfaces
+- CDISC ADPPK domain export

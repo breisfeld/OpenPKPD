@@ -9,7 +9,7 @@ Files updated:
     pyproject.toml                                  (version = "...")
     src/openpkpd/__init__.py                        (__version__ = "...")
     docs/conf.py                                    (release = "..." / version = "...")
-    manuscript/jss/openpkpd_manuscript.tex          (version~X.Y.Z / vX.Y.Z)
+    ../openpkpd_manuscript/manuscript/jss/openpkpd_manuscript.tex  (version~X.Y.Z / vX.Y.Z)
     scripts/packaging/macos/dmgbuild_settings.py    (fallback default version)
 """
 
@@ -46,7 +46,7 @@ RULES: list[tuple[str, list[tuple[str, str]]]] = [
         ],
     ),
     (
-        "manuscript/jss/openpkpd_manuscript.tex",
+        "../openpkpd_manuscript/manuscript/jss/openpkpd_manuscript.tex",
         [
             # Abstract / conclusion: (version~X.Y.Z)
             (r'(\\pkg\{OpenPKPD\}\s*\(version~)[^\)]+(\))', r'\g<1>{new}\2'),

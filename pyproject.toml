@@ -124,7 +124,6 @@ exclude = [
     ".mplconfig/",
     "artifacts/",
     "main.py",
-    "manuscript/",
     "docs/_build/",
     "dist/",
     "build/",

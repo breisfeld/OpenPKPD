@@ -168,11 +168,6 @@ build-docs-pdf: install-docs
 build-docs-pdf-and-open: build-docs-pdf
     {{uv_base}} python scripts/just/system.py open docs/_build/latex/openpkpd.pdf
 
-# Build the JSS manuscript PDF and refresh manuscript-side assets
-build-manuscript-pdf:
-    UV_CACHE_DIR=.uv-cache {{uv_gui}} python manuscript/jss/reproduce_manuscript.py
-    @echo "PDF: manuscript/jss/openpkpd_manuscript.pdf"
-
 # Clean documentation build artifacts
 clean-docs:
     {{uv_docs}} python scripts/just/docs.py clean

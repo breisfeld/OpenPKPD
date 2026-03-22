@@ -1,0 +1,15 @@
+.lotriPointers	dot-lotriPointers
+as.lotri	as.lotri
+as.lotri.data.frame	as.lotri
+as.lotri.default	as.lotri
+as.lotri.matrix	as.lotri
+lotri	lotri
+lotriAsExpression	lotriAsExpression
+lotriDataFrameToLotriExpression	lotriDataFrameToLotriExpression
+lotriEst	lotriEst
+lotriIsBlockMat	lotriIsBlockMat
+lotriMat	lotriMat
+lotriMatInv	lotriMatInv
+lotriNearPD	lotriNearPD
+lotriSep	lotriSep
+rcm	rcm

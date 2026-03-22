@@ -1,0 +1,22 @@
+manifest_version: 1
+id: theophylline_oral_saem
+title: Theophylline oral SAEM
+description: Oral PK example demonstrating SAEM estimation on curated theophylline data.
+category: pk
+primary_mode: control_stream
+route: oral
+difficulty: intermediate
+tags: [pk, oral, theophylline, saem]
+sort_order: 50
+files:
+  dataset: ../../../../shared_data/theophylline/theophylline_saem.csv
+  control_stream: model.ctl
+  readme: null
+  preview_image: null
+gui:
+  load_dataset: true
+  load_control_stream: true
+  featured: true
+source:
+  kind: internal
+

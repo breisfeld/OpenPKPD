@@ -1,0 +1,56 @@
+{
+  "_meta": {
+    "name": "placebo_response_pd",
+    "reference_kind": "internal-baseline",
+    "externally_validated": false,
+    "dataset": "synthetic_placebo_response_pd",
+    "method": "PlaceboResponseModel.fit",
+    "seed": 4,
+    "validation_level": "fixed synthetic placebo-response regression benchmark",
+    "validation_note": "docs/user_guide/analysis_validation_gaps.md",
+    "notes": "Self-consistent openpkpd regression baseline. Useful for drift detection but not yet an external scientific reference."
+  },
+  "true_params": {
+    "E0": 60.0,
+    "kdeg": 0.02,
+    "Eplacebo": 20.0,
+    "kpl": 0.05
+  },
+  "fit_init": {
+    "E0": 55.0,
+    "kdeg": 0.03,
+    "Eplacebo": 15.0,
+    "kpl": 0.04
+  },
+  "params": {
+    "E0": 59.94958444478748,
+    "kdeg": 0.016068460190304095,
+    "Eplacebo": 14.598334411632534,
+    "kpl": 0.051449409786556495
+  },
+  "ofv": 25.093759357749118,
+  "aic": 33.09375935774912,
+  "converged": true,
+  "predicted": [
+    59.94958444478748,
+    59.287734909038214,
+    58.48501309462675,
+    57.56972278687216,
+    56.56602854337318,
+    55.49451750178764,
+    54.37268661658666,
+    53.21536515287526,
+    52.03508097305884,
+    50.842378029622495,
+    49.64609150227379,
+    48.4535861708028,
+    47.270962879407094,
+    46.10323730929281,
+    44.954494721397,
+    43.82802384905103,
+    42.726432701735554,
+    41.6517486774426,
+    40.60550506532861,
+    39.588815746033326
+  ]
+}

@@ -1,0 +1,14 @@
+dparser-package	dparser-package
+.dparsePtr	dot-dparsePtr
+dparse	dparse
+dparser	dparser-package
+dparserFunction-class	dparserFunction-class
+dpDefaultSkip	dpDefaultSkip
+dpGetFile	dpGetFile
+dpIncludeDir	dpIncludeDir
+dpReload	dpReload
+dpRparse	dpRparse
+dpVersion	dpVersion
+gc.dparser	gc.dparser
+mkdparse	mkdparse
+show,dparserFunction-method	show-dparserFunction-method

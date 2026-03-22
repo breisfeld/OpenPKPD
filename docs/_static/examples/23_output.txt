@@ -1,0 +1,37 @@
+openpkpd/estimation/fo.py:114: UserWarning: ETA1 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+openpkpd/estimation/fo.py:114: UserWarning: ETA2 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+openpkpd/estimation/fo.py:114: UserWarning: ETA3 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+==============================================================
+Example 23: Inter-Occasion Variability (IOV) Modelling
+==============================================================
+
+Dataset: 8 subjects, 2 occasions, 128 rows
+OCC column present: True
+
+Fitting BSV-only model (1 ETA on CL, FO method)...
+  OFV = 211.1917  converged=True
+
+Fitting BSV+IOV model (BSV on CL + per-occasion IOV, FO method)...
+  OFV = 207.9688  converged=True
+
+--- Likelihood ratio test ---
+ΔOFV = 3.2230  (df=2)  p=0.1996
+-> BSV-only model not significantly improved by adding IOV
+
+--- THETA estimates ---
+Parameter           True     BSV-only      BSV+IOV
+--------------------------------------------------
+KA fixed (hr⁻¹)    1.200       1.2177       1.2177
+CL (L/hr)          3.000       5.8190       5.8098
+V fixed (L)       30.000      62.2097      62.2180
+
+--- OMEGA diagonal ---
+  BSV-only:  ω²_BSV_CL = 0.0289
+  BSV+IOV:   ω²_BSV_CL = 0.0381  ω²_IOV_occ1 = 0.0231  ω²_IOV_occ2 = 0.0237
+
+  True ω²_BSV_CL ≈ 0.0400  True ω²_IOV_CL ≈ 0.0225
+
+Figure saved to docs/_static/examples

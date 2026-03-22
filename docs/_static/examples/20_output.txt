@@ -1,0 +1,44 @@
+openpkpd/estimation/saem.py:215: UserWarning: ETA1 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+openpkpd/estimation/saem.py:215: UserWarning: ETA2 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+openpkpd/estimation/saem.py:215: UserWarning: ETA3 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+openpkpd/estimation/foce.py:236: UserWarning: ETA3 shrinkage is 40.8% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+============================================================
+Example 20: SAEM Estimation
+============================================================
+Dataset: 12 subjects, 132 rows
+
+Running SAEM (K1=150, K2=100)...
+
+--- SAEM results ---
+Method: SAEM
+OFV: 3608.4619
+AIC: 3628.4619
+BIC: inf   (n_obs = 0)
+n_parameters: 10
+Converged: True
+THETA: [ 1.51835937  2.68546983 33.15200504]
+OMEGA (diagonal): [1.e-07 1.e-07 1.e-07]
+SIGMA (diagonal): [0.02]
+ETA shrinkage: ['100.0%', '100.0%', '100.0%']
+Shrinkage warnings:
+  ETA1 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.
+  ETA2 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.
+  ETA3 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.
+
+Running FOCE (reference comparison)...
+
+--- Parameter comparison ---
+Parameter           True       FOCE       SAEM
+---------------------------------------------
+KA (hr⁻¹)          1.500      1.501      1.518
+CL (L/hr)          2.800      2.989      2.685
+V (L)             32.900     34.982     33.152
+
+OFV  FOCE = 203.82
+OFV  SAEM = 3608.46  (stochastic OFV — not directly comparable)
+
+Figure saved to docs/_static/examples

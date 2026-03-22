@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=OpenPKPD
+Comment=Open-source population PK/PD analysis
+Exec=openpkpd-gui
+Icon=openpkpd-gui
+Type=Application
+Categories=Science;Education;
+Terminal=false
+StartupNotify=true
+StartupWMClass=openpkpd-gui
+MimeType=application/x-opkpd;

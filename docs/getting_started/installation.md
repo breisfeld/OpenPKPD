@@ -1,0 +1,86 @@
+# Installation
+
+## Requirements
+
+- Python 3.12 or later
+- [uv](https://docs.astral.sh/uv/) (recommended) or pip
+
+## Installing with uv
+
+```bash
+# Core package (no plots)
+uv add OpenPKPD
+
+# With the desktop GUI (Qt / PySide6 + matplotlib)
+uv add "OpenPKPD[gui]"
+
+# With diagnostic plots (requires matplotlib)
+uv add "OpenPKPD[plots]"
+
+# Full install — plots + optimagic + sympy (no JAX)
+uv add "OpenPKPD[full]"
+
+# Development install (tests, linting, docs)
+uv sync --all-extras
+```
+
+## Installing with pip
+
+```bash
+pip install OpenPKPD
+pip install "OpenPKPD[gui]"     # desktop GUI (PySide6 + matplotlib)
+pip install "OpenPKPD[plots]"   # with matplotlib
+pip install "OpenPKPD[full]"    # everything except JAX
+```
+
+## Optional extras
+
+| Extra | Contents | When to use |
+|-------|----------|-------------|
+| `gui` | `pyside6>=6.10.2`, `platformdirs>=4.9`, `matplotlib>=3.9` | Desktop GUI (`openpkpd-gui`) with plot output |
+| `plots` | `matplotlib>=3.9` | Diagnostic plots: GOF, PK, PD, ETA |
+| `jax` | `jax`, `jaxlib`, `diffrax`, `numpyro` | JAX autodiff + NUTS sampler (requires JAX-compatible platform) |
+| `bayes` | `pymc>=5.16` | PyMC MCMC backend |
+| `optim` | `optimagic>=0.5` | Unified optimizer interface |
+| `symbolic` | `sympy>=1.13` | Symbolic PK solution derivation |
+| `notebooks` | `marimo>=0.10`, `matplotlib>=3.9` | Interactive marimo notebooks |
+| `cluster` | `dask[distributed]>=2024.8` | Distributed cluster-parallel execution |
+| `r` | `rpy2>=3.5` | R interoperability bridge |
+| `full` | plots + optim + sympy | Everything except JAX/Bayes/GUI/notebooks |
+| `docs` | Sphinx + RTD theme | Building this documentation |
+
+:::{note}
+JAX is not available on Intel macOS (`x86_64`) because no `jaxlib` wheel is
+published for that architecture. All estimation methods work without JAX using
+a SciPy finite-difference fallback.
+:::
+
+## Verifying the install
+
+```bash
+python -c "import openpkpd; print(openpkpd.__version__)"
+openpkpd --help
+```
+
+## Launching the desktop GUI
+
+After installing the `gui` extra, start the desktop application with:
+
+```bash
+openpkpd-gui
+```
+
+From a source checkout, `uv run openpkpd-gui` also works.
+
+If you are working from the repository checkout, `just run-gui` is also
+available.
+
+## Building the documentation locally
+
+```bash
+just build-docs-html
+# or: just build-docs-and-open
+```
+
+The repository `justfile` is intended to work across macOS, Linux, and Windows
+for common contributor workflows.

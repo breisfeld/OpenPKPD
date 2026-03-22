@@ -1,0 +1,157 @@
+[project]
+name = "openpkpd"
+version = "0.2.0"
+description = "Open-source Python toolkit for population PK/PD analyses"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "AGPL-3.0-or-later" }
+keywords = ["pharmacokinetics", "pharmacodynamics", "population", "mixed-effects", "PKPD"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+]
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.13",
+    "pandas>=2.2",
+    "click>=8.1",
+    "pydantic>=2.8",
+    "pyyaml>=6.0.3",
+]
+
+[project.urls]
+Homepage = "https://gitlab.com/breisfeld/OpenPKPD"
+Documentation = "https://openpkpd.readthedocs.io"
+Repository = "https://gitlab.com/breisfeld/OpenPKPD"
+Issues = "https://gitlab.com/breisfeld/OpenPKPD/-/issues"
+
+[project.optional-dependencies]
+# JAX acceleration (requires compatible platform — not available on Intel macOS)
+jax = [
+    "jax>=0.4.30",
+    "jaxlib>=0.4.30",
+    "diffrax>=0.6",
+    "numpyro>=0.15",
+]
+# Bayesian methods
+bayes = [
+    "pymc>=5.16",
+]
+# Advanced optimizer interface
+optim = [
+    "optimagic>=0.5",
+]
+# Symbolic math (ADVAN analytical solutions)
+symbolic = [
+    "sympy>=1.13",
+]
+# Cluster parallelism
+cluster = [
+    "dask[distributed]>=2024.8",
+]
+# Plotting
+plots = [
+    "matplotlib>=3.9",
+]
+# Full install (without JAX)
+full = [
+    "optimagic>=0.5",
+    "sympy>=1.13",
+    "matplotlib>=3.9",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "pytest-xdist>=3.6",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "hypothesis>=6.110",
+    "pre-commit>=3.8",
+    "matplotlib>=3.9",
+]
+# R interoperability
+r = [
+    "rpy2>=3.5",
+]
+# Desktop GUI (Qt)
+gui = [
+    "matplotlib>=3.9",
+    "platformdirs>=4.9",
+    "pyside6>=6.10.2",
+]
+# Installer packaging (PyInstaller + platform helpers)
+packaging = [
+    "pyinstaller>=6.0",
+    "pyinstaller-hooks-contrib>=2024.10",
+    "dmgbuild>=1.6",       # macOS .dmg creation
+]
+# Interactive notebooks (marimo)
+notebooks = [
+    "marimo>=0.10",
+    "matplotlib>=3.9",
+]
+# Documentation
+docs = [
+    "sphinx>=7.4",
+    "sphinx-rtd-theme>=2.0",
+    "myst-parser>=4.0",
+    "sphinx-autodoc-typehints>=2.3",
+    "sphinx-copybutton>=0.5",
+    "sphinx-design>=0.6",
+    "sphinxcontrib-napoleon>=0.7",
+]
+
+[project.scripts]
+openpkpd = "openpkpd.cli.main:main"
+openpkpd-gui = "openpkpd_gui.app.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/openpkpd", "src/openpkpd_gui"]
+
+[tool.ruff]
+src = ["src"]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# Marimo notebooks use cell idioms (bare expressions for display, cross-cell
+# variable references via function arguments) that are not valid standard Python.
+# Marimo notebooks use cell idioms that are not valid standard Python.
+# Disable all lint checks for notebooks — ruff format (style) still applies.
+"notebooks/*.py" = ["ALL"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+mypy_path = "src"
+warn_redundant_casts = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short -n auto"
+markers = [
+    "unit: fast isolated component tests",
+    "integration: end-to-end pipeline tests",
+    "regression: comparison vs golden NONMEM output",
+    "slow: tests taking more than 30 seconds",
+    "external_validation: comparison against external tools (nlmixr2, pharmpy, NONMEM)",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "hypothesis>=6.110",
+]

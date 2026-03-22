@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# AppRun — entry point for the OpenPKPD AppImage.
+# This script is executed when the AppImage is run directly or via a desktop
+# environment.  It sets up the environment and launches the GUI by default,
+# or the CLI when called as "openpkpd" or with --cli.
+
+set -euo pipefail
+
+HERE="$(dirname "$(readlink -f "$0")")"
+APP_DIR="$HERE/usr/bin"
+
+# Ensure bundled libraries take precedence over the host system.
+export LD_LIBRARY_PATH="$APP_DIR/_internal:${LD_LIBRARY_PATH:-}"
+export QT_PLUGIN_PATH="$APP_DIR/_internal/PySide6/Qt/plugins:${QT_PLUGIN_PATH:-}"
+
+# Choose CLI or GUI based on how the AppImage was invoked.
+BASENAME="$(basename "$0")"
+if [[ "$BASENAME" == "openpkpd" || "${1:-}" == "--cli" ]]; then
+    shift || true
+    exec "$APP_DIR/openpkpd" "$@"
+else
+    exec "$APP_DIR/openpkpd-gui" "$@"
+fi

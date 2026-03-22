@@ -1,0 +1,26 @@
+openpkpd/estimation/fo.py:123: UserWarning: ETA1 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+openpkpd/estimation/fo.py:123: UserWarning: ETA2 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+openpkpd/estimation/fo.py:123: UserWarning: ETA3 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+Parsed control stream:
+  Problem: Theophylline via control stream
+  ADVAN: 2
+  n_theta: 4
+
+Running estimation (equivalent to $ESTIMATION METHOD=ZERO)...
+Method: FO
+OFV: 74.9139
+AIC: 88.9139
+BIC: 98.7222   (n_obs = 30)
+n_parameters: 7
+Converged: True
+THETA: [1.65810486 0.04014889 0.40395477 0.11719668]
+OMEGA (diagonal): [1.14171649 0.01007501 0.0016058 ]
+SIGMA (diagonal): [1.]
+ETA shrinkage: ['100.0%', '100.0%', '100.0%']
+Shrinkage warnings:
+  ETA1 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.
+  ETA2 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.
+  ETA3 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.

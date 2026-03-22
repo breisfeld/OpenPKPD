@@ -1,0 +1,17 @@
+This code has many dependencies, where copyrights are described in
+their respective packages.
+
+Intenrally the folloiwng copyrights are held:
+
+* Sylvan Elhay, Jaroslav Kautsky. John Burkardt for their Gauss 
+  quadrature routines which is released under the GPL licence
+
+* The copyright is for the slice sampling algorihm is held by the
+  nlmixr team.  However, we the algorithm is described by Neal,
+  RM. <https://projecteuclid.org/download/pdf_1/euclid.aos/1056562461>
+
+* Emmanuelle Comets, Audrey Lavenu, Marc Lavielle for SAEM algorithm
+  and their SAEMIX package, which was released under the GPL.  The
+  code in this routine is written by Wenping Wang and relased under the GPL
+
+The code is distributed under the GPL version 2 or greater.

@@ -1,0 +1,44 @@
+=======================================================
+  Example 11: Time-to-Event Survival Analysis
+=======================================================
+
+True model: Weibull(scale=15.0, shape=1.8) with concentration effect beta=0.08
+N=120 subjects, max follow-up=40.0 time units
+
+Simulated 120 events, 0 censored (censoring rate 0.0%)
+Median observation time: 12.08
+KM median survival time: 12.24
+
+--- Fitting ConstantHazardModel (exponential survival) ---
+
+=======================================================
+  ConstantHazardModel
+=======================================================
+  OFV       : 851.6701
+  AIC       : 853.6701
+  Converged : True
+  Params    : [0.0782]
+
+--- Fitting WeibullHazardModel ---
+
+=======================================================
+  WeibullHazardModel
+=======================================================
+  OFV       : 793.2319
+  AIC       : 797.2319
+  Converged : True
+  Params    : [14.4124  1.8848]
+
+--- AIC Comparison ---
+  ConstantHazard AIC : 853.6701
+  Weibull AIC        : 797.2319
+  => Weibull model preferred (deltaAIC=56.44)
+
+  True Weibull scale: 15.00
+  Fitted scale      : 14.412
+  True Weibull shape: 1.80
+  Fitted shape      : 1.885
+
+Figure saved to: docs/_static/examples/11_tte_survival.png
+
+Done.

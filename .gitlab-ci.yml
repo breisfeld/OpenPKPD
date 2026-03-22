@@ -1,0 +1,229 @@
+# ---------------------------------------------------------------------------
+# GitLab CI/CD — OpenPKPD
+# Python 3.12 · uv · ruff · mypy · pytest · Sphinx · PyInstaller
+# ---------------------------------------------------------------------------
+
+workflow:
+  rules:
+  - when: never
+
+default:
+  image: python:3.12-slim
+  before_script:
+  - pip install --quiet uv
+  - uv sync --extra dev --extra full --extra docs
+  cache:
+    key: uv-$CI_COMMIT_REF_SLUG
+    paths:
+    - .uv-cache/
+
+variables:
+  UV_CACHE_DIR: "$CI_PROJECT_DIR/.uv-cache"
+  # Prevent uv from querying the keyring, which may not be available in CI.
+  UV_KEYRING_PROVIDER: "disabled"
+
+stages:
+- lint
+- typecheck
+- test
+- build
+- package
+- docs
+
+# ---------------------------------------------------------------------------
+# Lint
+# ---------------------------------------------------------------------------
+
+ruff:check:
+  stage: lint
+  script:
+  - uv run ruff check src/ tests/
+  allow_failure: false
+
+ruff:format:
+  stage: lint
+  script:
+  - uv run ruff format --check src/ tests/
+  # Format violations are informational — they do not block the pipeline.
+  allow_failure: true
+
+# ---------------------------------------------------------------------------
+# Type checking
+# ---------------------------------------------------------------------------
+
+mypy:
+  stage: typecheck
+  script:
+  - uv run mypy src/openpkpd
+  # Type errors are surfaced but do not fail the pipeline while the project
+  # is still reaching full annotation coverage.
+  allow_failure: true
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
+test:unit:
+  stage: test
+  script:
+  - >
+    uv run pytest tests/unit/ -m unit -v --tb=short --junitxml=reports/junit-unit.xml --cov=openpkpd --cov-report=xml:reports/coverage.xml --cov-report=term-missing
+  coverage: '/(?i)total.*?\s+(\d+(?:\.\d+)?)%/'
+  artifacts:
+    when: always
+    reports:
+      junit: reports/junit-unit.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: reports/coverage.xml
+    paths:
+    - reports/
+    expire_in: 1 week
+
+test:integration:
+  stage: test
+  rules:
+  # Always run on the main branch.
+  - if: $CI_COMMIT_BRANCH == "main"
+  # Allow manual triggering on any other branch.
+  - when: manual
+    allow_failure: true
+  script:
+  - >
+    uv run pytest tests/integration/ -m integration -v --tb=short --junitxml=reports/junit-integration.xml
+  artifacts:
+    when: always
+    reports:
+      junit: reports/junit-integration.xml
+    paths:
+    - reports/
+    expire_in: 1 week
+
+# ---------------------------------------------------------------------------
+# Build — Python wheel (all platforms via Linux runner)
+# ---------------------------------------------------------------------------
+
+build:wheel:
+  stage: build
+  script:
+  - uv build --wheel
+  artifacts:
+    paths:
+    - dist/*.whl
+    expire_in: 1 week
+
+# ---------------------------------------------------------------------------
+# Package — platform installers
+#
+# These jobs run on self-hosted runners tagged by platform.
+# They are triggered automatically on version tags (v*) and can be run
+# manually on any branch.
+#
+# Required runner tags:
+#   linux-x86_64  — Linux shell runner, Python 3.12, Qt display via Xvfb
+#   macos-arm64   — macOS shell runner, Python 3.12, Xcode CLI tools
+#   windows-x64   — Windows shell runner, Python 3.12, optional NSIS
+# ---------------------------------------------------------------------------
+
+.package_common:
+  stage: package
+  # Inherit no default image — platform runners use their native shell.
+  image: null
+  rules:
+  # Always run on version tags.
+  - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+/
+  # Allow manual triggering on any branch.
+  - when: manual
+    allow_failure: true
+  variables:
+    UV_KEYRING_PROVIDER: "disabled"
+  before_script: [] # override default (no Docker image here)
+  after_script:
+  - echo "Installer artifact built successfully"
+
+package:linux:
+  extends: .package_common
+  tags:
+  - linux-x86_64
+  before_script:
+  - pip install --quiet uv
+  - uv sync --extra gui --extra packaging
+  # Install appimagetool so the build script produces an AppImage in addition
+  # to the tarball.  FUSE is not available in most CI containers, so we use
+  # --appimage-extract-and-run which runs appimagetool without mounting.
+  - |
+    curl -fsSL https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage \
+      -o /usr/local/bin/appimagetool
+    chmod +x /usr/local/bin/appimagetool
+  - apt-get install -y --no-install-recommends libfuse2 || true
+  variables:
+    APPIMAGE_EXTRACT_AND_RUN: "1" # run appimagetool without FUSE
+  script:
+  - >
+    uv run python scripts/build_installer.py --version "${CI_COMMIT_TAG#v}" --output-dir dist/linux
+  artifacts:
+    name: "openpkpd-linux-${CI_COMMIT_TAG}"
+    paths:
+    - dist/linux/
+    expire_in: 4 weeks
+
+package:macos:
+  extends: .package_common
+  tags:
+  - macos-arm64
+  before_script:
+  - pip3 install --quiet uv
+  - uv sync --extra gui --extra packaging
+  script:
+  - >
+    uv run python scripts/build_installer.py --version "${CI_COMMIT_TAG#v}" --output-dir dist/macos
+  after_script:
+  # Optional: notarise the DMG when credentials are configured.
+  - |
+    if [ -n "$MACOS_NOTARIZE_APPLE_ID" ]; then
+      DMG=$(ls dist/macos/*.dmg | head -1)
+      xcrun notarytool submit "$DMG" \
+        --apple-id "$MACOS_NOTARIZE_APPLE_ID" \
+        --password  "$MACOS_NOTARIZE_APP_PASSWORD" \
+        --team-id   "$MACOS_NOTARIZE_TEAM_ID" \
+        --wait
+      xcrun stapler staple "$DMG"
+    fi
+  artifacts:
+    name: "openpkpd-macos-${CI_COMMIT_TAG}"
+    paths:
+    - dist/macos/
+    expire_in: 4 weeks
+
+package:windows:
+  extends: .package_common
+  tags:
+  - windows-x64
+  before_script:
+  - pip install --quiet uv
+  - uv sync --extra gui --extra packaging
+  - choco install nsis --yes --no-progress
+  script:
+  # Strip the leading 'v' from the tag on PowerShell
+  - $VERSION = $env:CI_COMMIT_TAG -replace '^v', ''
+  - uv run python scripts/build_installer.py --version $VERSION --output-dir dist/windows
+  artifacts:
+    name: "openpkpd-windows-${CI_COMMIT_TAG}"
+    paths:
+    - dist/windows/
+    expire_in: 4 weeks
+
+# ---------------------------------------------------------------------------
+# Documentation
+# ---------------------------------------------------------------------------
+
+docs:sphinx:
+  stage: docs
+  rules:
+  - if: $CI_COMMIT_BRANCH == "main"
+  script:
+  - cd docs && uv run make html
+  artifacts:
+    paths:
+    - docs/_build/html/
+    expire_in: 1 week

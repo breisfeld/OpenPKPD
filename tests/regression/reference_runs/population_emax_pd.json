@@ -1,0 +1,48 @@
+{
+  "_meta": {
+    "name": "population_emax_pd",
+    "reference_kind": "internal-baseline",
+    "externally_validated": false,
+    "dataset": "synthetic_population_emax_pd",
+    "method": "PopulationPDModel.estimate",
+    "seed": 7,
+    "validation_level": "fixed synthetic population PD regression benchmark",
+    "validation_note": "docs/user_guide/analysis_validation_gaps.md",
+    "notes": "Self-consistent openpkpd regression baseline. Useful for drift detection but not yet an external scientific reference."
+  },
+  "true_theta": {
+    "E0": 1.5,
+    "Emax": 9.0,
+    "EC50": 3.5
+  },
+  "true_omega": 0.04,
+  "true_sigma2": 0.01,
+  "theta": {
+    "E0": 1.4582659482124574,
+    "Emax": 9.492951524323091,
+    "EC50": 3.382382112904233
+  },
+  "omega": [
+    [
+      0.007570428871283316
+    ]
+  ],
+  "sigma2": 0.007284238450064866,
+  "ofv": -392.04980470409396,
+  "aic": -382.04980470409396,
+  "converged": true,
+  "post_hoc_etas": {
+    "1": [
+      -0.06286529322079776
+    ],
+    "2": [
+      -0.10788133008433481
+    ],
+    "3": [
+      0.09292013750198616
+    ],
+    "4": [
+      0.07782596716917356
+    ]
+  }
+}

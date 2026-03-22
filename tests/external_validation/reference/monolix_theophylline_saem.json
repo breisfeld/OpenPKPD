@@ -1,0 +1,28 @@
+{
+  "benchmark_name": "Monolix theophylline SAEM project",
+  "source_urls": [
+    "https://nlmixr2.github.io/monolix2rx/articles/convert-nlmixr2.html",
+    "https://cran.r-project.org/web/packages/monolix2rx/readme/README.html",
+    "https://monolixsuite.slp-software.com/monolix/2024R1/theophylline-data-set"
+  ],
+  "notes": [
+    "The monolix2rx conversion article exposes the final Monolix fixed effects for the bundled theophylline project on the log scale.",
+    "The natural-scale parameters below are exp() of the reported Monolix fixed effects.",
+    "The Monolix theophylline project dose is encoded in mg/kg, so openpkpd must normalize AMT by WT before comparison."
+  ],
+  "theta_log_scale": {
+    "ka_pop": 0.426994483535611,
+    "V_pop": -0.786351566327091,
+    "Cl_pop": -3.21457597916301
+  },
+  "theta_natural_scale": {
+    "ka_pop": 1.5326442015046764,
+    "V_pop": 0.45550364049905545,
+    "Cl_pop": 0.04017236409860534
+  },
+  "residual_error": {
+    "a": 0.433279557549051,
+    "b": 0.0542595276206251
+  },
+  "dataset_citation": "Boeckmann AJ, Sheiner LB, Beal SL (1992). NONMEM Users Guide \u2014 Part V: Introductory Guide. University of California, San Francisco. [Theophylline dataset: 12 subjects, single oral dose, 132 observations.]"
+}

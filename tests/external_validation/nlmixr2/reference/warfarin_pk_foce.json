@@ -1,0 +1,29 @@
+{
+  "method": "FOCEI",
+  "software": "nlmixr2",
+  "software_version": "5.0.0",
+  "dataset": "warfarin_pk_cp_subset",
+  "n_subjects": 32,
+  "n_obs_in_likelihood": 251,
+  "ofv": 474.6118,
+  "theta": {
+    "KA": 0.6483,
+    "CL": 0.1356,
+    "V": 8.168
+  },
+  "omega_diag": {
+    "KA": 0.4345,
+    "CL": 0.0727,
+    "V": 0.0383
+  },
+  "sigma_prop_err_variance": 0.0505,
+  "raw_message": "false convergence (8)",
+  "meta": {
+    "description": "nlmixr2 FOCEI reference for openpkpd external validation",
+    "externally_validated": true,
+    "reference_software": "nlmixr2",
+    "model": "warfarin PK-only 1-cmt oral, IIV on KA/CL/V, prop error",
+    "parameterisation": "log-normal: KA=exp(lka+eta.ka), etc.",
+    "tolerance_notes": "THETA and residual variance are compared conservatively on this benchmark. OMEGA is not release-gated because openpkpd currently tends to collapse some IIV terms on this dataset."
+  }
+}

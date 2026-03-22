@@ -1,0 +1,161 @@
+{
+  "metadata": {
+    "date": "2026-03-16",
+    "seed": 77,
+    "workloads": [
+      "diagnostics_covariate"
+    ],
+    "parameters": {
+      "fit_subjects": 6,
+      "fit_maxeval": 12,
+      "covariate_subjects": 40,
+      "sim_subjects": 24,
+      "npde_simulations": 500,
+      "vpc_replicates": 500,
+      "n_bins": 8,
+      "nca_subjects": 2000,
+      "top_functions": 5
+    }
+  },
+  "diagnostics_covariate": {
+    "n_subjects": 40,
+    "symbolic": {
+      "requested_symbolic": true,
+      "effective_symbolic": true,
+      "supports_prediction_eta_jacobian": true,
+      "kernel": "SympyAdvan2Trans2Objective",
+      "warm_rows": 280,
+      "profile": {
+        "name": "diagnostics_covariate_symbolic",
+        "wall_seconds": 0.051334,
+        "result": {
+          "rows": 280
+        },
+        "stage_totals": {
+          "diagnostics.prediction_eta_jacobian": {
+            "seconds": 0.02385586849413812,
+            "calls": 80
+          },
+          "individual.evaluate": {
+            "seconds": 0.00966836349107325,
+            "calls": 160
+          }
+        },
+        "top_functions": [
+          {
+            "function": "<lambda>",
+            "location": "profile_analysis.py:122",
+            "cumulative_seconds": 0.051274,
+            "self_seconds": 8e-05,
+            "ncalls": 1,
+            "primitive_calls": 1
+          },
+          {
+            "function": "compute_diagnostics",
+            "location": "diagnostics.py:120",
+            "cumulative_seconds": 0.051191,
+            "self_seconds": 0.003152,
+            "ncalls": 1,
+            "primitive_calls": 1
+          },
+          {
+            "function": "_prediction_eta_jacobian",
+            "location": "diagnostics.py:60",
+            "cumulative_seconds": 0.023616,
+            "self_seconds": 0.000583,
+            "ncalls": 80,
+            "primitive_calls": 80
+          },
+          {
+            "function": "prediction_eta_jacobian",
+            "location": "individual.py:966",
+            "cumulative_seconds": 0.017096,
+            "self_seconds": 0.000412,
+            "ncalls": 80,
+            "primitive_calls": 80
+          },
+          {
+            "function": "prediction_eta_jacobian",
+            "location": "symbolic_eta.py:1083",
+            "cumulative_seconds": 0.01572,
+            "self_seconds": 0.000463,
+            "ncalls": 80,
+            "primitive_calls": 80
+          }
+        ]
+      }
+    },
+    "finite_difference": {
+      "requested_symbolic": false,
+      "effective_symbolic": false,
+      "supports_prediction_eta_jacobian": false,
+      "kernel": null,
+      "warm_rows": 280,
+      "profile": {
+        "name": "diagnostics_covariate_finite_difference",
+        "wall_seconds": 0.063896,
+        "result": {
+          "rows": 280
+        },
+        "stage_totals": {
+          "diagnostics.finite_diff_jacobian": {
+            "seconds": 0.030388613464310765,
+            "calls": 80
+          },
+          "diagnostics.prediction_eta_jacobian": {
+            "seconds": 0.03098476817831397,
+            "calls": 80
+          },
+          "individual.evaluate": {
+            "seconds": 0.030953675042837858,
+            "calls": 640
+          }
+        },
+        "top_functions": [
+          {
+            "function": "<lambda>",
+            "location": "profile_analysis.py:122",
+            "cumulative_seconds": 0.063775,
+            "self_seconds": 0.0001,
+            "ncalls": 1,
+            "primitive_calls": 1
+          },
+          {
+            "function": "compute_diagnostics",
+            "location": "diagnostics.py:120",
+            "cumulative_seconds": 0.063671,
+            "self_seconds": 0.00318,
+            "ncalls": 1,
+            "primitive_calls": 1
+          },
+          {
+            "function": "_prediction_eta_jacobian",
+            "location": "diagnostics.py:60",
+            "cumulative_seconds": 0.030812,
+            "self_seconds": 0.000161,
+            "ncalls": 80,
+            "primitive_calls": 80
+          },
+          {
+            "function": "_finite_diff_jacobian",
+            "location": "diagnostics.py:28",
+            "cumulative_seconds": 0.030162,
+            "self_seconds": 0.002258,
+            "ncalls": 80,
+            "primitive_calls": 80
+          },
+          {
+            "function": "evaluate",
+            "location": "individual.py:349",
+            "cumulative_seconds": 0.029236,
+            "self_seconds": 0.001069,
+            "ncalls": 640,
+            "primitive_calls": 640
+          }
+        ]
+      }
+    },
+    "speedup_vs_fallback": 1.245,
+    "wall_seconds_saved": 0.012562
+  }
+}

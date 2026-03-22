@@ -1,0 +1,3 @@
+cpp_decorations         Decorations in a 'C++' file
+cpp_files               'C++' files from a package
+parse_cpp_function      Parse a C++ function

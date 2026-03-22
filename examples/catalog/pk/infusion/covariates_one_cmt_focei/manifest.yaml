@@ -1,0 +1,22 @@
+manifest_version: 1
+id: covariates_one_cmt_focei
+title: One-compartment covariates FOCEI
+description: Textbook covariate-rich one-compartment IV infusion control-stream example. The original 501.csv reference is not bundled and must be supplied separately.
+category: pk
+primary_mode: control_stream
+route: infusion
+difficulty: advanced
+tags: [pk, infusion, covariates, focei, textbook]
+sort_order: 200
+files:
+  dataset: null
+  control_stream: model.ctl
+  readme: null
+  preview_image: null
+gui:
+  load_dataset: false
+  load_control_stream: true
+  featured: false
+source:
+  kind: internal
+

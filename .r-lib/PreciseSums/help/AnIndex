@@ -1,0 +1,9 @@
+.preciseSumsPtr	dot-preciseSumsPtr
+fsum	fsum
+kahanSum	kahanSum
+neumaierSum	neumaierSum
+pairwiseSum	pairwiseSum
+psProd	psProd
+psSetProd	psSetProd
+psSetSum	psSetSum
+psSum	psSum

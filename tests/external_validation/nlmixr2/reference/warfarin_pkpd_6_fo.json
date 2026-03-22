@@ -1,0 +1,34 @@
+{
+  "method": "FO",
+  "software": "nlmixr2",
+  "dataset": "warfarin_joint_pkpd_6",
+  "n_subjects": 6,
+  "n_obs_in_likelihood": 101,
+  "ofv": 417.1907,
+  "theta": {
+    "KTR": 0.8625714,
+    "KA": 0.9066249,
+    "CL": 0.1333805,
+    "V": 7.856021,
+    "EMAX": 0.9570607,
+    "EC50": 1.017108,
+    "KOUT": 0.05203061,
+    "E0": 96.60018,
+    "PK_PROP_ERR": 0.2516428,
+    "PK_ADD_ERR": 1.432162,
+    "PD_ADD_ERR": 12.56702
+  },
+  "omega_diag": {
+    "E0": 9.979225e-09
+  },
+  "raw_message": "Posthoc prediction with provided THETAs",
+  "meta": {
+    "description": "nlmixr2 FO joint PK/PD warfarin 6-subject reduced benchmark",
+    "endpoint_coding": {
+      "dose": 0,
+      "cp": 1,
+      "pca": 2
+    },
+    "notes": "Second-tier reduced empirical mixed-endpoint benchmark with practical runtime and broader coverage than the 4-subject release-gated path."
+  }
+}

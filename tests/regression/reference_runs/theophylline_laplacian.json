@@ -1,0 +1,24 @@
+{
+  "ofv": 352.53952724321056,
+  "theta": [
+    1.5016125421203033,
+    2.6719852231814762,
+    33.648387818951946
+  ],
+  "omega_diag": [
+    0.10274684581144874
+  ],
+  "sigma_diag": [
+    0.021048739752428127
+  ],
+  "converged": true,
+  "_meta": {
+    "name": "theophylline_laplacian",
+    "reference_kind": "internal-baseline",
+    "externally_validated": false,
+    "dataset": "synthetic_theophylline_like",
+    "method": "LAPLACIAN",
+    "seed": null,
+    "notes": "Self-consistent openpkpd regression baseline. Useful for drift detection but not yet an external scientific reference."
+  }
+}

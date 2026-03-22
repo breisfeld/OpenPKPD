@@ -1,0 +1,42 @@
+adaptivelassoCoefficients
+                        Return Adaptive lasso coefficients after
+                        finding optimal t
+addCatCovariates        Make dummy variable cols and updated covarsVec
+addorremoveCovariate    Add covariate
+adjustedlassoCoefficients
+                        Return Adjusted adaptive lasso coefficients
+                        after finding optimal t
+bootplot                Produce delta objective function for boostrap
+bootstrapFit            Bootstrap nlmixr2 fit
+buildcovInfo            Build covInfo list from varsVec and covarsVec
+buildupatedUI           Build updated from the covariate and variable
+                        vector list
+fixedControl            Control options for fixed-value likelihood
+                        profiling
+foldgen                 Stratified cross-validation fold generator
+                        function, inspired from the caret
+horseshoeSummardf       Create Horseshoe summary posterior estimates
+knit_print.nlmixr2FitCore
+                        Extract the equations from an nlmixr2/rxode2
+                        model to produce a 'LaTeX' equation.
+lassoCoefficients       Return Final lasso coefficients after finding
+                        optimal t
+lassoSummardf           Create Lasso summary posterior estimates
+llpControl              Control options for log-likelihood profiling
+normalizedData          Function to return data of normalized
+                        covariates
+optimUnisampling        Sample from uniform distribution by optim
+preconditionFit         Linearly re-parameterize the model to be less
+                        sensitive to rounding errors
+profile.nlmixr2FitCore
+                        Perform likelihood profiling on nlmixr2 focei
+                        fits
+profileFixed            Estimate the objective function values for a
+                        model while fixing defined parameter values
+profileLlp              Profile confidence intervals with
+                        log-likelihood profiling
+profileNlmixr2FitCoreRet
+                        Give the output data.frame for a single model
+                        for profile.nlmixr2FitCore
+regularmodel            Regular lasso model
+theoFitOde              Example single dose Theophylline ODE model

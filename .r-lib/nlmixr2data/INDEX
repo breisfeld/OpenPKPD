@@ -1,0 +1,39 @@
+Bolus_1CPT              1 Compartment Model Simulated Data from ACOP
+                        2016
+Bolus_1CPTMM            1 Compartment Model w/ Michaelis-Menten
+                        Elimination
+Bolus_2CPT              2 Compartment Model
+Bolus_2CPTMM            2 Compartment Model with Michaelis-Menten
+                        Clearance
+Infusion_1CPT           1 Compartment Model Simulated Data from ACOP
+                        2016
+Infusion_1CPTMM         1 Compartment Model w/MM elimination Simulated
+                        Data from ACOP 2016
+Infusion_2CPT           2 Compartment Model with Infusion Simulated
+                        Data from ACOP 2016
+Infusion_2CPTMM         2 Compartment Model w/MM elimination Simulated
+                        Data from ACOP 2016
+Oral_1CPT               1 Compartment Model with Oral Absorption
+                        Simulated Data from ACOP 2016
+Oral_1CPTMM             1 Compartment Model w/ Oral Absorption &
+                        Michaelis-Menten Elimination
+Oral_2CPT               2 Compartment Model with Oral Absorption
+                        Simulated Data from ACOP 2016
+Oral_2CPTMM             1 Compartment Model w/ Oral Absorption &
+                        Michaelis-Menten Elimination
+Wang2007                Simulated Data Set for comparing objective
+                        functions
+invgaussian             Inverse Guassian absorption model
+mavoglurant             Mavoglurant PK data
+metabolite              Parent/Metabolite dataset
+nimoData                Nimotuzumab PK data
+nmtest                  One compartment test dataset showing NONMEM
+                        7.4.3 output
+pheno_sd                Single Dose Phenobarbitol PK/PD
+pump                    Pump failure example dataset
+rats                    Pregnant Rat Diet Experiment
+theo_md                 Multiple dose theophylline PK data
+theo_sd                 Multiple dose theophylline PK data
+warfarin                Warfarin PK/PD data
+wbcSim                  Simulated Friberg Myelosuppression model (Yuan
+                        Xiong)

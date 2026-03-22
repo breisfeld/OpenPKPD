@@ -1,0 +1,22 @@
+manifest_version: 1
+id: two_compartment_iv
+title: Two-compartment IV
+description: Two-compartment IV PK example with a curated control stream and shared dataset.
+category: pk
+primary_mode: control_stream
+route: iv
+difficulty: starter
+tags: [pk, iv, two-compartment, fo]
+sort_order: 30
+files:
+  dataset: ../../../../shared_data/pk_iv/two_compartment_iv.csv
+  control_stream: model.ctl
+  readme: null
+  preview_image: null
+gui:
+  load_dataset: true
+  load_control_stream: true
+  featured: true
+source:
+  kind: internal
+

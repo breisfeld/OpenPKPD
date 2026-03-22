@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Allow JIT compilation used by numba / scipy (if present) -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <!-- Allow unsigned dynamic libraries (numpy/scipy C extensions) -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <!-- Disable library validation so bundled .dylibs load correctly -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <!-- Network access for fetching remote datasets -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <!-- Read/write access to user-selected files -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+</dict>
+</plist>

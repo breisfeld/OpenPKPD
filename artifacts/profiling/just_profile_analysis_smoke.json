@@ -1,0 +1,162 @@
+{
+  "metadata": {
+    "date": "2026-03-16",
+    "seed": 77,
+    "workloads": [
+      "nca"
+    ],
+    "parameters": {
+      "fit_subjects": 6,
+      "fit_maxeval": 12,
+      "sim_subjects": 24,
+      "npde_simulations": 500,
+      "vpc_replicates": 500,
+      "n_bins": 8,
+      "nca_subjects": 10,
+      "top_functions": 15
+    }
+  },
+  "nca": {
+    "name": "nca",
+    "wall_seconds": 0.028774,
+    "result": {
+      "rows": 10
+    },
+    "stage_totals": {
+      "nca.compute_auc": {
+        "seconds": 0.001097833039239049,
+        "calls": 20
+      },
+      "nca.compute_lambda_z": {
+        "seconds": 0.0016749310307204723,
+        "calls": 10
+      },
+      "nca.compute_subject": {
+        "seconds": 0.003933146828785539,
+        "calls": 10
+      }
+    },
+    "top_functions": [
+      {
+        "function": "<lambda>",
+        "location": "profile_analysis.py:173",
+        "cumulative_seconds": 0.028685,
+        "self_seconds": 2.5e-05,
+        "ncalls": 1,
+        "primitive_calls": 1
+      },
+      {
+        "function": "compute_dataset",
+        "location": "nca.py:348",
+        "cumulative_seconds": 0.028657,
+        "self_seconds": 0.000519,
+        "ncalls": 1,
+        "primitive_calls": 1
+      },
+      {
+        "function": "__getitem__",
+        "location": "frame.py:4337",
+        "cumulative_seconds": 0.015265,
+        "self_seconds": 0.000597,
+        "ncalls": 91,
+        "primitive_calls": 91
+      },
+      {
+        "function": "_getitem_bool_array",
+        "location": "frame.py:4406",
+        "cumulative_seconds": 0.009883,
+        "self_seconds": 0.000212,
+        "ncalls": 30,
+        "primitive_calls": 30
+      },
+      {
+        "function": "take",
+        "location": "generic.py:4010",
+        "cumulative_seconds": 0.006659,
+        "self_seconds": 0.00048,
+        "ncalls": 30,
+        "primitive_calls": 30
+      },
+      {
+        "function": "take",
+        "location": "managers.py:1044",
+        "cumulative_seconds": 0.005571,
+        "self_seconds": 0.000172,
+        "ncalls": 30,
+        "primitive_calls": 30
+      },
+      {
+        "function": "new_method",
+        "location": "common.py:67",
+        "cumulative_seconds": 0.004836,
+        "self_seconds": 8.1e-05,
+        "ncalls": 30,
+        "primitive_calls": 30
+      },
+      {
+        "function": "_cmp_method",
+        "location": "series.py:6726",
+        "cumulative_seconds": 0.004616,
+        "self_seconds": 0.000169,
+        "ncalls": 30,
+        "primitive_calls": 30
+      },
+      {
+        "function": "compute_subject",
+        "location": "nca.py:200",
+        "cumulative_seconds": 0.003863,
+        "self_seconds": 0.000711,
+        "ncalls": 10,
+        "primitive_calls": 10
+      },
+      {
+        "function": "__eq__",
+        "location": "arraylike.py:40",
+        "cumulative_seconds": 0.003328,
+        "self_seconds": 3.8e-05,
+        "ncalls": 20,
+        "primitive_calls": 20
+      },
+      {
+        "function": "reindex_indexer",
+        "location": "managers.py:792",
+        "cumulative_seconds": 0.003138,
+        "self_seconds": 0.0004,
+        "ncalls": 30,
+        "primitive_calls": 30
+      },
+      {
+        "function": "_get_item",
+        "location": "frame.py:4966",
+        "cumulative_seconds": 0.003109,
+        "self_seconds": 0.000107,
+        "ncalls": 61,
+        "primitive_calls": 61
+      },
+      {
+        "function": "_construct_result",
+        "location": "series.py:6813",
+        "cumulative_seconds": 0.003099,
+        "self_seconds": 0.000217,
+        "ncalls": 30,
+        "primitive_calls": 30
+      },
+      {
+        "function": "_ixs",
+        "location": "frame.py:4292",
+        "cumulative_seconds": 0.002874,
+        "self_seconds": 0.000101,
+        "ncalls": 61,
+        "primitive_calls": 61
+      },
+      {
+        "function": "check_bool_indexer",
+        "location": "indexing.py:2647",
+        "cumulative_seconds": 0.002509,
+        "self_seconds": 9.1e-05,
+        "ncalls": 30,
+        "primitive_calls": 30
+      }
+    ]
+  }
+}

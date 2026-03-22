@@ -1,0 +1,1025 @@
+<!DOCTYPE html>
+<html>
+<head><title>R: Facilities for Simulating from ODE-Based Models</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+<link rel="stylesheet" type="text/css" href="R.css" />
+</head><body><div class="container">
+<h1> Facilities for Simulating from ODE-Based Models
+<img class="toplogo" src="../../../doc/html/Rlogo.svg" alt="[R logo]" />
+</h1>
+<hr/>
+<div style="text-align: center;">
+<a href="../../../doc/html/packages.html"><img class="arrow" src="../../../doc/html/left.jpg" alt="[Up]" /></a>
+<a href="../../../doc/html/index.html"><img class="arrow" src="../../../doc/html/up.jpg" alt="[Top]" /></a>
+</div><h2>Documentation for package &lsquo;rxode2&rsquo; version 5.0.1</h2>
+
+<ul><li><a href="../DESCRIPTION">DESCRIPTION file</a>.</li>
+<li><a href="../doc/index.html">User guides, package vignettes and other documentation.</a></li>
+<li><a href="../demo">Code demos</a>.  Use <a href="../../utils/help/demo">demo()</a> to run them.</li>
+<li><a href="../NEWS">Package NEWS</a>.</li>
+</ul>
+
+<h2>Help Pages</h2>
+
+
+<p style="text-align: center;">
+<a href="#A">A</a>
+<a href="#B">B</a>
+<a href="#C">C</a>
+<a href="#D">D</a>
+<a href="#E">E</a>
+<a href="#F">F</a>
+<a href="#G">G</a>
+<a href="#I">I</a>
+<a href="#L">L</a>
+<a href="#M">M</a>
+<a href="#O">O</a>
+<a href="#P">P</a>
+<a href="#R">R</a>
+<a href="#S">S</a>
+<a href="#T">T</a>
+<a href="#U">U</a>
+<a href="#W">W</a>
+<a href="#Y">Y</a>
+<a href="#Z">Z</a>
+<a href="#misc">misc</a>
+</p>
+
+
+<h2><a id="A">-- A --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="add.dosing.html">add.dosing</a></td>
+<td>Add dosing to eventTable</td></tr>
+<tr><td style="width: 25%;"><a href="add.sampling.html">add.sampling</a></td>
+<td>Add sampling to eventTable</td></tr>
+<tr><td style="width: 25%;"><a href="rxEvid.html">as.character.rxEvid</a></td>
+<td>EVID formatting for tibble and other places.</td></tr>
+<tr><td style="width: 25%;"><a href="rxRateDur.html">as.character.rxRateDur</a></td>
+<td>Creates a rxRateDur object</td></tr>
+<tr><td style="width: 25%;"><a href="as.et.html">as.et</a></td>
+<td>Coerce object to data.frame</td></tr>
+<tr><td style="width: 25%;"><a href="as.et.html">as.et.default</a></td>
+<td>Coerce object to data.frame</td></tr>
+<tr><td style="width: 25%;"><a href="as.ini.html">as.ini</a></td>
+<td>Turn into an ini block for initialization</td></tr>
+<tr><td style="width: 25%;"><a href="as.ini.html">as.ini.call</a></td>
+<td>Turn into an ini block for initialization</td></tr>
+<tr><td style="width: 25%;"><a href="as.ini.html">as.ini.character</a></td>
+<td>Turn into an ini block for initialization</td></tr>
+<tr><td style="width: 25%;"><a href="as.ini.html">as.ini.data.frame</a></td>
+<td>Turn into an ini block for initialization</td></tr>
+<tr><td style="width: 25%;"><a href="as.ini.html">as.ini.default</a></td>
+<td>Turn into an ini block for initialization</td></tr>
+<tr><td style="width: 25%;"><a href="as.ini.html">as.ini.lotriFix</a></td>
+<td>Turn into an ini block for initialization</td></tr>
+<tr><td style="width: 25%;"><a href="as.ini.html">as.ini.matrix</a></td>
+<td>Turn into an ini block for initialization</td></tr>
+<tr><td style="width: 25%;"><a href="as.model.html">as.model</a></td>
+<td>Turn into a model expression</td></tr>
+<tr><td style="width: 25%;"><a href="as.model.html">as.model.call</a></td>
+<td>Turn into a model expression</td></tr>
+<tr><td style="width: 25%;"><a href="as.model.html">as.model.character</a></td>
+<td>Turn into a model expression</td></tr>
+<tr><td style="width: 25%;"><a href="as.model.html">as.model.default</a></td>
+<td>Turn into a model expression</td></tr>
+<tr><td style="width: 25%;"><a href="as.model.html">as.model.list</a></td>
+<td>Turn into a model expression</td></tr>
+<tr><td style="width: 25%;"><a href="rxEvid.html">as.rxEvid</a></td>
+<td>EVID formatting for tibble and other places.</td></tr>
+<tr><td style="width: 25%;"><a href="rxRateDur.html">as.rxRateDur</a></td>
+<td>Creates a rxRateDur object</td></tr>
+<tr><td style="width: 25%;"><a href="as.rxUi.html">as.rxUi</a></td>
+<td>As rxode2 ui</td></tr>
+<tr><td style="width: 25%;"><a href="as.rxUi.html">as.rxUi.default</a></td>
+<td>As rxode2 ui</td></tr>
+<tr><td style="width: 25%;"><a href="as.rxUi.html">as.rxUi.function</a></td>
+<td>As rxode2 ui</td></tr>
+<tr><td style="width: 25%;"><a href="as.rxUi.html">as.rxUi.rxModelVars</a></td>
+<td>As rxode2 ui</td></tr>
+<tr><td style="width: 25%;"><a href="as.rxUi.html">as.rxUi.rxode2</a></td>
+<td>As rxode2 ui</td></tr>
+<tr><td style="width: 25%;"><a href="as.rxUi.html">as.rxUi.rxode2tos</a></td>
+<td>As rxode2 ui</td></tr>
+<tr><td style="width: 25%;"><a href="as.rxUi.html">as.rxUi.rxUi</a></td>
+<td>As rxode2 ui</td></tr>
+<tr><td style="width: 25%;"><a href="assertCompartmentExists.html">assertCompartmentExists</a></td>
+<td>Verify that the compartment exists in a model</td></tr>
+<tr><td style="width: 25%;"><a href="assertCompartmentName.html">assertCompartmentName</a></td>
+<td>Verify that a value is a valid nlmixr2 compartment name</td></tr>
+<tr><td style="width: 25%;"><a href="assertCompartmentNew.html">assertCompartmentNew</a></td>
+<td>Verify that a compartment would be new to the model</td></tr>
+<tr><td style="width: 25%;"><a href="assertCompartmentName.html">assertExists</a></td>
+<td>Verify that a value is a valid nlmixr2 compartment name</td></tr>
+<tr><td style="width: 25%;"><a href="testIniDf.html">assertIniDf</a></td>
+<td>This function tests if this object is a iniDf as needed by the UI</td></tr>
+<tr><td style="width: 25%;"><a href="assertCompartmentName.html">assertParameterValue</a></td>
+<td>Verify that a value is a valid nlmixr2 compartment name</td></tr>
+<tr><td style="width: 25%;"><a href="testRxLinCmt.html">assertRxLinCmt</a></td>
+<td>Test if rxode2 uses linear solved systems</td></tr>
+<tr><td style="width: 25%;"><a href="assertRxUi.html">assertRxUi</a></td>
+<td>Assert properties of the rxUi models</td></tr>
+<tr><td style="width: 25%;"><a href="assertRxUi.html">assertRxUiEstimatedResiduals</a></td>
+<td>Assert properties of the rxUi models</td></tr>
+<tr><td style="width: 25%;"><a href="assertRxUi.html">assertRxUiIovNoCor</a></td>
+<td>Assert properties of the rxUi models</td></tr>
+<tr><td style="width: 25%;"><a href="assertRxUi.html">assertRxUiMixedOnly</a></td>
+<td>Assert properties of the rxUi models</td></tr>
+<tr><td style="width: 25%;"><a href="assertRxUi.html">assertRxUiMuRefOnly</a></td>
+<td>Assert properties of the rxUi models</td></tr>
+<tr><td style="width: 25%;"><a href="assertRxUi.html">assertRxUiNoMix</a></td>
+<td>Assert properties of the rxUi models</td></tr>
+<tr><td style="width: 25%;"><a href="assertRxUi.html">assertRxUiNormal</a></td>
+<td>Assert properties of the rxUi models</td></tr>
+<tr><td style="width: 25%;"><a href="assertRxUi.html">assertRxUiPopulationOnly</a></td>
+<td>Assert properties of the rxUi models</td></tr>
+<tr><td style="width: 25%;"><a href="assertRxUi.html">assertRxUiPrediction</a></td>
+<td>Assert properties of the rxUi models</td></tr>
+<tr><td style="width: 25%;"><a href="assertRxUi.html">assertRxUiRandomOnIdOnly</a></td>
+<td>Assert properties of the rxUi models</td></tr>
+<tr><td style="width: 25%;"><a href="assertRxUi.html">assertRxUiSingleEndpoint</a></td>
+<td>Assert properties of the rxUi models</td></tr>
+<tr><td style="width: 25%;"><a href="assertRxUi.html">assertRxUiTransformNormal</a></td>
+<td>Assert properties of the rxUi models</td></tr>
+<tr><td style="width: 25%;"><a href="testRxUnbounded.html">assertRxUnbounded</a></td>
+<td>Test if the rxode2 model has any parameters with user defined boundaries</td></tr>
+<tr><td style="width: 25%;"><a href="assertVariableExists.html">assertVariableExists</a></td>
+<td>Assert a variable exists in the model</td></tr>
+<tr><td style="width: 25%;"><a href="assertCompartmentName.html">assertVariableName</a></td>
+<td>Verify that a value is a valid nlmixr2 compartment name</td></tr>
+<tr><td style="width: 25%;"><a href="assertVariableNew.html">assertVariableNew</a></td>
+<td>Assert a variable would be new to the model</td></tr>
+</table>
+
+<h2><a id="B">-- B --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="binomProbs.html">binomProbs</a></td>
+<td>Calculate expected confidence bands with binomial sampling distribution</td></tr>
+<tr><td style="width: 25%;"><a href="binomProbs.html">binomProbs.default</a></td>
+<td>Calculate expected confidence bands with binomial sampling distribution</td></tr>
+<tr><td style="width: 25%;"><a href="boxCox.html">boxCox</a></td>
+<td>boxCox/yeoJohnson and inverse boxCox/yeoJohnson functions</td></tr>
+<tr><td style="width: 25%;"><a href="boxCox.html">boxCoxInv</a></td>
+<td>boxCox/yeoJohnson and inverse boxCox/yeoJohnson functions</td></tr>
+</table>
+
+<h2><a id="C">-- C --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="rxEvid.html">c.rxEvid</a></td>
+<td>EVID formatting for tibble and other places.</td></tr>
+<tr><td style="width: 25%;"><a href="rxEvid.html">c.rxRateDur</a></td>
+<td>EVID formatting for tibble and other places.</td></tr>
+<tr><td style="width: 25%;"><a href="cvPost.html">cvPost</a></td>
+<td>Sample a covariance Matrix from the Posterior Inverse Wishart distribution.</td></tr>
+</table>
+
+<h2><a id="D">-- D --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="dELU.html">d2aELU</a></td>
+<td>Derivatives of the Exponential Linear Unit (ELU) Activation Function</td></tr>
+<tr><td style="width: 25%;"><a href="dELU.html">d2ELU</a></td>
+<td>Derivatives of the Exponential Linear Unit (ELU) Activation Function</td></tr>
+<tr><td style="width: 25%;"><a href="dELU.html">d2ELUa</a></td>
+<td>Derivatives of the Exponential Linear Unit (ELU) Activation Function</td></tr>
+<tr><td style="width: 25%;"><a href="dGELU.html">d2GELU</a></td>
+<td>Derivatives of GELU</td></tr>
+<tr><td style="width: 25%;"><a href="dsoftplus.html">d2softplus</a></td>
+<td>Default Softplus Activation Function</td></tr>
+<tr><td style="width: 25%;"><a href="dGELU.html">d3GELU</a></td>
+<td>Derivatives of GELU</td></tr>
+<tr><td style="width: 25%;"><a href="dsoftplus.html">d3softplus</a></td>
+<td>Default Softplus Activation Function</td></tr>
+<tr><td style="width: 25%;"><a href="dGELU.html">d4GELU</a></td>
+<td>Derivatives of GELU</td></tr>
+<tr><td style="width: 25%;"><a href="dsoftplus.html">d4softplus</a></td>
+<td>Default Softplus Activation Function</td></tr>
+<tr><td style="width: 25%;"><a href="dELU.html">dELU</a></td>
+<td>Derivatives of the Exponential Linear Unit (ELU) Activation Function</td></tr>
+<tr><td style="width: 25%;"><a href="dELU.html">dELUa</a></td>
+<td>Derivatives of the Exponential Linear Unit (ELU) Activation Function</td></tr>
+<tr><td style="width: 25%;"><a href="dfWishart.html">dfWishart</a></td>
+<td>This uses simulations to match the rse</td></tr>
+<tr><td style="width: 25%;"><a href="dGELU.html">dGELU</a></td>
+<td>Derivatives of GELU</td></tr>
+<tr><td style="width: 25%;"><a href="dlReLU.html">dlReLU</a></td>
+<td>Derivative of Leaky ReLU activation function</td></tr>
+<tr><td style="width: 25%;"><a href="mexpit.html">dmexpit</a></td>
+<td>mexpit - Convert log-scale numbers to probabilities</td></tr>
+<tr><td style="width: 25%;"><a href="dPReLU.html">dPReLU</a></td>
+<td>Derivatives Parametric ReLU Activation Function</td></tr>
+<tr><td style="width: 25%;"><a href="dPReLU.html">dPReLUa</a></td>
+<td>Derivatives Parametric ReLU Activation Function</td></tr>
+<tr><td style="width: 25%;"><a href="dPReLU.html">dPReLUa1</a></td>
+<td>Derivatives Parametric ReLU Activation Function</td></tr>
+<tr><td style="width: 25%;"><a href="dReLU.html">dReLU</a></td>
+<td>Derivative of the Rectified Linear Unit (ReLU) Activation Function</td></tr>
+<tr><td style="width: 25%;"><a href="dSELU.html">dSELU</a></td>
+<td>Derivative of the Scaled Exponential Linear Unit (SELU) Activation Function</td></tr>
+<tr><td style="width: 25%;"><a href="dsoftplus.html">dsoftplus</a></td>
+<td>Default Softplus Activation Function</td></tr>
+<tr><td style="width: 25%;"><a href="dSwish.html">dSwish</a></td>
+<td>Derivative of the Swish Activation Function</td></tr>
+</table>
+
+<h2><a id="E">-- E --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="ELU.html">ELU</a></td>
+<td>Exponential Linear Unit (ELU) Activation Function</td></tr>
+<tr><td style="width: 25%;"><a href="erf.html">erf</a></td>
+<td>Error function</td></tr>
+<tr><td style="width: 25%;"><a href="et.html">et</a></td>
+<td>Event Table Function</td></tr>
+<tr><td style="width: 25%;"><a href="et.html">et.default</a></td>
+<td>Event Table Function</td></tr>
+<tr><td style="width: 25%;"><a href="et.html">et.function</a></td>
+<td>Event Table Function</td></tr>
+<tr><td style="width: 25%;"><a href="et.html">et.rxode2</a></td>
+<td>Event Table Function</td></tr>
+<tr><td style="width: 25%;"><a href="et.html">et.rxParams</a></td>
+<td>Event Table Function</td></tr>
+<tr><td style="width: 25%;"><a href="et.html">et.rxSolve</a></td>
+<td>Event Table Function</td></tr>
+<tr><td style="width: 25%;"><a href="et.html">et.rxUi</a></td>
+<td>Event Table Function</td></tr>
+<tr><td style="width: 25%;"><a href="etExpand.html">etExpand</a></td>
+<td>Expand additional doses</td></tr>
+<tr><td style="width: 25%;"><a href="etRbind.html">etRbind</a></td>
+<td>Combining event tables</td></tr>
+<tr><td style="width: 25%;"><a href="etRep.html">etRep</a></td>
+<td>Repeat an rxode2 event table</td></tr>
+<tr><td style="width: 25%;"><a href="etSeq.html">etSeq</a></td>
+<td>Sequence of event tables</td></tr>
+<tr><td style="width: 25%;"><a href="eventTable.html">eventTable</a></td>
+<td>Create an event table object</td></tr>
+<tr><td style="width: 25%;"><a href="logit.html">expit</a></td>
+<td>logit and inverse logit (expit) functions</td></tr>
+</table>
+
+<h2><a id="F">-- F --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="rxEvid.html">format.rxEvid</a></td>
+<td>EVID formatting for tibble and other places.</td></tr>
+<tr><td style="width: 25%;"><a href="rxEvid.html">format.rxRateDur</a></td>
+<td>EVID formatting for tibble and other places.</td></tr>
+</table>
+
+<h2><a id="G">-- G --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="gammap.html">gammap</a></td>
+<td>Gammap: normalized lower incomplete gamma function</td></tr>
+<tr><td style="width: 25%;"><a href="gammapDer.html">gammapDer</a></td>
+<td>gammapDer: derivative of gammap</td></tr>
+<tr><td style="width: 25%;"><a href="gammapInv.html">gammapInv</a></td>
+<td>gammapInv and gammapInva: Inverses of normalized gammap function</td></tr>
+<tr><td style="width: 25%;"><a href="gammapInv.html">gammapInva</a></td>
+<td>gammapInv and gammapInva: Inverses of normalized gammap function</td></tr>
+<tr><td style="width: 25%;"><a href="gammaq.html">gammaq</a></td>
+<td>Gammaq: normalized upper incomplete gamma function</td></tr>
+<tr><td style="width: 25%;"><a href="gammaqInv.html">gammaqInv</a></td>
+<td>gammaqInv and gammaqInva: Inverses of normalized gammaq function</td></tr>
+<tr><td style="width: 25%;"><a href="gammaqInv.html">gammaqInva</a></td>
+<td>gammaqInv and gammaqInva: Inverses of normalized gammaq function</td></tr>
+<tr><td style="width: 25%;"><a href="GELU.html">GELU</a></td>
+<td>GELU activation function</td></tr>
+<tr><td style="width: 25%;"><a href="genShinyApp.template.html">genShinyApp.template</a></td>
+<td>Generate an example (template) of a dosing regimen shiny app</td></tr>
+<tr><td style="width: 25%;"><a href="stat_amt.html">geom_amt</a></td>
+<td>Dosing/Amt geom/stat</td></tr>
+<tr><td style="width: 25%;"><a href="stat_cens.html">geom_cens</a></td>
+<td>Censoring geom/stat</td></tr>
+<tr><td style="width: 25%;"><a href="getRxThreads.html">getRxThreads</a></td>
+<td>Get/Set the number of threads that rxode2 uses</td></tr>
+</table>
+
+<h2><a id="I">-- I --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="ini.html">ini</a></td>
+<td>Ini block for rxode2/nlmixr models</td></tr>
+<tr><td style="width: 25%;"><a href="ini.html">ini.default</a></td>
+<td>Ini block for rxode2/nlmixr models</td></tr>
+<tr><td style="width: 25%;"><a href="ini.html">ini.rxUi</a></td>
+<td>Ini block for rxode2/nlmixr models</td></tr>
+<tr><td style="width: 25%;"><a href="ini-set.html">ini&lt;-</a></td>
+<td>Assign the ini block in the rxode2 related object</td></tr>
+<tr><td style="width: 25%;"><a href="is.rxStackData.html">is.rxStackData</a></td>
+<td>Return if the object can be stacked</td></tr>
+</table>
+
+<h2><a id="L">-- L --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="linMod.html">linMod</a></td>
+<td>Linear model to replace in rxode2 ui model</td></tr>
+<tr><td style="width: 25%;"><a href="linMod.html">linMod0</a></td>
+<td>Linear model to replace in rxode2 ui model</td></tr>
+<tr><td style="width: 25%;"><a href="linMod.html">linModA</a></td>
+<td>Linear model to replace in rxode2 ui model</td></tr>
+<tr><td style="width: 25%;"><a href="linMod.html">linModA0</a></td>
+<td>Linear model to replace in rxode2 ui model</td></tr>
+<tr><td style="width: 25%;"><a href="linMod.html">linModB</a></td>
+<td>Linear model to replace in rxode2 ui model</td></tr>
+<tr><td style="width: 25%;"><a href="linMod.html">linModB0</a></td>
+<td>Linear model to replace in rxode2 ui model</td></tr>
+<tr><td style="width: 25%;"><a href="linMod.html">linModD</a></td>
+<td>Linear model to replace in rxode2 ui model</td></tr>
+<tr><td style="width: 25%;"><a href="linMod.html">linModD0</a></td>
+<td>Linear model to replace in rxode2 ui model</td></tr>
+<tr><td style="width: 25%;"><a href="linMod.html">linModM</a></td>
+<td>Linear model to replace in rxode2 ui model</td></tr>
+<tr><td style="width: 25%;"><a href="linMod.html">linModM0</a></td>
+<td>Linear model to replace in rxode2 ui model</td></tr>
+<tr><td style="width: 25%;"><a href="llikBeta.html">llikBeta</a></td>
+<td>Calculate the log likelihood of the binomial function (and its derivatives)</td></tr>
+<tr><td style="width: 25%;"><a href="llikBinom.html">llikBinom</a></td>
+<td>Calculate the log likelihood of the binomial function (and its derivatives)</td></tr>
+<tr><td style="width: 25%;"><a href="llikCauchy.html">llikCauchy</a></td>
+<td>log likelihood of Cauchy distribution and it's derivatives (from stan)</td></tr>
+<tr><td style="width: 25%;"><a href="llikChisq.html">llikChisq</a></td>
+<td>log likelihood and derivatives for chi-squared distribution</td></tr>
+<tr><td style="width: 25%;"><a href="llikExp.html">llikExp</a></td>
+<td>log likelihood and derivatives for exponential distribution</td></tr>
+<tr><td style="width: 25%;"><a href="llikF.html">llikF</a></td>
+<td>log likelihood and derivatives for F distribution</td></tr>
+<tr><td style="width: 25%;"><a href="llikGamma.html">llikGamma</a></td>
+<td>log likelihood and derivatives for Gamma distribution</td></tr>
+<tr><td style="width: 25%;"><a href="llikGeom.html">llikGeom</a></td>
+<td>log likelihood and derivatives for Geom distribution</td></tr>
+<tr><td style="width: 25%;"><a href="llikNbinom.html">llikNbinom</a></td>
+<td>Calculate the log likelihood of the negative binomial function (and its derivatives)</td></tr>
+<tr><td style="width: 25%;"><a href="llikNbinomMu.html">llikNbinomMu</a></td>
+<td>Calculate the log likelihood of the negative binomial function (and its derivatives)</td></tr>
+<tr><td style="width: 25%;"><a href="llikNorm.html">llikNorm</a></td>
+<td>Log likelihood for normal distribution</td></tr>
+<tr><td style="width: 25%;"><a href="llikPois.html">llikPois</a></td>
+<td>log-likelihood for the Poisson distribution</td></tr>
+<tr><td style="width: 25%;"><a href="llikT.html">llikT</a></td>
+<td>Log likelihood of T and it's derivatives (from stan)</td></tr>
+<tr><td style="width: 25%;"><a href="llikUnif.html">llikUnif</a></td>
+<td>log likelihood and derivatives for Unif distribution</td></tr>
+<tr><td style="width: 25%;"><a href="llikWeibull.html">llikWeibull</a></td>
+<td>log likelihood and derivatives for Weibull distribution</td></tr>
+<tr><td style="width: 25%;"><a href="logit.html">logit</a></td>
+<td>logit and inverse logit (expit) functions</td></tr>
+<tr><td style="width: 25%;"><a href="logit.html">logitNormInfo</a></td>
+<td>logit and inverse logit (expit) functions</td></tr>
+<tr><td style="width: 25%;"><a href="lowergamma.html">lowergamma</a></td>
+<td>lowergamma: upper incomplete gamma function</td></tr>
+<tr><td style="width: 25%;"><a href="lReLU.html">lReLU</a></td>
+<td>Leaky ReLU activation function</td></tr>
+</table>
+
+<h2><a id="M">-- M --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="meanProbs.html">meanProbs</a></td>
+<td>Calculate expected confidence bands or prediction intreval with normal or t sampling distribution</td></tr>
+<tr><td style="width: 25%;"><a href="meanProbs.html">meanProbs.default</a></td>
+<td>Calculate expected confidence bands or prediction intreval with normal or t sampling distribution</td></tr>
+<tr><td style="width: 25%;"><a href="mexpit.html">mexpit</a></td>
+<td>mexpit - Convert log-scale numbers to probabilities</td></tr>
+<tr><td style="width: 25%;"><a href="mix.html">mix</a></td>
+<td>Specify a mixture model of variables</td></tr>
+<tr><td style="width: 25%;"><a href="mlogit.html">mlogit</a></td>
+<td>mlogit - Convert multiple probabilities to log-scale numbers</td></tr>
+<tr><td style="width: 25%;"><a href="model.html">model</a></td>
+<td>Model block for rxode2/nlmixr models</td></tr>
+<tr><td style="width: 25%;"><a href="model.html">model.default</a></td>
+<td>Model block for rxode2/nlmixr models</td></tr>
+<tr><td style="width: 25%;"><a href="model.html">model.function</a></td>
+<td>Model block for rxode2/nlmixr models</td></tr>
+<tr><td style="width: 25%;"><a href="model.html">model.rxModelVars</a></td>
+<td>Model block for rxode2/nlmixr models</td></tr>
+<tr><td style="width: 25%;"><a href="model.html">model.rxode2</a></td>
+<td>Model block for rxode2/nlmixr models</td></tr>
+<tr><td style="width: 25%;"><a href="model.html">model.rxUi</a></td>
+<td>Model block for rxode2/nlmixr models</td></tr>
+<tr><td style="width: 25%;"><a href="model-set.html">model&lt;-</a></td>
+<td>Assign the model block in the rxode2 related object</td></tr>
+<tr><td style="width: 25%;"><a href="modelExtract.html">modelExtract</a></td>
+<td>Extract model lines from a rxui model</td></tr>
+<tr><td style="width: 25%;"><a href="modelExtract.html">modelExtract.default</a></td>
+<td>Extract model lines from a rxui model</td></tr>
+<tr><td style="width: 25%;"><a href="modelExtract.html">modelExtract.function</a></td>
+<td>Extract model lines from a rxui model</td></tr>
+<tr><td style="width: 25%;"><a href="modelExtract.html">modelExtract.rxModelVars</a></td>
+<td>Extract model lines from a rxui model</td></tr>
+<tr><td style="width: 25%;"><a href="modelExtract.html">modelExtract.rxode2</a></td>
+<td>Extract model lines from a rxui model</td></tr>
+<tr><td style="width: 25%;"><a href="modelExtract.html">modelExtract.rxUi</a></td>
+<td>Extract model lines from a rxui model</td></tr>
+</table>
+
+<h2><a id="O">-- O --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="odeMethodToInt.html">odeMethodToInt</a></td>
+<td>Conversion between character and integer ODE integration methods for rxode2</td></tr>
+</table>
+
+<h2><a id="P">-- P --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="phi.html">phi</a></td>
+<td>Cumulative distribution of standard normal</td></tr>
+<tr><td style="width: 25%;"><a href="plot.rxSolve.html">plot.rxSolve</a></td>
+<td>Plot rxode2 objects</td></tr>
+<tr><td style="width: 25%;"><a href="plot.rxSolve.html">plot.rxSolveConfint1</a></td>
+<td>Plot rxode2 objects</td></tr>
+<tr><td style="width: 25%;"><a href="plot.rxSolve.html">plot.rxSolveConfint2</a></td>
+<td>Plot rxode2 objects</td></tr>
+<tr><td style="width: 25%;"><a href="rxSolve.html">predict.function</a></td>
+<td>Options, Solving &amp; Simulation of an ODE/solved system</td></tr>
+<tr><td style="width: 25%;"><a href="rxSolve.html">predict.rxEt</a></td>
+<td>Options, Solving &amp; Simulation of an ODE/solved system</td></tr>
+<tr><td style="width: 25%;"><a href="rxSolve.html">predict.rxode2</a></td>
+<td>Options, Solving &amp; Simulation of an ODE/solved system</td></tr>
+<tr><td style="width: 25%;"><a href="rxSolve.html">predict.rxParams</a></td>
+<td>Options, Solving &amp; Simulation of an ODE/solved system</td></tr>
+<tr><td style="width: 25%;"><a href="rxSolve.html">predict.rxSolve</a></td>
+<td>Options, Solving &amp; Simulation of an ODE/solved system</td></tr>
+<tr><td style="width: 25%;"><a href="rxSolve.html">predict.rxUi</a></td>
+<td>Options, Solving &amp; Simulation of an ODE/solved system</td></tr>
+<tr><td style="width: 25%;"><a href="PReLU.html">PReLU</a></td>
+<td>Parametric ReLU Activation Function</td></tr>
+<tr><td style="width: 25%;"><a href="rxEvid.html">print.rxEvid</a></td>
+<td>EVID formatting for tibble and other places.</td></tr>
+<tr><td style="width: 25%;"><a href="print.rxModelVars.html">print.rxModelVars</a></td>
+<td>Print Values</td></tr>
+<tr><td style="width: 25%;"><a href="probit.html">probit</a></td>
+<td>probit and inverse probit functions</td></tr>
+<tr><td style="width: 25%;"><a href="probit.html">probitInv</a></td>
+<td>probit and inverse probit functions</td></tr>
+<tr><td style="width: 25%;"><a href="logit.html">probitNormInfo</a></td>
+<td>logit and inverse logit (expit) functions</td></tr>
+</table>
+
+<h2><a id="R">-- R --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="etRbind.html">rbind.rxEt</a></td>
+<td>Combining event tables</td></tr>
+<tr><td style="width: 25%;"><a href="ReLU.html">ReLU</a></td>
+<td>Rectified Linear Unit (ReLU) Activation Function</td></tr>
+<tr><td style="width: 25%;"><a href="rxRename.html">rename.function</a></td>
+<td>Rename items inside of a 'rxode2' ui model</td></tr>
+<tr><td style="width: 25%;"><a href="rxRename.html">rename.rxUi</a></td>
+<td>Rename items inside of a 'rxode2' ui model</td></tr>
+<tr><td style="width: 25%;"><a href="etRep.html">rep.rxEt</a></td>
+<td>Repeat an rxode2 event table</td></tr>
+<tr><td style="width: 25%;"><a href="rinvchisq.html">rinvchisq</a></td>
+<td>Scaled Inverse Chi Squared distribution</td></tr>
+<tr><td style="width: 25%;"><a href="rxAllowUnload.html">rxAllowUnload</a></td>
+<td>Allow unloading of dlls</td></tr>
+<tr><td style="width: 25%;"><a href="rxAppendModel.html">rxAppendModel</a></td>
+<td>Append two rxui models together</td></tr>
+<tr><td style="width: 25%;"><a href="rxAssignControlValue.html">rxAssignControlValue</a></td>
+<td>Assign Control Variable</td></tr>
+<tr><td style="width: 25%;"><a href="rxAssignPtr.html">rxAssignPtr</a></td>
+<td>Assign pointer based on model variables</td></tr>
+<tr><td style="width: 25%;"><a href="rxbeta.html">rxbeta</a></td>
+<td>Simulate beta variable from threefry generator</td></tr>
+<tr><td style="width: 25%;"><a href="rxbinom.html">rxbinom</a></td>
+<td>Simulate Binomial variable from threefry generator</td></tr>
+<tr><td style="width: 25%;"><a href="rxcauchy.html">rxcauchy</a></td>
+<td>Simulate Cauchy variable from threefry generator</td></tr>
+<tr><td style="width: 25%;"><a href="rxCbindStudyIndividual.html">rxCbindStudyIndividual</a></td>
+<td>Bind the study parameters and individual parameters</td></tr>
+<tr><td style="width: 25%;"><a href="rxchisq.html">rxchisq</a></td>
+<td>Simulate chi-squared variable from threefry generator</td></tr>
+<tr><td style="width: 25%;"><a href="rxClean.html">rxClean</a></td>
+<td>Cleanup anonymous DLLs by unloading them</td></tr>
+<tr><td style="width: 25%;"><a href="rxCompile.html">rxCompile</a></td>
+<td>Compile a model if needed</td></tr>
+<tr><td style="width: 25%;"><a href="rxCompile.html">rxCompile.character</a></td>
+<td>Compile a model if needed</td></tr>
+<tr><td style="width: 25%;"><a href="rxCompile.html">rxCompile.rxDll</a></td>
+<td>Compile a model if needed</td></tr>
+<tr><td style="width: 25%;"><a href="rxCompile.html">rxCompile.rxModelVars</a></td>
+<td>Compile a model if needed</td></tr>
+<tr><td style="width: 25%;"><a href="rxCompile.html">rxCompile.rxode2</a></td>
+<td>Compile a model if needed</td></tr>
+<tr><td style="width: 25%;"><a href="rxSolve.html">rxControl</a></td>
+<td>Options, Solving &amp; Simulation of an ODE/solved system</td></tr>
+<tr><td style="width: 25%;"><a href="rxControlUpdateSens.html">rxControlUpdateSens</a></td>
+<td>This updates the tolerances based on the sensitivity equations</td></tr>
+<tr><td style="width: 25%;"><a href="getRxThreads.html">rxCores</a></td>
+<td>Get/Set the number of threads that rxode2 uses</td></tr>
+<tr><td style="width: 25%;"><a href="rxCreateCache.html">rxCreateCache</a></td>
+<td>This will create the cache directory for rxode2 to save between sessions</td></tr>
+<tr><td style="width: 25%;"><a href="rxD.html">rxD</a></td>
+<td>Add to rxode2's derivative tables</td></tr>
+<tr><td style="width: 25%;"><a href="rxDelete.html">rxDelete</a></td>
+<td>Delete the DLL for the model</td></tr>
+<tr><td style="width: 25%;"><a href="rxDerived.html">rxDerived</a></td>
+<td>Calculate derived parameters for the 1-, 2-, and 3- compartment linear models.</td></tr>
+<tr><td style="width: 25%;"><a href="rxDfdy.html">rxDfdy</a></td>
+<td>Jacobian and parameter derivatives</td></tr>
+<tr><td style="width: 25%;"><a href="rxEtDispatchSolve.html">rxEtDispatchSolve</a></td>
+<td>Dispatch solve to 'rxode2' solve</td></tr>
+<tr><td style="width: 25%;"><a href="rxEtDispatchSolve.html">rxEtDispatchSolve.default</a></td>
+<td>Dispatch solve to 'rxode2' solve</td></tr>
+<tr><td style="width: 25%;"><a href="rxEvid.html">rxEvid</a></td>
+<td>EVID formatting for tibble and other places.</td></tr>
+<tr><td style="width: 25%;"><a href="rxexp.html">rxexp</a></td>
+<td>Simulate exponential variable from threefry generator</td></tr>
+<tr><td style="width: 25%;"><a href="rxf.html">rxf</a></td>
+<td>Simulate F variable from threefry generator</td></tr>
+<tr><td style="width: 25%;"><a href="rxFixPop.html">rxFixPop</a></td>
+<td>Apply the fixed population estimated parameters</td></tr>
+<tr><td style="width: 25%;"><a href="rxFixRes.html">rxFixRes</a></td>
+<td>Literally fix residual parameters</td></tr>
+<tr><td style="width: 25%;"><a href="rxToSE.html">rxFromSE</a></td>
+<td>rxode2 to symengine environment</td></tr>
+<tr><td style="width: 25%;"><a href="rxFun.html">rxFun</a></td>
+<td>Add/Create C functions for use in rxode2</td></tr>
+<tr><td style="width: 25%;"><a href="rxgamma.html">rxgamma</a></td>
+<td>Simulate gamma variable from threefry generator</td></tr>
+<tr><td style="width: 25%;"><a href="rxgeom.html">rxgeom</a></td>
+<td>Simulate geometric variable from threefry generator</td></tr>
+<tr><td style="width: 25%;"><a href="rxGetControl.html">rxGetControl</a></td>
+<td>rxGetControl option from ui</td></tr>
+<tr><td style="width: 25%;"><a href="rxGetLin.html">rxGetLin</a></td>
+<td>Get the linear compartment model true function</td></tr>
+<tr><td style="width: 25%;"><a href="rxGetrxode2.html">rxGetrxode2</a></td>
+<td>Get rxode2 model from object</td></tr>
+<tr><td style="width: 25%;"><a href="rxGetSeed.html">rxGetSeed</a></td>
+<td>Get the rxode2 seed</td></tr>
+<tr><td style="width: 25%;"><a href="rxHtml.html">rxHtml</a></td>
+<td>Format rxSolve and related objects as html.</td></tr>
+<tr><td style="width: 25%;"><a href="rxHtml.html">rxHtml.rxSolve</a></td>
+<td>Format rxSolve and related objects as html.</td></tr>
+<tr><td style="width: 25%;"><a href="rxIndLinState.html">rxIndLinState</a></td>
+<td>Set the preferred factoring by state</td></tr>
+<tr><td style="width: 25%;"><a href="rxIndLinStrategy.html">rxIndLinStrategy</a></td>
+<td>This sets the inductive linearization strategy for matrix building</td></tr>
+<tr><td style="width: 25%;"><a href="rxIntToBase.html">rxIntToBase</a></td>
+<td>Convert a positive base</td></tr>
+<tr><td style="width: 25%;"><a href="rxIntToLetter.html">rxIntToLetter</a></td>
+<td>Convert a positive integer to a letter series</td></tr>
+<tr><td style="width: 25%;"><a href="rxInv.html">rxInv</a></td>
+<td>Invert matrix using RcppArmadillo.</td></tr>
+<tr><td style="width: 25%;"><a href="rxIsCurrent.html">rxIsCurrent</a></td>
+<td>Checks if the rxode2 object was built with the current build</td></tr>
+<tr><td style="width: 25%;"><a href="rxLastCompile.html">rxLastCompile</a></td>
+<td>Get the last compiled model information as alist</td></tr>
+<tr><td style="width: 25%;"><a href="rxLhs.html">rxLhs</a></td>
+<td>Left handed Variables</td></tr>
+<tr><td style="width: 25%;"><a href="rxLock.html">rxLock</a></td>
+<td>Lock/unlocking of rxode2 dll file</td></tr>
+<tr><td style="width: 25%;"><a href="rxnbinom.html">rxnbinom</a></td>
+<td>Simulate Binomial variable from threefry generator</td></tr>
+<tr><td style="width: 25%;"><a href="rxnbinom.html">rxnbinomMu</a></td>
+<td>Simulate Binomial variable from threefry generator</td></tr>
+<tr><td style="width: 25%;"><a href="rxNorm.html">rxNorm</a></td>
+<td>Get the normalized model</td></tr>
+<tr><td style="width: 25%;"><a href="rxnormV.html">rxnorm</a></td>
+<td>Simulate random normal variable from threefry generator</td></tr>
+<tr><td style="width: 25%;"><a href="rxnormV.html">rxnormV</a></td>
+<td>Simulate random normal variable from threefry generator</td></tr>
+<tr><td style="width: 25%;"><a href="rxNumLoaded.html">rxNumLoaded</a></td>
+<td>Get the number of loaded rxode2 DLLs</td></tr>
+<tr><td style="width: 25%;"><a href="rxode2.html">RxODE</a></td>
+<td>Create an ODE-based model specification</td></tr>
+<tr><td style="width: 25%;"><a href="rxode2.html">rxode</a></td>
+<td>Create an ODE-based model specification</td></tr>
+<tr><td style="width: 25%;"><a href="rxode2.html">rxode2</a></td>
+<td>Create an ODE-based model specification</td></tr>
+<tr><td style="width: 25%;"><a href="rxode2-set.html">rxode2&lt;-</a></td>
+<td>Set the function body of an rxUi object while retaining other object information (like data)</td></tr>
+<tr><td style="width: 25%;"><a href="rxode2-set.html">rxode2&lt;-.default</a></td>
+<td>Set the function body of an rxUi object while retaining other object information (like data)</td></tr>
+<tr><td style="width: 25%;"><a href="rxode2-set.html">rxode2&lt;-.function</a></td>
+<td>Set the function body of an rxUi object while retaining other object information (like data)</td></tr>
+<tr><td style="width: 25%;"><a href="rxode2parse.html">rxode2parse</a></td>
+<td>Internal translation to get model variables list</td></tr>
+<tr><td style="width: 25%;"><a href="rxode2parseAssignPackagesToLoad.html">rxode2parseAssignPackagesToLoad</a></td>
+<td>Control the packages that are loaded when a 'rxode2' model dll is loaded</td></tr>
+<tr><td style="width: 25%;"><a href="rxode2parseAssignTranslation.html">rxode2parseAssignTranslation</a></td>
+<td>This assigns the c level linkages for a roxde2 model</td></tr>
+<tr><td style="width: 25%;"><a href="rxode2parseD.html">rxode2parseD</a></td>
+<td>This gives the derivative table for rxode2</td></tr>
+<tr><td style="width: 25%;"><a href="rxode2parseAssignPackagesToLoad.html">rxode2parseGetPackagesToLoad</a></td>
+<td>Control the packages that are loaded when a 'rxode2' model dll is loaded</td></tr>
+<tr><td style="width: 25%;"><a href="rxode2parseGetPointerAssignment.html">rxode2parseGetPointerAssignment</a></td>
+<td>This function gets the currently assigned function pointer assignments</td></tr>
+<tr><td style="width: 25%;"><a href="rxode2parseGetTranslation.html">rxode2parseGetTranslation</a></td>
+<td>This function gets the currently assigned translations</td></tr>
+<tr><td style="width: 25%;"><a href="rxode2-set.html">RxODE&lt;-</a></td>
+<td>Set the function body of an rxUi object while retaining other object information (like data)</td></tr>
+<tr><td style="width: 25%;"><a href="rxode2-set.html">rxode&lt;-</a></td>
+<td>Set the function body of an rxUi object while retaining other object information (like data)</td></tr>
+<tr><td style="width: 25%;"><a href="rxOptExpr.html">rxOptExpr</a></td>
+<td>Optimize rxode2 for computer evaluation</td></tr>
+<tr><td style="width: 25%;"><a href="rxord.html">rxord</a></td>
+<td>Simulate ordinal value</td></tr>
+<tr><td style="width: 25%;"><a href="rxParams.html">rxParam</a></td>
+<td>Parameters specified by the model</td></tr>
+<tr><td style="width: 25%;"><a href="rxParams.html">rxParams</a></td>
+<td>Parameters specified by the model</td></tr>
+<tr><td style="width: 25%;"><a href="rxParams.html">rxParams.rxEt</a></td>
+<td>Parameters specified by the model</td></tr>
+<tr><td style="width: 25%;"><a href="rxParams.html">rxParams.rxode2</a></td>
+<td>Parameters specified by the model</td></tr>
+<tr><td style="width: 25%;"><a href="rxParams.html">rxParams.rxSolve</a></td>
+<td>Parameters specified by the model</td></tr>
+<tr><td style="width: 25%;"><a href="rxParseSuppressMsg.html">rxParseSuppressMsg</a></td>
+<td>Respect suppress messages</td></tr>
+<tr><td style="width: 25%;"><a href="rxPkg.html">rxPkg</a></td>
+<td>Creates a package from compiled rxode2 models</td></tr>
+<tr><td style="width: 25%;"><a href="rxpois.html">rxpois</a></td>
+<td>Simulate random Poisson variable from threefry generator</td></tr>
+<tr><td style="width: 25%;"><a href="rxPp.html">rxPp</a></td>
+<td>Simulate a from a Poisson process</td></tr>
+<tr><td style="width: 25%;"><a href="rxPreferredDistributionName.html">rxPreferredDistributionName</a></td>
+<td>Change distribution name to the preferred distribution name term</td></tr>
+<tr><td style="width: 25%;"><a href="rxProgress.html">rxProgress</a></td>
+<td>rxode2 progress bar functions</td></tr>
+<tr><td style="width: 25%;"><a href="rxProgress.html">rxProgressAbort</a></td>
+<td>rxode2 progress bar functions</td></tr>
+<tr><td style="width: 25%;"><a href="rxProgress.html">rxProgressStop</a></td>
+<td>rxode2 progress bar functions</td></tr>
+<tr><td style="width: 25%;"><a href="rxRateDur.html">rxRateDur</a></td>
+<td>Creates a rxRateDur object</td></tr>
+<tr><td style="width: 25%;"><a href="rxRemoveControl.html">rxRemoveControl</a></td>
+<td>rxRemoveControl options for UI object</td></tr>
+<tr><td style="width: 25%;"><a href="rxRename.html">rxRename</a></td>
+<td>Rename items inside of a 'rxode2' ui model</td></tr>
+<tr><td style="width: 25%;"><a href="rxRename.html">rxRename.default</a></td>
+<td>Rename items inside of a 'rxode2' ui model</td></tr>
+<tr><td style="width: 25%;"><a href="rxRename.html">rxRename.function</a></td>
+<td>Rename items inside of a 'rxode2' ui model</td></tr>
+<tr><td style="width: 25%;"><a href="rxRename.html">rxRename.rxUi</a></td>
+<td>Rename items inside of a 'rxode2' ui model</td></tr>
+<tr><td style="width: 25%;"><a href="rxReservedKeywords.html">rxReservedKeywords</a></td>
+<td>A list and description of rxode2 supported reserved keywords</td></tr>
+<tr><td style="width: 25%;"><a href="rxResidualError.html">rxResidualError</a></td>
+<td>A description of Rode2 supported residual errors</td></tr>
+<tr><td style="width: 25%;"><a href="rxFun.html">rxRmFun</a></td>
+<td>Add/Create C functions for use in rxode2</td></tr>
+<tr><td style="width: 25%;"><a href="rxRmvn.html">rxRmvn</a></td>
+<td>Simulate from a (truncated) multivariate normal</td></tr>
+<tr><td style="width: 25%;"><a href="rxS.html">rxS</a></td>
+<td>Load a model into a symengine environment</td></tr>
+<tr><td style="width: 25%;"><a href="rxSetControl.html">rxSetControl</a></td>
+<td>rxSetControl options for UI object</td></tr>
+<tr><td style="width: 25%;"><a href="rxSetCovariateNamesForPiping.html">rxSetCovariateNamesForPiping</a></td>
+<td>Assign covariates for piping</td></tr>
+<tr><td style="width: 25%;"><a href="rxSetIni0.html">rxSetIni0</a></td>
+<td>Set Initial conditions to time zero instead of the first observed/dosed time</td></tr>
+<tr><td style="width: 25%;"><a href="rxSetPipingAuto.html">rxSetPipingAuto</a></td>
+<td>Set the variables for the model piping automatic covarite selection</td></tr>
+<tr><td style="width: 25%;"><a href="rxSetProd.html">rxSetProd</a></td>
+<td>Defunct setting of product</td></tr>
+<tr><td style="width: 25%;"><a href="rxSetProgressBar.html">rxSetProgressBar</a></td>
+<td>Set timing for progress bar</td></tr>
+<tr><td style="width: 25%;"><a href="rxSetSeed.html">rxSetSeed</a></td>
+<td>Set the parallel seed for rxode2 random number generation</td></tr>
+<tr><td style="width: 25%;"><a href="rxSetSum.html">rxSetSum</a></td>
+<td>Defunct setting of sum</td></tr>
+<tr><td style="width: 25%;"><a href="rxShiny.html">rxShiny</a></td>
+<td>Use Shiny to help develop an rxode2 model</td></tr>
+<tr><td style="width: 25%;"><a href="rxShiny.html">rxShiny.default</a></td>
+<td>Use Shiny to help develop an rxode2 model</td></tr>
+<tr><td style="width: 25%;"><a href="rxShiny.html">rxShiny.rxSolve</a></td>
+<td>Use Shiny to help develop an rxode2 model</td></tr>
+<tr><td style="width: 25%;"><a href="rxSimThetaOmega.html">rxSimThetaOmega</a></td>
+<td>Simulate Parameters from a Theta/Omega specification</td></tr>
+<tr><td style="width: 25%;"><a href="rxSolve.html">rxSolve</a></td>
+<td>Options, Solving &amp; Simulation of an ODE/solved system</td></tr>
+<tr><td style="width: 25%;"><a href="rxSolve.html">rxSolve.default</a></td>
+<td>Options, Solving &amp; Simulation of an ODE/solved system</td></tr>
+<tr><td style="width: 25%;"><a href="rxSolve.html">rxSolve.function</a></td>
+<td>Options, Solving &amp; Simulation of an ODE/solved system</td></tr>
+<tr><td style="width: 25%;"><a href="rxSolve.html">rxSolve.nlmixr2FitCore</a></td>
+<td>Options, Solving &amp; Simulation of an ODE/solved system</td></tr>
+<tr><td style="width: 25%;"><a href="rxSolve.html">rxSolve.nlmixr2FitData</a></td>
+<td>Options, Solving &amp; Simulation of an ODE/solved system</td></tr>
+<tr><td style="width: 25%;"><a href="rxSolve.html">rxSolve.rxode2tos</a></td>
+<td>Options, Solving &amp; Simulation of an ODE/solved system</td></tr>
+<tr><td style="width: 25%;"><a href="rxSolve.html">rxSolve.rxUi</a></td>
+<td>Options, Solving &amp; Simulation of an ODE/solved system</td></tr>
+<tr><td style="width: 25%;"><a href="rxStack.html">rxStack</a></td>
+<td>Stack a solved object for things like default ggplot2 plot</td></tr>
+<tr><td style="width: 25%;"><a href="rxState.html">rxState</a></td>
+<td>State variables</td></tr>
+<tr><td style="width: 25%;"><a href="rxStateOde.html">rxStateOde</a></td>
+<td>Get the ODE states only</td></tr>
+<tr><td style="width: 25%;"><a href="rxSumProdModel.html">rxSumProdModel</a></td>
+<td>Recast model in terms of sum/prod</td></tr>
+<tr><td style="width: 25%;"><a href="rxSupportedFuns.html">rxSupportedFuns</a></td>
+<td>Get list of supported functions</td></tr>
+<tr><td style="width: 25%;"><a href="rxSuppressMsg.html">rxSuppressMsg</a></td>
+<td>Respect suppress messages</td></tr>
+<tr><td style="width: 25%;"><a href="rxSymInvChol.html">rxSymInvChol</a></td>
+<td>Get Omega^-1 and derivatives</td></tr>
+<tr><td style="width: 25%;"><a href="rxSyncOptions.html">rxSyncOptions</a></td>
+<td>Sync options with rxode2 variables</td></tr>
+<tr><td style="width: 25%;"><a href="rxSyntaxFunctions.html">rxSyntaxFunctions</a></td>
+<td>A list and description of Rode supported syntax functions</td></tr>
+<tr><td style="width: 25%;"><a href="rxt.html">rxt</a></td>
+<td>Simulate student t variable from threefry generator</td></tr>
+<tr><td style="width: 25%;"><a href="rxTempDir.html">rxTempDir</a></td>
+<td>Get the rxode2 temporary directory</td></tr>
+<tr><td style="width: 25%;"><a href="rxValidate.html">rxTest</a></td>
+<td>Validate rxode2 This allows easy validation/qualification of nlmixr by running the testing suite on your system.</td></tr>
+<tr><td style="width: 25%;"><a href="rxTheme.html">rxTheme</a></td>
+<td>rxTheme is the ggplot2 theme for rxode2 plots</td></tr>
+<tr><td style="width: 25%;"><a href="rxProgress.html">rxTick</a></td>
+<td>rxode2 progress bar functions</td></tr>
+<tr><td style="width: 25%;"><a href="rxToSE.html">rxToSE</a></td>
+<td>rxode2 to symengine environment</td></tr>
+<tr><td style="width: 25%;"><a href="rxTrans.html">rxTrans</a></td>
+<td>Translate the model to C code if needed</td></tr>
+<tr><td style="width: 25%;"><a href="rxTrans.html">rxTrans.character</a></td>
+<td>Translate the model to C code if needed</td></tr>
+<tr><td style="width: 25%;"><a href="rxTrans.html">rxTrans.default</a></td>
+<td>Translate the model to C code if needed</td></tr>
+<tr><td style="width: 25%;"><a href="rxUdfUiControl.html">rxUdfUiControl</a></td>
+<td>Return the control that is being processed or setup control for processing</td></tr>
+<tr><td style="width: 25%;"><a href="rxUdfUiData.html">rxUdfUiData</a></td>
+<td>Return the data.frame that is being processed or setup data.frame for processing</td></tr>
+<tr><td style="width: 25%;"><a href="rxUdfUiEst.html">rxUdfUiEst</a></td>
+<td>Return the current estimation method for the UI processing</td></tr>
+<tr><td style="width: 25%;"><a href="rxUdfUiIniDf.html">rxUdfUiIniDf</a></td>
+<td>Get the rxode2 iniDf of the current UI being processed (or return NULL)</td></tr>
+<tr><td style="width: 25%;"><a href="rxUdfUiIniLhs.html">rxUdfUiIniLhs</a></td>
+<td>Return the lhs parsed language expression</td></tr>
+<tr><td style="width: 25%;"><a href="rxUdfUiMv.html">rxUdfUiMv</a></td>
+<td>Return the model variables that is being processed or setup model variables for processing</td></tr>
+<tr><td style="width: 25%;"><a href="rxUdfUiNum.html">rxUdfUiNum</a></td>
+<td>This gives the current number in the ui of the particular function being called.</td></tr>
+<tr><td style="width: 25%;"><a href="rxUdfUiParsing.html">rxUdfUiParsing</a></td>
+<td>Returns if the current ui function is being parsed</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiDecompress.html">rxUiCompress</a></td>
+<td>Compress/Decompress 'rxode2' ui</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiDecompress.html">rxUiDecompress</a></td>
+<td>Compress/Decompress 'rxode2' ui</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiDeparse.html">rxUiDeparse</a></td>
+<td>This is a generic function for deparsing certain objects when printing out a rxode2 object.  Currently it is used for any meta-information</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiDeparse.html">rxUiDeparse.default</a></td>
+<td>This is a generic function for deparsing certain objects when printing out a rxode2 object.  Currently it is used for any meta-information</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiDeparse.html">rxUiDeparse.lotriFix</a></td>
+<td>This is a generic function for deparsing certain objects when printing out a rxode2 object.  Currently it is used for any meta-information</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiDeparse.html">rxUiDeparse.rxControl</a></td>
+<td>This is a generic function for deparsing certain objects when printing out a rxode2 object.  Currently it is used for any meta-information</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiDevelop.html">rxUiDevelop</a></td>
+<td>rxUiDevelop - Enable/Disable rxUi development.  Here all $ completions are given</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.allCovs</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.cmtLines</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.covLhs</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.default</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.dvidLine</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.etaLhs</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.fun</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.funPartsDigest</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.funPrint</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.funTxt</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.ini</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.iniFun</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.interpLines</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.levelLhs</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.levels</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.lhsCov</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.lhsEta</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.lhsTheta</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.lhsVar</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.lstChr</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.md5</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.model</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.modelDesc</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.modelFun</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.multipleEndpoint</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.muRefTable</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.omega</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.paramsLine</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.props</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.sha1</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.simulationIniModel</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.simulationModel</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.simulationSigma</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.state</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.stateDf</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.statePropDf</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.symengineModelNoPrune</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.symengineModelPrune</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.theta</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.thetaLhs</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.thetaLower</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.thetaUpper</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxUiGet.html">rxUiGet.varLhs</a></td>
+<td>S3 for getting information from UI model</td></tr>
+<tr><td style="width: 25%;"><a href="rxunif.html">rxunif</a></td>
+<td>Simulate uniform variable from threefry generator</td></tr>
+<tr><td style="width: 25%;"><a href="rxUnloadAll.html">rxUnloadAll</a></td>
+<td>Unloads all rxode2 compiled DLLs</td></tr>
+<tr><td style="width: 25%;"><a href="rxLock.html">rxUnlock</a></td>
+<td>Lock/unlocking of rxode2 dll file</td></tr>
+<tr><td style="width: 25%;"><a href="rxUse.html">rxUse</a></td>
+<td>Use model object in your package</td></tr>
+<tr><td style="width: 25%;"><a href="rxValidate.html">rxValidate</a></td>
+<td>Validate rxode2 This allows easy validation/qualification of nlmixr by running the testing suite on your system.</td></tr>
+<tr><td style="width: 25%;"><a href="rxweibull.html">rxweibull</a></td>
+<td>Simulate Weibull variable from threefry generator</td></tr>
+<tr><td style="width: 25%;"><a href="rxWithSeed.html">rxWithPreserveSeed</a></td>
+<td>Preserved seed and possibly set the seed</td></tr>
+<tr><td style="width: 25%;"><a href="rxWithSeed.html">rxWithSeed</a></td>
+<td>Preserved seed and possibly set the seed</td></tr>
+</table>
+
+<h2><a id="S">-- S --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="SELU.html">SELU</a></td>
+<td>Scaled Exponential Linear Unit (SELU) Activation Function</td></tr>
+<tr><td style="width: 25%;"><a href="etSeq.html">seq.rxEt</a></td>
+<td>Sequence of event tables</td></tr>
+<tr><td style="width: 25%;"><a href="getRxThreads.html">setRxThreads</a></td>
+<td>Get/Set the number of threads that rxode2 uses</td></tr>
+<tr><td style="width: 25%;"><a href="rxSolve.html">simulate.rxode2</a></td>
+<td>Options, Solving &amp; Simulation of an ODE/solved system</td></tr>
+<tr><td style="width: 25%;"><a href="rxSolve.html">simulate.rxParams</a></td>
+<td>Options, Solving &amp; Simulation of an ODE/solved system</td></tr>
+<tr><td style="width: 25%;"><a href="rxSolve.html">simulate.rxSolve</a></td>
+<td>Options, Solving &amp; Simulation of an ODE/solved system</td></tr>
+<tr><td style="width: 25%;"><a href="softplus.html">softplus</a></td>
+<td>Softplus Activation Function</td></tr>
+<tr><td style="width: 25%;"><a href="rxSolve.html">solve.function</a></td>
+<td>Options, Solving &amp; Simulation of an ODE/solved system</td></tr>
+<tr><td style="width: 25%;"><a href="rxSolve.html">solve.rxEt</a></td>
+<td>Options, Solving &amp; Simulation of an ODE/solved system</td></tr>
+<tr><td style="width: 25%;"><a href="rxSolve.html">solve.rxode2</a></td>
+<td>Options, Solving &amp; Simulation of an ODE/solved system</td></tr>
+<tr><td style="width: 25%;"><a href="rxSolve.html">solve.rxParams</a></td>
+<td>Options, Solving &amp; Simulation of an ODE/solved system</td></tr>
+<tr><td style="width: 25%;"><a href="rxSolve.html">solve.rxSolve</a></td>
+<td>Options, Solving &amp; Simulation of an ODE/solved system</td></tr>
+<tr><td style="width: 25%;"><a href="rxSolve.html">solve.rxUi</a></td>
+<td>Options, Solving &amp; Simulation of an ODE/solved system</td></tr>
+<tr><td style="width: 25%;"><a href="stat_amt.html">stat_amt</a></td>
+<td>Dosing/Amt geom/stat</td></tr>
+<tr><td style="width: 25%;"><a href="stat_cens.html">stat_cens</a></td>
+<td>Censoring geom/stat</td></tr>
+<tr><td style="width: 25%;"><a href="summary.rxode2.html">summary.rxode2</a></td>
+<td>Print expanded information about the rxode2 object.</td></tr>
+<tr><td style="width: 25%;"><a href="swapMatListWithCube.html">swapMatListWithCube</a></td>
+<td>Swaps the matrix list with a cube</td></tr>
+<tr><td style="width: 25%;"><a href="Swish.html">Swish</a></td>
+<td>Switch Activation Function</td></tr>
+</table>
+
+<h2><a id="T">-- T --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="assertCompartmentExists.html">testCompartmentExists</a></td>
+<td>Verify that the compartment exists in a model</td></tr>
+<tr><td style="width: 25%;"><a href="assertCompartmentName.html">testExists</a></td>
+<td>Verify that a value is a valid nlmixr2 compartment name</td></tr>
+<tr><td style="width: 25%;"><a href="testIniDf.html">testIniDf</a></td>
+<td>This function tests if this object is a iniDf as needed by the UI</td></tr>
+<tr><td style="width: 25%;"><a href="testRxLinCmt.html">testRxLinCmt</a></td>
+<td>Test if rxode2 uses linear solved systems</td></tr>
+<tr><td style="width: 25%;"><a href="testRxUnbounded.html">testRxUnbounded</a></td>
+<td>Test if the rxode2 model has any parameters with user defined boundaries</td></tr>
+<tr><td style="width: 25%;"><a href="assertVariableExists.html">testVariableExists</a></td>
+<td>Assert a variable exists in the model</td></tr>
+<tr><td style="width: 25%;"><a href="toTrialDuration.html">toTrialDuration</a></td>
+<td>Convert event data to trial duration data A helper function to create a custom event table. The observation time will start from the first event time (baseline) and end at trial duration. The interval is the spacing between each observation.</td></tr>
+</table>
+
+<h2><a id="U">-- U --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="rxEvid.html">units&lt;-.rxEvid</a></td>
+<td>EVID formatting for tibble and other places.</td></tr>
+<tr><td style="width: 25%;"><a href="rxSolve.html">update.rxSolve</a></td>
+<td>Options, Solving &amp; Simulation of an ODE/solved system</td></tr>
+<tr><td style="width: 25%;"><a href="update.rxUi.html">update.rxUi</a></td>
+<td>Update for rxUi</td></tr>
+<tr><td style="width: 25%;"><a href="uppergamma.html">uppergamma</a></td>
+<td>uppergamma: upper incomplete gamma function</td></tr>
+</table>
+
+<h2><a id="W">-- W --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="testRxUnbounded.html">warnRxBounded</a></td>
+<td>Test if the rxode2 model has any parameters with user defined boundaries</td></tr>
+<tr><td style="width: 25%;"><a href="genShinyApp.template.html">write.template.server</a></td>
+<td>Generate an example (template) of a dosing regimen shiny app</td></tr>
+<tr><td style="width: 25%;"><a href="genShinyApp.template.html">write.template.ui</a></td>
+<td>Generate an example (template) of a dosing regimen shiny app</td></tr>
+</table>
+
+<h2><a id="Y">-- Y --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="boxCox.html">yeoJohnson</a></td>
+<td>boxCox/yeoJohnson and inverse boxCox/yeoJohnson functions</td></tr>
+<tr><td style="width: 25%;"><a href="boxCox.html">yeoJohnsonInv</a></td>
+<td>boxCox/yeoJohnson and inverse boxCox/yeoJohnson functions</td></tr>
+</table>
+
+<h2><a id="Z">-- Z --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="zeroRe.html">zeroRe</a></td>
+<td>Set random effects and residual error to zero</td></tr>
+</table>
+
+<h2><a id="misc">-- misc --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="dot-cbindOme.html">.cbindOme</a></td>
+<td>cbind Ome</td></tr>
+<tr><td style="width: 25%;"><a href="dot-collectWarnings.html">.collectWarnings</a></td>
+<td>Collect warnings and just warn once.</td></tr>
+<tr><td style="width: 25%;"><a href="dot-copyUi.html">.copyUi</a></td>
+<td>This copies the rxode2 UI object so it can be modified</td></tr>
+<tr><td style="width: 25%;"><a href="dot-handleSingleErrTypeNormOrTFoceiBase.html">.handleSingleErrTypeNormOrTFoceiBase</a></td>
+<td>Handle the single error for normal or t distributions</td></tr>
+<tr><td style="width: 25%;"><a href="dot-matchesLangTemplate.html">.matchesLangTemplate</a></td>
+<td>Check if a language object matches a template language object</td></tr>
+<tr><td style="width: 25%;"><a href="dot-modelHandleModelLines.html">.modelHandleModelLines</a></td>
+<td>Handle model lines</td></tr>
+<tr><td style="width: 25%;"><a href="dot-quoteCallInfoLines.html">.quoteCallInfoLines</a></td>
+<td>Returns quoted call information</td></tr>
+<tr><td style="width: 25%;"><a href="rxToSE.html">.rxFromSE</a></td>
+<td>rxode2 to symengine environment</td></tr>
+<tr><td style="width: 25%;"><a href="dot-rxLinCmtGen.html">.rxLinCmtGen</a></td>
+<td>Internal function to generate the model variables for a linCmt() model</td></tr>
+<tr><td style="width: 25%;"><a href="dot-rxode2ptrs.html">.rxode2ptrs</a></td>
+<td>Get the rxode2 function pointers</td></tr>
+<tr><td style="width: 25%;"><a href="rxRename.html">.rxRename</a></td>
+<td>Rename items inside of a 'rxode2' ui model</td></tr>
+<tr><td style="width: 25%;"><a href="rxToSE.html">.rxToSE</a></td>
+<td>rxode2 to symengine environment</td></tr>
+<tr><td style="width: 25%;"><a href="dot-rxWithOptions.html">.rxWithOptions</a></td>
+<td>Temporarily set options then restore them while running code</td></tr>
+<tr><td style="width: 25%;"><a href="dot-rxWithWd.html">.rxWithWd</a></td>
+<td>Temporarily set options then restore them while running code</td></tr>
+<tr><td style="width: 25%;"><a href="dot-toClassicEvid.html">.toClassicEvid</a></td>
+<td>This converts NONMEM-style EVIDs to classic RxODE events</td></tr>
+<tr><td style="width: 25%;"><a href="dot-vecDf.html">.vecDf</a></td>
+<td>Convert numeric vector to repeated data.frame</td></tr>
+<tr><td style="width: 25%;"><a href="rxEvid.html">[.rxEvid</a></td>
+<td>EVID formatting for tibble and other places.</td></tr>
+<tr><td style="width: 25%;"><a href="rxRateDur.html">[.rxRateDur</a></td>
+<td>Creates a rxRateDur object</td></tr>
+<tr><td style="width: 25%;"><a href="rxEvid.html">[[.rxEvid</a></td>
+<td>EVID formatting for tibble and other places.</td></tr>
+<tr><td style="width: 25%;"><a href="rxRateDur.html">[[.rxRateDur</a></td>
+<td>Creates a rxRateDur object</td></tr>
+</table>
+</div></body></html>

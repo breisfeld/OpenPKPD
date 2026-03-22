@@ -1,0 +1,7 @@
+.dparsePtr              Return the dparser function pointers
+dpDefaultSkip           Default skip function for darsing grammar
+dpReload                Reload the R dparser dll
+dparse                  Create R-based Dparser tree walking function
+                        based on grammar
+dparser-package         A Scannerless GLR parser/parser generator
+mkdparse                mkdparse dparser grammer c

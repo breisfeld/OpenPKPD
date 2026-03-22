@@ -1,0 +1,36 @@
+openpkpd/estimation/fo.py:114: UserWarning: ETA1 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+openpkpd/estimation/fo.py:114: UserWarning: ETA2 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+openpkpd/estimation/fo.py:114: UserWarning: ETA3 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+============================================================
+Example 08: Transit Compartment Absorption (ADVAN6)
+============================================================
+
+Simulating data from ADVAN2 (1-cmt oral)...
+  Dataset: 10 subjects, 80 observations
+
+Building transit compartment model (ADVAN6, 4 compartments)...
+
+Fitting transit compartment model (FO)...
+
+Estimation complete:
+  OFV = 116.474
+  Converged: True
+  Method: FO
+
+  THETA estimates:
+    THETA(1) [MTT (h)] = 19.9809
+    THETA(2) [CL (L/h)] = 5.0900
+    THETA(3) [V (L)] = 80.9337
+
+  OMEGA (diagonal):
+    OMEGA(1,1) = 4.3502
+    OMEGA(2,2) = 0.1000
+    OMEGA(3,3) = 0.2099
+
+  SIGMA:
+    SIGMA(1,1) = 0.1214
+
+Example 08 complete.

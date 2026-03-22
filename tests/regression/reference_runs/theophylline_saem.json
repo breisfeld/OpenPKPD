@@ -1,0 +1,24 @@
+{
+  "ofv": 3872.8987201859604,
+  "theta": [
+    1.268673453607825,
+    2.750236138810103,
+    32.45547942383286
+  ],
+  "omega_diag": [
+    0.098593039118763
+  ],
+  "sigma_diag": [
+    0.01
+  ],
+  "converged": true,
+  "_meta": {
+    "name": "theophylline_saem",
+    "reference_kind": "internal-baseline",
+    "externally_validated": false,
+    "dataset": "synthetic_theophylline_like",
+    "method": "SAEM",
+    "seed": 42,
+    "notes": "Self-consistent openpkpd regression baseline. Useful for drift detection but not yet an external scientific reference."
+  }
+}

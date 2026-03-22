@@ -1,0 +1,93 @@
+{
+  "_meta": {
+    "name": "sequential_multi_subject_from_pk_pd",
+    "reference_kind": "internal-baseline",
+    "externally_validated": false,
+    "dataset": "synthetic_sequential_multi_subject_from_pk_pd",
+    "method": "SequentialPKPDWorkflow.fit_pd",
+    "seed": 321,
+    "validation_level": "fixed synthetic multi-subject sequential PK-derived regression benchmark",
+    "validation_note": "docs/user_guide/analysis_validation_gaps.md",
+    "notes": "Self-consistent openpkpd regression baseline. Useful for drift detection but not yet an external scientific reference."
+  },
+  "true_params": {
+    "E0": 1.2,
+    "Emax": 10.0,
+    "EC50": 2.8
+  },
+  "fit_init": {
+    "E0": 0.5,
+    "Emax": 7.0,
+    "EC50": 1.5
+  },
+  "post_hoc_etas": {
+    "1": [
+      -0.35
+    ],
+    "2": [
+      0.15
+    ],
+    "3": [
+      0.45
+    ]
+  },
+  "subjects": {
+    "1": {
+      "params": {
+        "E0": 1.1291625391546263,
+        "Emax": 9.83076596245514,
+        "EC50": 2.61511539706504
+      },
+      "ofv": 0.007255290776295965,
+      "aic": 6.007255290776296,
+      "converged": true,
+      "predicted": [
+        7.015061196166656,
+        7.989376158419661,
+        8.45430336198446,
+        8.385695070465406,
+        7.913456192500735,
+        6.958367022545032,
+        4.511937802827379
+      ]
+    },
+    "2": {
+      "params": {
+        "E0": 1.4373013930955474,
+        "Emax": 9.962518907983698,
+        "EC50": 3.0845819302079516
+      },
+      "ofv": 0.01575705762402803,
+      "aic": 6.015757057624028,
+      "converged": true,
+      "predicted": [
+        7.8290954831797865,
+        8.524133059553721,
+        8.703385402573021,
+        8.430809778005507,
+        7.875919982406874,
+        6.858805578957789,
+        4.432848488784336
+      ]
+    },
+    "3": {
+      "params": {
+        "E0": 1.7078686074781622,
+        "Emax": 9.743655225575715,
+        "EC50": 3.281411104392127
+      },
+      "ofv": 0.0012686410720372534,
+      "aic": 6.001268641072037,
+      "converged": true,
+      "predicted": [
+        8.20221192491061,
+        8.692755788356385,
+        8.719292696373088,
+        8.394948635159789,
+        7.836056790525437,
+        6.828299708506705,
+        4.48612708356338
+      ]
+    }
+  }
+}

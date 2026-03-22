@@ -1,0 +1,598 @@
+{
+  "metadata": {
+    "date": "2026-03-16",
+    "seed": 77,
+    "workloads": [
+      "diagnostics",
+      "nca",
+      "npde",
+      "vpc"
+    ],
+    "parameters": {
+      "fit_subjects": 6,
+      "fit_maxeval": 12,
+      "sim_subjects": 24,
+      "npde_simulations": 500,
+      "vpc_replicates": 500,
+      "n_bins": 8,
+      "nca_subjects": 2000,
+      "top_functions": 15
+    }
+  },
+  "diagnostics": {
+    "name": "diagnostics",
+    "wall_seconds": 0.016693,
+    "result": {
+      "rows": 42
+    },
+    "stage_totals": {
+      "diagnostics.cwres_subject": {
+        "seconds": 0.0006500270683318377,
+        "calls": 6
+      },
+      "diagnostics.finite_diff_jacobian": {
+        "seconds": 0.010755524737760425,
+        "calls": 12
+      },
+      "individual.evaluate": {
+        "seconds": 0.011881121899932623,
+        "calls": 96
+      }
+    },
+    "top_functions": [
+      {
+        "function": "<lambda>",
+        "location": "profile_analysis.py:126",
+        "cumulative_seconds": 0.016593,
+        "self_seconds": 3.7e-05,
+        "ncalls": 1,
+        "primitive_calls": 1
+      },
+      {
+        "function": "compute_diagnostics",
+        "location": "diagnostics.py:99",
+        "cumulative_seconds": 0.016555,
+        "self_seconds": 0.000615,
+        "ncalls": 1,
+        "primitive_calls": 1
+      },
+      {
+        "function": "evaluate",
+        "location": "individual.py:251",
+        "cumulative_seconds": 0.011528,
+        "self_seconds": 0.000208,
+        "ncalls": 96,
+        "primitive_calls": 96
+      },
+      {
+        "function": "_evaluate_predictions",
+        "location": "individual.py:128",
+        "cumulative_seconds": 0.01132,
+        "self_seconds": 0.001047,
+        "ncalls": 96,
+        "primitive_calls": 96
+      },
+      {
+        "function": "_finite_diff_jacobian",
+        "location": "diagnostics.py:28",
+        "cumulative_seconds": 0.01071,
+        "self_seconds": 0.000411,
+        "ncalls": 12,
+        "primitive_calls": 12
+      },
+      {
+        "function": "__call__",
+        "location": "code_compiler.py:244",
+        "cumulative_seconds": 0.005888,
+        "self_seconds": 0.000484,
+        "ncalls": 96,
+        "primitive_calls": 96
+      },
+      {
+        "function": "_pk_fn",
+        "location": "<pk_code>:2",
+        "cumulative_seconds": 0.005239,
+        "self_seconds": 0.000143,
+        "ncalls": 96,
+        "primitive_calls": 96
+      },
+      {
+        "function": "<built-in method builtins.exec>",
+        "location": "~:0",
+        "cumulative_seconds": 0.005096,
+        "self_seconds": 0.004774,
+        "ncalls": 96,
+        "primitive_calls": 96
+      },
+      {
+        "function": "solve",
+        "location": "advan2.py:33",
+        "cumulative_seconds": 0.003747,
+        "self_seconds": 0.002164,
+        "ncalls": 96,
+        "primitive_calls": 96
+      },
+      {
+        "function": "wrapper",
+        "location": "_util.py:1149",
+        "cumulative_seconds": 0.001829,
+        "self_seconds": 0.000267,
+        "ncalls": 24,
+        "primitive_calls": 24
+      },
+      {
+        "function": "__init__",
+        "location": "frame.py:702",
+        "cumulative_seconds": 0.001197,
+        "self_seconds": 1.9e-05,
+        "ncalls": 1,
+        "primitive_calls": 1
+      },
+      {
+        "function": "any",
+        "location": "fromnumeric.py:2436",
+        "cumulative_seconds": 0.00075,
+        "self_seconds": 0.000128,
+        "ncalls": 102,
+        "primitive_calls": 102
+      },
+      {
+        "function": "cholesky",
+        "location": "_decomp_cholesky.py:50",
+        "cumulative_seconds": 0.000722,
+        "self_seconds": 3.3e-05,
+        "ncalls": 12,
+        "primitive_calls": 12
+      },
+      {
+        "function": "_cholesky",
+        "location": "_decomp_cholesky.py:15",
+        "cumulative_seconds": 0.000689,
+        "self_seconds": 0.0002,
+        "ncalls": 12,
+        "primitive_calls": 12
+      },
+      {
+        "function": "solve_triangular",
+        "location": "_basic.py:650",
+        "cumulative_seconds": 0.000631,
+        "self_seconds": 0.000138,
+        "ncalls": 12,
+        "primitive_calls": 12
+      }
+    ]
+  },
+  "npde": {
+    "name": "npde",
+    "wall_seconds": 1.327202,
+    "result": {
+      "rows": 42
+    },
+    "stage_totals": {
+      "diagnostics.compute_diagnostics": {
+        "seconds": 0.014305984834209085,
+        "calls": 1
+      },
+      "npde.build_sim_matrix": {
+        "seconds": 0.03531321510672569,
+        "calls": 6
+      },
+      "npde.compute_pd": {
+        "seconds": 0.0006945927161723375,
+        "calls": 6
+      },
+      "npde.decorrelate": {
+        "seconds": 0.0025844890624284744,
+        "calls": 6
+      },
+      "simulation.simulate": {
+        "seconds": 1.2350150009151548,
+        "calls": 1
+      }
+    },
+    "top_functions": [
+      {
+        "function": "<lambda>",
+        "location": "profile_analysis.py:139",
+        "cumulative_seconds": 1.32715,
+        "self_seconds": 3.9e-05,
+        "ncalls": 1,
+        "primitive_calls": 1
+      },
+      {
+        "function": "compute_npde",
+        "location": "diagnostics.py:222",
+        "cumulative_seconds": 1.327108,
+        "self_seconds": 0.000507,
+        "ncalls": 1,
+        "primitive_calls": 1
+      },
+      {
+        "function": "compute",
+        "location": "npde.py:112",
+        "cumulative_seconds": 1.304711,
+        "self_seconds": 0.000479,
+        "ncalls": 1,
+        "primitive_calls": 1
+      },
+      {
+        "function": "simulate",
+        "location": "engine.py:76",
+        "cumulative_seconds": 1.233867,
+        "self_seconds": 0.014017,
+        "ncalls": 1,
+        "primitive_calls": 1
+      },
+      {
+        "function": "_simulate_one_replicate",
+        "location": "engine.py:218",
+        "cumulative_seconds": 1.200223,
+        "self_seconds": 0.176853,
+        "ncalls": 500,
+        "primitive_calls": 500
+      },
+      {
+        "function": "<built-in method builtins.exec>",
+        "location": "~:0",
+        "cumulative_seconds": 0.587816,
+        "self_seconds": 0.496326,
+        "ncalls": 24096,
+        "primitive_calls": 24096
+      },
+      {
+        "function": "_call_error_model_prepared",
+        "location": "individual.py:421",
+        "cumulative_seconds": 0.464493,
+        "self_seconds": 0.011903,
+        "ncalls": 21000,
+        "primitive_calls": 21000
+      },
+      {
+        "function": "_call_raw",
+        "location": "code_compiler.py:355",
+        "cumulative_seconds": 0.45259,
+        "self_seconds": 0.013205,
+        "ncalls": 21000,
+        "primitive_calls": 21000
+      },
+      {
+        "function": "_error_fn",
+        "location": "<error_code>:2",
+        "cumulative_seconds": 0.439384,
+        "self_seconds": 0.026636,
+        "ncalls": 21000,
+        "primitive_calls": 21000
+      },
+      {
+        "function": "_evaluate_predictions",
+        "location": "individual.py:128",
+        "cumulative_seconds": 0.399533,
+        "self_seconds": 0.032816,
+        "ncalls": 3096,
+        "primitive_calls": 3096
+      },
+      {
+        "function": "__call__",
+        "location": "code_compiler.py:244",
+        "cumulative_seconds": 0.203282,
+        "self_seconds": 0.017777,
+        "ncalls": 3096,
+        "primitive_calls": 3096
+      },
+      {
+        "function": "_pk_fn",
+        "location": "<pk_code>:2",
+        "cumulative_seconds": 0.179104,
+        "self_seconds": 0.004036,
+        "ncalls": 3096,
+        "primitive_calls": 3096
+      },
+      {
+        "function": "solve",
+        "location": "advan2.py:33",
+        "cumulative_seconds": 0.139177,
+        "self_seconds": 0.084296,
+        "ncalls": 3096,
+        "primitive_calls": 3096
+      },
+      {
+        "function": "_draw_mvn_batch",
+        "location": "engine.py:453",
+        "cumulative_seconds": 0.109986,
+        "self_seconds": 0.044976,
+        "ncalls": 3500,
+        "primitive_calls": 3500
+      },
+      {
+        "function": "allclose",
+        "location": "numeric.py:2290",
+        "cumulative_seconds": 0.03562,
+        "self_seconds": 0.001731,
+        "ncalls": 500,
+        "primitive_calls": 500
+      }
+    ]
+  },
+  "vpc": {
+    "name": "vpc",
+    "wall_seconds": 1.123093,
+    "result": {
+      "sim_rows": 84000
+    },
+    "stage_totals": {
+      "simulation.simulate": {
+        "seconds": 0.8145595698151737,
+        "calls": 1
+      },
+      "vpc.obs_percentiles": {
+        "seconds": 0.00982019817456603,
+        "calls": 1
+      },
+      "vpc.sim_percentiles": {
+        "seconds": 0.2919222691562027,
+        "calls": 1
+      }
+    },
+    "top_functions": [
+      {
+        "function": "<lambda>",
+        "location": "profile_analysis.py:154",
+        "cumulative_seconds": 1.123034,
+        "self_seconds": 0.000877,
+        "ncalls": 1,
+        "primitive_calls": 1
+      },
+      {
+        "function": "compute",
+        "location": "vpc.py:91",
+        "cumulative_seconds": 1.122028,
+        "self_seconds": 8e-05,
+        "ncalls": 1,
+        "primitive_calls": 1
+      },
+      {
+        "function": "simulate",
+        "location": "engine.py:76",
+        "cumulative_seconds": 0.81372,
+        "self_seconds": 0.011069,
+        "ncalls": 1,
+        "primitive_calls": 1
+      },
+      {
+        "function": "_simulate_one_replicate",
+        "location": "engine.py:218",
+        "cumulative_seconds": 0.774069,
+        "self_seconds": 0.189987,
+        "ncalls": 500,
+        "primitive_calls": 500
+      },
+      {
+        "function": "_evaluate_predictions",
+        "location": "individual.py:128",
+        "cumulative_seconds": 0.484188,
+        "self_seconds": 0.040504,
+        "ncalls": 12000,
+        "primitive_calls": 12000
+      },
+      {
+        "function": "solve",
+        "location": "advan2.py:33",
+        "cumulative_seconds": 0.336634,
+        "self_seconds": 0.205852,
+        "ncalls": 12000,
+        "primitive_calls": 12000
+      },
+      {
+        "function": "_compute_sim_percentiles",
+        "location": "vpc.py:312",
+        "cumulative_seconds": 0.291877,
+        "self_seconds": 0.000364,
+        "ncalls": 1,
+        "primitive_calls": 1
+      },
+      {
+        "function": "_compute_group_percentiles",
+        "location": "vpc.py:225",
+        "cumulative_seconds": 0.280118,
+        "self_seconds": 0.011374,
+        "ncalls": 2,
+        "primitive_calls": 2
+      },
+      {
+        "function": "percentile",
+        "location": "_function_base_impl.py:4052",
+        "cumulative_seconds": 0.260778,
+        "self_seconds": 0.012534,
+        "ncalls": 3061,
+        "primitive_calls": 3061
+      },
+      {
+        "function": "_quantile_unchecked",
+        "location": "_function_base_impl.py:4500",
+        "cumulative_seconds": 0.240271,
+        "self_seconds": 0.004493,
+        "ncalls": 3061,
+        "primitive_calls": 3061
+      },
+      {
+        "function": "_ureduce",
+        "location": "_function_base_impl.py:3815",
+        "cumulative_seconds": 0.235778,
+        "self_seconds": 0.007096,
+        "ncalls": 3061,
+        "primitive_calls": 3061
+      },
+      {
+        "function": "_quantile_ureduce_func",
+        "location": "_function_base_impl.py:4639",
+        "cumulative_seconds": 0.226985,
+        "self_seconds": 0.005461,
+        "ncalls": 3061,
+        "primitive_calls": 3061
+      },
+      {
+        "function": "_quantile",
+        "location": "_function_base_impl.py:4714",
+        "cumulative_seconds": 0.219553,
+        "self_seconds": 0.041936,
+        "ncalls": 3061,
+        "primitive_calls": 3061
+      },
+      {
+        "function": "any",
+        "location": "fromnumeric.py:2436",
+        "cumulative_seconds": 0.085202,
+        "self_seconds": 0.013632,
+        "ncalls": 15061,
+        "primitive_calls": 15061
+      },
+      {
+        "function": "_wrapreduction_any_all",
+        "location": "fromnumeric.py:86",
+        "cumulative_seconds": 0.07157,
+        "self_seconds": 0.024895,
+        "ncalls": 15061,
+        "primitive_calls": 15061
+      }
+    ]
+  },
+  "nca": {
+    "name": "nca",
+    "wall_seconds": 0.427566,
+    "result": {
+      "rows": 2000
+    },
+    "stage_totals": {
+      "nca.compute_lambda_z": {
+        "seconds": 0.12001125304959714,
+        "calls": 1996
+      },
+      "nca.compute_subject": {
+        "seconds": 0.36057912837713957,
+        "calls": 2000
+      }
+    },
+    "top_functions": [
+      {
+        "function": "<lambda>",
+        "location": "profile_analysis.py:173",
+        "cumulative_seconds": 0.427517,
+        "self_seconds": 0.000811,
+        "ncalls": 1,
+        "primitive_calls": 1
+      },
+      {
+        "function": "compute_dataset",
+        "location": "nca.py:346",
+        "cumulative_seconds": 0.426699,
+        "self_seconds": 0.023865,
+        "ncalls": 1,
+        "primitive_calls": 1
+      },
+      {
+        "function": "compute_subject",
+        "location": "nca.py:200",
+        "cumulative_seconds": 0.35302,
+        "self_seconds": 0.067917,
+        "ncalls": 2000,
+        "primitive_calls": 2000
+      },
+      {
+        "function": "_compute_lambda_z",
+        "location": "nca.py:718",
+        "cumulative_seconds": 0.112629,
+        "self_seconds": 0.065591,
+        "ncalls": 1996,
+        "primitive_calls": 1996
+      },
+      {
+        "function": "_compute_auc_pair",
+        "location": "nca.py:689",
+        "cumulative_seconds": 0.092303,
+        "self_seconds": 0.059478,
+        "ncalls": 2000,
+        "primitive_calls": 2000
+      },
+      {
+        "function": "_wrapreduction_any_all",
+        "location": "fromnumeric.py:86",
+        "cumulative_seconds": 0.039922,
+        "self_seconds": 0.016453,
+        "ncalls": 11993,
+        "primitive_calls": 11993
+      },
+      {
+        "function": "_wrapfunc",
+        "location": "fromnumeric.py:48",
+        "cumulative_seconds": 0.032542,
+        "self_seconds": 0.008719,
+        "ncalls": 13982,
+        "primitive_calls": 13982
+      },
+      {
+        "function": "_log_trapezoidal",
+        "location": "nca.py:882",
+        "cumulative_seconds": 0.0323,
+        "self_seconds": 0.022816,
+        "ncalls": 16045,
+        "primitive_calls": 16045
+      },
+      {
+        "function": "all",
+        "location": "fromnumeric.py:2548",
+        "cumulative_seconds": 0.03149,
+        "self_seconds": 0.005996,
+        "ncalls": 7993,
+        "primitive_calls": 7993
+      },
+      {
+        "function": "cumsum",
+        "location": "fromnumeric.py:2838",
+        "cumulative_seconds": 0.030495,
+        "self_seconds": 0.006257,
+        "ncalls": 9980,
+        "primitive_calls": 9980
+      },
+      {
+        "function": "<method 'reduce' of 'numpy.ufunc' objects>",
+        "location": "~:0",
+        "cumulative_seconds": 0.024713,
+        "self_seconds": 0.024713,
+        "ncalls": 13995,
+        "primitive_calls": 13995
+      },
+      {
+        "function": "any",
+        "location": "fromnumeric.py:2436",
+        "cumulative_seconds": 0.017614,
+        "self_seconds": 0.003187,
+        "ncalls": 4000,
+        "primitive_calls": 4000
+      },
+      {
+        "function": "<method 'cumsum' of 'numpy.ndarray' objects>",
+        "location": "~:0",
+        "cumulative_seconds": 0.016788,
+        "self_seconds": 0.016788,
+        "ncalls": 9980,
+        "primitive_calls": 9980
+      },
+      {
+        "function": "diff",
+        "location": "_function_base_impl.py:1402",
+        "cumulative_seconds": 0.014797,
+        "self_seconds": 0.012794,
+        "ncalls": 2000,
+        "primitive_calls": 2000
+      },
+      {
+        "function": "flatnonzero",
+        "location": "numeric.py:679",
+        "cumulative_seconds": 0.013023,
+        "self_seconds": 0.00374,
+        "ncalls": 2000,
+        "primitive_calls": 2000
+      }
+    ]
+  }
+}

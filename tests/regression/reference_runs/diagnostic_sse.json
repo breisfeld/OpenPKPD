@@ -1,0 +1,60 @@
+{
+  "_meta": {
+    "name": "diagnostic_sse",
+    "reference_kind": "internal-baseline",
+    "externally_validated": false,
+    "dataset": "synthetic_theophylline_like",
+    "method": "SSE",
+    "seed": 11,
+    "validation_level": "internal simulation-reestimation benchmark",
+    "external_method_references": [
+      "Holford NHG et al. (2000) Simulation of clinical trials. Annu Rev Pharmacol Toxicol 40:209-234."
+    ],
+    "validation_note": "docs/user_guide/analysis_validation_gaps.md",
+    "notes": "Self-consistent openpkpd regression baseline. Useful for drift detection but not yet an external scientific reference."
+  },
+  "n_replicates": 4,
+  "convergence_rate": 1.0,
+  "parameter_names": [
+    "THETA1",
+    "THETA2",
+    "THETA3",
+    "OMEGA(1,1)",
+    "SIGMA(1,1)"
+  ],
+  "true_values": {
+    "THETA1": 1.5,
+    "THETA2": 2.8,
+    "THETA3": 32.9,
+    "OMEGA(1,1)": 0.04,
+    "SIGMA(1,1)": 0.01
+  },
+  "mean_estimates": {
+    "THETA1": 1.5327087011813014,
+    "THETA2": 2.7646222850252764,
+    "THETA3": 33.1306348732165,
+    "OMEGA(1,1)": 0.03299860571021751,
+    "SIGMA(1,1)": 0.011605723979068436
+  },
+  "bias": {
+    "THETA1": 0.021805800787534284,
+    "THETA2": -0.012634898205258364,
+    "THETA3": 0.007010178517218798,
+    "OMEGA(1,1)": -0.1750348572445624,
+    "SIGMA(1,1)": 0.1605723979068436
+  },
+  "rmse": {
+    "THETA1": 0.04134042342437946,
+    "THETA2": 0.039616585697879673,
+    "THETA3": 0.30075706277082803,
+    "OMEGA(1,1)": 0.012360030045416998,
+    "SIGMA(1,1)": 0.002052902354431791
+  },
+  "coverage_95": {
+    "THETA1": 0.75,
+    "THETA2": 0.5,
+    "THETA3": 1.0,
+    "OMEGA(1,1)": 1.0,
+    "SIGMA(1,1)": 0.75
+  }
+}

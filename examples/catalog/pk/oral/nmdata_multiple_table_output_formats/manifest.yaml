@@ -1,0 +1,24 @@
+manifest_version: 1
+id: nmdata_multiple_table_output_formats
+title: NMdata multiple table output formats
+description: Imported NMdata example demonstrating multiple $TABLE output styles and formatting options.
+category: pk
+primary_mode: control_stream
+route: oral
+difficulty: intermediate
+tags: [pk, oral, nmdata, table, reporting]
+sort_order: 130
+files:
+  dataset: ../../../../shared_data/nmautoverse/xgxr4.csv
+  control_stream: model.ctl
+  readme: README.md
+  preview_image: null
+gui:
+  load_dataset: true
+  load_control_stream: true
+  featured: false
+source:
+  kind: imported
+  url: https://github.com/NMautoverse/NMdata
+  license: MIT + file LICENSE
+

@@ -1,0 +1,24 @@
+manifest_version: 1
+id: nmdata_saem_age_covariate_block_omega
+title: NMdata SAEM age covariate BLOCK OMEGA
+description: Imported NMdata SAEM example using an age covariate with BLOCK(2) OMEGA structure.
+category: pk
+primary_mode: control_stream
+route: oral
+difficulty: advanced
+tags: [pk, oral, nmdata, saem, covariate, omega]
+sort_order: 150
+files:
+  dataset: ../../../../shared_data/nmautoverse/xgxr2covs.csv
+  control_stream: model.ctl
+  readme: README.md
+  preview_image: null
+gui:
+  load_dataset: true
+  load_control_stream: true
+  featured: false
+source:
+  kind: imported
+  url: https://github.com/NMautoverse/NMdata
+  license: MIT + file LICENSE
+

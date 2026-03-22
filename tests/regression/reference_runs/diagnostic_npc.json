@@ -1,0 +1,49 @@
+{
+  "_meta": {
+    "name": "diagnostic_npc",
+    "reference_kind": "internal-baseline",
+    "externally_validated": false,
+    "dataset": "synthetic_theophylline_like",
+    "method": "NPC",
+    "seed": 7,
+    "validation_level": "synthetic calibration and drift benchmark",
+    "external_method_references": [
+      "Holford NHG (2005) The Visual Predictive Check — superiority to standard diagnostic plots. PAGE 14 (Abstract 738)."
+    ],
+    "validation_note": "docs/user_guide/analysis_validation_gaps.md",
+    "notes": "Self-consistent openpkpd regression baseline. Useful for drift detection but not yet an external scientific reference."
+  },
+  "obs_below_lower": 0.23809523809523808,
+  "obs_within": 0.38690476190476186,
+  "obs_above_upper": 0.375,
+  "expected_within": 0.8999999999999999,
+  "n_observations": 168,
+  "binned_t_mid": [
+    1.96875000000625,
+    4.9062500000187494,
+    7.84375000003125,
+    10.781250000043748,
+    22.53125000009375
+  ],
+  "binned_obs_within": [
+    0.5972222222222222,
+    0.25,
+    0.16666666666666666,
+    0.20833333333333334,
+    0.2916666666666667
+  ],
+  "binned_obs_below_lower": [
+    0.20833333333333334,
+    0.2916666666666667,
+    0.4166666666666667,
+    0.20833333333333334,
+    0.125
+  ],
+  "binned_obs_above_upper": [
+    0.19444444444444445,
+    0.4583333333333333,
+    0.4166666666666667,
+    0.5833333333333334,
+    0.5833333333333334
+  ]
+}

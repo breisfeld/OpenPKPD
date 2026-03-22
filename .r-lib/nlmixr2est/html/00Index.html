@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html>
+<head><title>R: Nonlinear Mixed Effects Models in Population PK/PD, Estimation
+Routines</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+<link rel="stylesheet" type="text/css" href="R.css" />
+</head><body><div class="container">
+<h1> Nonlinear Mixed Effects Models in Population PK/PD, Estimation
+Routines
+<img class="toplogo" src="../../../doc/html/Rlogo.svg" alt="[R logo]" />
+</h1>
+<hr/>
+<div style="text-align: center;">
+<a href="../../../doc/html/packages.html"><img class="arrow" src="../../../doc/html/left.jpg" alt="[Up]" /></a>
+<a href="../../../doc/html/index.html"><img class="arrow" src="../../../doc/html/up.jpg" alt="[Top]" /></a>
+</div><h2>Documentation for package &lsquo;nlmixr2est&rsquo; version 5.0.2</h2>
+
+<ul><li><a href="../DESCRIPTION">DESCRIPTION file</a>.</li>
+<li><a href="../NEWS">Package NEWS</a>.</li>
+</ul>
+
+<h2>Help Pages</h2>
+
+
+<p style="text-align: center;">
+<a href="#A">A</a>
+<a href="#B">B</a>
+<a href="#C">C</a>
+<a href="#F">F</a>
+<a href="#G">G</a>
+<a href="#I">I</a>
+<a href="#L">L</a>
+<a href="#N">N</a>
+<a href="#O">O</a>
+<a href="#P">P</a>
+<a href="#R">R</a>
+<a href="#S">S</a>
+<a href="#T">T</a>
+<a href="#U">U</a>
+<a href="#V">V</a>
+<a href="#Y">Y</a>
+<a href="#misc">misc</a>
+</p>
+
+
+<h2><a id="A">-- A --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="addCwres.html">addCwres</a></td>
+<td>Add CWRES</td></tr>
+<tr><td style="width: 25%;"><a href="addNpde.html">addNpde</a></td>
+<td>NPDE calculation for nlmixr2</td></tr>
+<tr><td style="width: 25%;"><a href="addTable.html">addTable</a></td>
+<td>Add table information to nlmixr2 fit object without tables</td></tr>
+<tr><td style="width: 25%;"><a href="agqControl.html">agqControl</a></td>
+<td>Control options for the agq estimation method</td></tr>
+<tr><td style="width: 25%;"><a href="assertNlmixrFit.html">assertNlmixrFit</a></td>
+<td>Assert that this is a nlmixr2 fit object</td></tr>
+<tr><td style="width: 25%;"><a href="assertNlmixrFitData.html">assertNlmixrFitData</a></td>
+<td>Assert that this is a nlmixr2 fit data object</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2AugPredSolve.html">augPred.nlmixr2FitData</a></td>
+<td>Augmented Prediction for nlmixr2 fit</td></tr>
+</table>
+
+<h2><a id="B">-- B --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="bobyqaControl.html">bobyqaControl</a></td>
+<td>Control for bobyqa estimation method in nlmixr2</td></tr>
+<tr><td style="width: 25%;"><a href="boxCox.html">boxCox</a></td>
+<td>Cox Box, Yeo Johnson and inverse transformation</td></tr>
+</table>
+
+<h2><a id="C">-- C --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="cholSE.html">cholSE</a></td>
+<td>Generalized Cholesky Matrix Decomposition</td></tr>
+</table>
+
+<h2><a id="F">-- F --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="foceControl.html">foceControl</a></td>
+<td>Control options for the foce estimation method</td></tr>
+<tr><td style="width: 25%;"><a href="foceiControl.html">foceiControl</a></td>
+<td>Control Options for FOCEi</td></tr>
+<tr><td style="width: 25%;"><a href="foControl.html">foControl</a></td>
+<td>Control options for the FO estimation method</td></tr>
+<tr><td style="width: 25%;"><a href="foiControl.html">foiControl</a></td>
+<td>Control options foir the FOI estimation method</td></tr>
+</table>
+
+<h2><a id="G">-- G --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="setOfv.html">getOfvType</a></td>
+<td>Set/get Objective function type for a nlmixr2 object</td></tr>
+<tr><td style="width: 25%;"><a href="getValidNlmixrControl.html">getValidNlmixrControl</a></td>
+<td>Get valid nlmixr control object</td></tr>
+<tr><td style="width: 25%;"><a href="getValidNlmixrControl.html">getValidNlmixrCtl</a></td>
+<td>Get valid nlmixr control object</td></tr>
+<tr><td style="width: 25%;"><a href="getValidNlmixrControl.html">getValidNlmixrCtl.agq</a></td>
+<td>Get valid nlmixr control object</td></tr>
+<tr><td style="width: 25%;"><a href="getValidNlmixrControl.html">getValidNlmixrCtl.bobyqa</a></td>
+<td>Get valid nlmixr control object</td></tr>
+<tr><td style="width: 25%;"><a href="getValidNlmixrControl.html">getValidNlmixrCtl.default</a></td>
+<td>Get valid nlmixr control object</td></tr>
+<tr><td style="width: 25%;"><a href="getValidNlmixrControl.html">getValidNlmixrCtl.fo</a></td>
+<td>Get valid nlmixr control object</td></tr>
+<tr><td style="width: 25%;"><a href="getValidNlmixrControl.html">getValidNlmixrCtl.foce</a></td>
+<td>Get valid nlmixr control object</td></tr>
+<tr><td style="width: 25%;"><a href="getValidNlmixrControl.html">getValidNlmixrCtl.focei</a></td>
+<td>Get valid nlmixr control object</td></tr>
+<tr><td style="width: 25%;"><a href="getValidNlmixrControl.html">getValidNlmixrCtl.foi</a></td>
+<td>Get valid nlmixr control object</td></tr>
+<tr><td style="width: 25%;"><a href="getValidNlmixrControl.html">getValidNlmixrCtl.laplace</a></td>
+<td>Get valid nlmixr control object</td></tr>
+<tr><td style="width: 25%;"><a href="getValidNlmixrControl.html">getValidNlmixrCtl.lbfgsb3c</a></td>
+<td>Get valid nlmixr control object</td></tr>
+<tr><td style="width: 25%;"><a href="getValidNlmixrControl.html">getValidNlmixrCtl.n1qn1</a></td>
+<td>Get valid nlmixr control object</td></tr>
+<tr><td style="width: 25%;"><a href="getValidNlmixrControl.html">getValidNlmixrCtl.newuoa</a></td>
+<td>Get valid nlmixr control object</td></tr>
+<tr><td style="width: 25%;"><a href="getValidNlmixrControl.html">getValidNlmixrCtl.nlm</a></td>
+<td>Get valid nlmixr control object</td></tr>
+<tr><td style="width: 25%;"><a href="getValidNlmixrControl.html">getValidNlmixrCtl.nlme</a></td>
+<td>Get valid nlmixr control object</td></tr>
+<tr><td style="width: 25%;"><a href="getValidNlmixrControl.html">getValidNlmixrCtl.nlminb</a></td>
+<td>Get valid nlmixr control object</td></tr>
+<tr><td style="width: 25%;"><a href="getValidNlmixrControl.html">getValidNlmixrCtl.nls</a></td>
+<td>Get valid nlmixr control object</td></tr>
+<tr><td style="width: 25%;"><a href="getValidNlmixrControl.html">getValidNlmixrCtl.optim</a></td>
+<td>Get valid nlmixr control object</td></tr>
+<tr><td style="width: 25%;"><a href="getValidNlmixrControl.html">getValidNlmixrCtl.posthoc</a></td>
+<td>Get valid nlmixr control object</td></tr>
+<tr><td style="width: 25%;"><a href="getValidNlmixrControl.html">getValidNlmixrCtl.predict</a></td>
+<td>Get valid nlmixr control object</td></tr>
+<tr><td style="width: 25%;"><a href="getValidNlmixrControl.html">getValidNlmixrCtl.rxSolve</a></td>
+<td>Get valid nlmixr control object</td></tr>
+<tr><td style="width: 25%;"><a href="getValidNlmixrControl.html">getValidNlmixrCtl.saem</a></td>
+<td>Get valid nlmixr control object</td></tr>
+<tr><td style="width: 25%;"><a href="getValidNlmixrControl.html">getValidNlmixrCtl.simulate</a></td>
+<td>Get valid nlmixr control object</td></tr>
+<tr><td style="width: 25%;"><a href="getValidNlmixrControl.html">getValidNlmixrCtl.simulation</a></td>
+<td>Get valid nlmixr control object</td></tr>
+<tr><td style="width: 25%;"><a href="getValidNlmixrControl.html">getValidNlmixrCtl.tableControl</a></td>
+<td>Get valid nlmixr control object</td></tr>
+<tr><td style="width: 25%;"><a href="getValidNlmixrControl.html">getValidNlmixrCtl.uobyqa</a></td>
+<td>Get valid nlmixr control object</td></tr>
+</table>
+
+<h2><a id="I">-- I --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="boxCox.html">iBoxCox</a></td>
+<td>Cox Box, Yeo Johnson and inverse transformation</td></tr>
+<tr><td style="width: 25%;"><a href="boxCox.html">iYeoJohnson</a></td>
+<td>Cox Box, Yeo Johnson and inverse transformation</td></tr>
+</table>
+
+<h2><a id="L">-- L --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="laplaceControl.html">laplaceControl</a></td>
+<td>Control options for the Laplace estimation method</td></tr>
+<tr><td style="width: 25%;"><a href="lbfgsb3cControl.html">lbfgsb3cControl</a></td>
+<td>Control for lbfgsb3c estimation method in nlmixr2</td></tr>
+</table>
+
+<h2><a id="N">-- N --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="n1qn1Control.html">n1qn1Control</a></td>
+<td>Control for n1qn1 estimation method in nlmixr2</td></tr>
+<tr><td style="width: 25%;"><a href="newuoaControl.html">newuoaControl</a></td>
+<td>Control for newuoa estimation method in nlmixr2</td></tr>
+<tr><td style="width: 25%;"><a href="nlmControl.html">nlmControl</a></td>
+<td>nlmixr2 defaults controls for nlm</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2NlmeControl.html">nlmeControl</a></td>
+<td>Control Values for nlme Fit with extra options for nlmixr</td></tr>
+<tr><td style="width: 25%;"><a href="nlminbControl.html">nlminbControl</a></td>
+<td>nlmixr2 nlminb defaults</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2.html">nlmixr</a></td>
+<td>nlmixr2 fits population PK and PKPD non-linear mixed effects models.</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2.html">nlmixr2</a></td>
+<td>nlmixr2 fits population PK and PKPD non-linear mixed effects models.</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2.html">nlmixr2.function</a></td>
+<td>nlmixr2 fits population PK and PKPD non-linear mixed effects models.</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2.html">nlmixr2.nlmixr2FitCore</a></td>
+<td>nlmixr2 fits population PK and PKPD non-linear mixed effects models.</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2.html">nlmixr2.nlmixr2FitData</a></td>
+<td>nlmixr2 fits population PK and PKPD non-linear mixed effects models.</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2.html">nlmixr2.rxUi</a></td>
+<td>nlmixr2 fits population PK and PKPD non-linear mixed effects models.</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2AllEst.html">nlmixr2AllEst</a></td>
+<td>Show all the current estimation methods</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2AugPredSolve.html">nlmixr2AugPredSolve</a></td>
+<td>Augmented Prediction for nlmixr2 fit</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2CreateOutputFromUi.html">nlmixr2CreateOutputFromUi</a></td>
+<td>Create nlmixr output from the UI</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Est.html">nlmixr2Est</a></td>
+<td>Generic for nlmixr2 estimation methods</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Est.html">nlmixr2Est.agq</a></td>
+<td>Generic for nlmixr2 estimation methods</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Est.html">nlmixr2Est.bobyqa</a></td>
+<td>Generic for nlmixr2 estimation methods</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Est.html">nlmixr2Est.default</a></td>
+<td>Generic for nlmixr2 estimation methods</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Est.html">nlmixr2Est.fo</a></td>
+<td>Generic for nlmixr2 estimation methods</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Est.html">nlmixr2Est.foce</a></td>
+<td>Generic for nlmixr2 estimation methods</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Est.html">nlmixr2Est.focei</a></td>
+<td>Generic for nlmixr2 estimation methods</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Est.html">nlmixr2Est.foi</a></td>
+<td>Generic for nlmixr2 estimation methods</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Est.html">nlmixr2Est.laplace</a></td>
+<td>Generic for nlmixr2 estimation methods</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Est.html">nlmixr2Est.lbfgsb3c</a></td>
+<td>Generic for nlmixr2 estimation methods</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Est.html">nlmixr2Est.n1qn1</a></td>
+<td>Generic for nlmixr2 estimation methods</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Est.html">nlmixr2Est.newuoa</a></td>
+<td>Generic for nlmixr2 estimation methods</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Est.html">nlmixr2Est.nlm</a></td>
+<td>Generic for nlmixr2 estimation methods</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Est.html">nlmixr2Est.nlme</a></td>
+<td>Generic for nlmixr2 estimation methods</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Est.html">nlmixr2Est.nlminb</a></td>
+<td>Generic for nlmixr2 estimation methods</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Est.html">nlmixr2Est.nls</a></td>
+<td>Generic for nlmixr2 estimation methods</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Est.html">nlmixr2Est.optim</a></td>
+<td>Generic for nlmixr2 estimation methods</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Est.html">nlmixr2Est.output</a></td>
+<td>Generic for nlmixr2 estimation methods</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Est.html">nlmixr2Est.posthoc</a></td>
+<td>Generic for nlmixr2 estimation methods</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Est.html">nlmixr2Est.predict</a></td>
+<td>Generic for nlmixr2 estimation methods</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Est.html">nlmixr2Est.rxSolve</a></td>
+<td>Generic for nlmixr2 estimation methods</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Est.html">nlmixr2Est.saem</a></td>
+<td>Generic for nlmixr2 estimation methods</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Est.html">nlmixr2Est.simulate</a></td>
+<td>Generic for nlmixr2 estimation methods</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Est.html">nlmixr2Est.simulation</a></td>
+<td>Generic for nlmixr2 estimation methods</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Est.html">nlmixr2Est.uobyqa</a></td>
+<td>Generic for nlmixr2 estimation methods</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2fix.html">nlmixr2fix</a></td>
+<td>Try to fix a nlmixr2 fit</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Gill83.html">nlmixr2Gill83</a></td>
+<td>Get the optimal forward difference interval by Gill83 method</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Hess.html">nlmixr2Hess</a></td>
+<td>Calculate Hessian</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Keywords.html">nlmixr2Keywords</a></td>
+<td>A list and description of the fields in the nlmxir2 object</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Logo.html">nlmixr2Logo</a></td>
+<td>Messages the nlmixr2 logo...</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2NlmeControl.html">nlmixr2NlmeControl</a></td>
+<td>Control Values for nlme Fit with extra options for nlmixr</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Validate.html">nlmixr2Validate</a></td>
+<td>Validate nlmixr2</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Version.html">nlmixr2Version</a></td>
+<td>Display nlmixr2's version</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixrAddObjectiveFunctionDataFrame.html">nlmixrAddObjectiveFunctionDataFrame</a></td>
+<td>Add objective function data frame to the current objective function</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixrAddTiming.html">nlmixrAddTiming</a></td>
+<td>Manually add time to a nlmixr2 object</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixrCbind.html">nlmixrCbind</a></td>
+<td>nlmixrCbind</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixrClone.html">nlmixrClone</a></td>
+<td>Clone nlmixr environment</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixrWithTiming.html">nlmixrWithTiming</a></td>
+<td>Time a part of a nlmixr operation and add to nlmixr object</td></tr>
+<tr><td style="width: 25%;"><a href="nlsControl.html">nlsControl</a></td>
+<td>nlmixr2 defaults controls for nls</td></tr>
+<tr><td style="width: 25%;"><a href="nmNearPD.html">nmNearPD</a></td>
+<td>C++ implementation of Matrix's nearPD</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetControl.html">nmObjGetControl</a></td>
+<td>Get control object from fit</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetControl.html">nmObjGetControl.agq</a></td>
+<td>Get control object from fit</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetControl.html">nmObjGetControl.bobyqa</a></td>
+<td>Get control object from fit</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetControl.html">nmObjGetControl.default</a></td>
+<td>Get control object from fit</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetControl.html">nmObjGetControl.fo</a></td>
+<td>Get control object from fit</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetControl.html">nmObjGetControl.foce</a></td>
+<td>Get control object from fit</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetControl.html">nmObjGetControl.focei</a></td>
+<td>Get control object from fit</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetControl.html">nmObjGetControl.foi</a></td>
+<td>Get control object from fit</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetControl.html">nmObjGetControl.laplace</a></td>
+<td>Get control object from fit</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetControl.html">nmObjGetControl.lbfgsb3c</a></td>
+<td>Get control object from fit</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetControl.html">nmObjGetControl.n1qn1</a></td>
+<td>Get control object from fit</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetControl.html">nmObjGetControl.newuoa</a></td>
+<td>Get control object from fit</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetControl.html">nmObjGetControl.nlm</a></td>
+<td>Get control object from fit</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetControl.html">nmObjGetControl.nlme</a></td>
+<td>Get control object from fit</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetControl.html">nmObjGetControl.nlminb</a></td>
+<td>Get control object from fit</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetControl.html">nmObjGetControl.nls</a></td>
+<td>Get control object from fit</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetControl.html">nmObjGetControl.optim</a></td>
+<td>Get control object from fit</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetControl.html">nmObjGetControl.posthoc</a></td>
+<td>Get control object from fit</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetControl.html">nmObjGetControl.saem</a></td>
+<td>Get control object from fit</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetControl.html">nmObjGetControl.uobyqa</a></td>
+<td>Get control object from fit</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetEstimationModel.html">nmObjGetEstimationModel</a></td>
+<td>Get the estimation model for a fit object depending on the object type</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetIpredModel.html">nmObjGetEstimationModel.default</a></td>
+<td>Get the ipred model for a fit object depending on the object type</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetIpredModel.html">nmObjGetEstimationModel.saem</a></td>
+<td>Get the ipred model for a fit object depending on the object type</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetFoceiControl.html">nmObjGetFoceiControl</a></td>
+<td>Method for getting focei compatible control object from nlmixr object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetFoceiControl.html">nmObjGetFoceiControl.agq</a></td>
+<td>Method for getting focei compatible control object from nlmixr object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetFoceiControl.html">nmObjGetFoceiControl.default</a></td>
+<td>Method for getting focei compatible control object from nlmixr object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetFoceiControl.html">nmObjGetFoceiControl.foce</a></td>
+<td>Method for getting focei compatible control object from nlmixr object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetFoceiControl.html">nmObjGetFoceiControl.laplace</a></td>
+<td>Method for getting focei compatible control object from nlmixr object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetFoceiControl.html">nmObjGetFoceiControl.nlme</a></td>
+<td>Method for getting focei compatible control object from nlmixr object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetFoceiControl.html">nmObjGetFoceiControl.posthoc</a></td>
+<td>Method for getting focei compatible control object from nlmixr object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetFoceiControl.html">nmObjGetFoceiControl.saem</a></td>
+<td>Method for getting focei compatible control object from nlmixr object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetIpredModel.html">nmObjGetIpredModel</a></td>
+<td>Get the ipred model for a fit object depending on the object type</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetIpredModel.html">nmObjGetIpredModel.default</a></td>
+<td>Get the ipred model for a fit object depending on the object type</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetIpredModel.html">nmObjGetIpredModel.saem</a></td>
+<td>Get the ipred model for a fit object depending on the object type</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetPredOnly.html">nmObjGetPredOnly</a></td>
+<td>Get the pred-only model for a fit depending on the object type</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetPredOnly.html">nmObjGetPredOnly.default</a></td>
+<td>Get the pred-only model for a fit depending on the object type</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjGetPredOnly.html">nmObjGetPredOnly.saem</a></td>
+<td>Get the pred-only model for a fit depending on the object type</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjHandleControlObject.html">nmObjHandleControlObject</a></td>
+<td>Handle the control object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjHandleControlObject.html">nmObjHandleControlObject.agqControl</a></td>
+<td>Handle the control object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjHandleControlObject.html">nmObjHandleControlObject.bobyqaControl</a></td>
+<td>Handle the control object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjHandleControlObject.html">nmObjHandleControlObject.default</a></td>
+<td>Handle the control object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjHandleControlObject.html">nmObjHandleControlObject.foceControl</a></td>
+<td>Handle the control object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjHandleControlObject.html">nmObjHandleControlObject.foceiControl</a></td>
+<td>Handle the control object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjHandleControlObject.html">nmObjHandleControlObject.foControl</a></td>
+<td>Handle the control object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjHandleControlObject.html">nmObjHandleControlObject.foiControl</a></td>
+<td>Handle the control object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjHandleControlObject.html">nmObjHandleControlObject.laplaceControl</a></td>
+<td>Handle the control object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjHandleControlObject.html">nmObjHandleControlObject.lbfgsb3cControl</a></td>
+<td>Handle the control object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjHandleControlObject.html">nmObjHandleControlObject.n1qn1Control</a></td>
+<td>Handle the control object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjHandleControlObject.html">nmObjHandleControlObject.newuoaControl</a></td>
+<td>Handle the control object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjHandleControlObject.html">nmObjHandleControlObject.nlmControl</a></td>
+<td>Handle the control object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjHandleControlObject.html">nmObjHandleControlObject.nlmeControl</a></td>
+<td>Handle the control object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjHandleControlObject.html">nmObjHandleControlObject.nlminbControl</a></td>
+<td>Handle the control object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjHandleControlObject.html">nmObjHandleControlObject.nlsControl</a></td>
+<td>Handle the control object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjHandleControlObject.html">nmObjHandleControlObject.optimControl</a></td>
+<td>Handle the control object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjHandleControlObject.html">nmObjHandleControlObject.posthocControl</a></td>
+<td>Handle the control object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjHandleControlObject.html">nmObjHandleControlObject.saemControl</a></td>
+<td>Handle the control object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjHandleControlObject.html">nmObjHandleControlObject.uobyqaControl</a></td>
+<td>Handle the control object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjHandleModelObject.html">nmObjHandleModelObject</a></td>
+<td>Handle Model Object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjHandleModelObject.html">nmObjHandleModelObject.default</a></td>
+<td>Handle Model Object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjHandleModelObject.html">nmObjHandleModelObject.foceiModelList</a></td>
+<td>Handle Model Object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjHandleModelObject.html">nmObjHandleModelObject.saemModelList</a></td>
+<td>Handle Model Object</td></tr>
+<tr><td style="width: 25%;"><a href="nmObjUiSetCompressed.html">nmObjUiSetCompressed</a></td>
+<td>Set if the nlmixr2 object will return a compressed ui</td></tr>
+<tr><td style="width: 25%;"><a href="nmsimplex.html">nmsimplex</a></td>
+<td>Nelder-Mead simplex search</td></tr>
+<tr><td style="width: 25%;"><a href="nlmixr2Validate.html">nmTest</a></td>
+<td>Validate nlmixr2</td></tr>
+</table>
+
+<h2><a id="O">-- O --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="ofv.html">ofv</a></td>
+<td>Return the objective function</td></tr>
+<tr><td style="width: 25%;"><a href="optimControl.html">optimControl</a></td>
+<td>nlmixr2 optim defaults</td></tr>
+</table>
+
+<h2><a id="P">-- P --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="posthocControl.html">posthocControl</a></td>
+<td>Control options for the posthoc estimation method</td></tr>
+<tr><td style="width: 25%;"><a href="print.saemFit.html">print.saemFit</a></td>
+<td>Print an SAEM model fit summary</td></tr>
+</table>
+
+<h2><a id="R">-- R --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="residuals.nlmixr2FitData.html">residuals.nlmixr2FitData</a></td>
+<td>Extract residuals from the FOCEI fit</td></tr>
+<tr><td style="width: 25%;"><a href="rmEta.html">rmEta</a></td>
+<td>Remove an eta from the model</td></tr>
+</table>
+
+<h2><a id="S">-- S --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="saemControl.html">saemControl</a></td>
+<td>Control Options for SAEM</td></tr>
+<tr><td style="width: 25%;"><a href="setCov.html">setCov</a></td>
+<td>Set the covariance type based on prior calculated covariances</td></tr>
+<tr><td style="width: 25%;"><a href="setOfv.html">setOfv</a></td>
+<td>Set/get Objective function type for a nlmixr2 object</td></tr>
+<tr><td style="width: 25%;"><a href="sqrtm.html">sqrtm</a></td>
+<td>Return the square root of general square matrix A</td></tr>
+<tr><td style="width: 25%;"><a href="summary.saemFit.html">summary.saemFit</a></td>
+<td>Print an SAEM model fit summary</td></tr>
+</table>
+
+<h2><a id="T">-- T --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="tableControl.html">tableControl</a></td>
+<td>Output table/data.frame options</td></tr>
+</table>
+
+<h2><a id="U">-- U --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="uobyqaControl.html">uobyqaControl</a></td>
+<td>Control for uobyqa estimation method in nlmixr2</td></tr>
+</table>
+
+<h2><a id="V">-- V --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="vpcSim.html">vpcSim</a></td>
+<td>VPC simulation</td></tr>
+</table>
+
+<h2><a id="Y">-- Y --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="boxCox.html">yeoJohnson</a></td>
+<td>Cox Box, Yeo Johnson and inverse transformation</td></tr>
+</table>
+
+<h2><a id="misc">-- misc --</a></h2>
+
+<table style="width: 100%;">
+<tr><td style="width: 25%;"><a href="dot-augPredIpredModel.html">.augPredIpredModel</a></td>
+<td>Augment Prediction for Ipred Model</td></tr>
+<tr><td style="width: 25%;"><a href="dot-nlmixr0preProcessCovariatesPresent.html">.nlmixr0preProcessCovariatesPresent</a></td>
+<td>Preprocess Covariates needed (or other data items)</td></tr>
+<tr><td style="width: 25%;"><a href="dot-nlmixrPreprocessLiteralFix.html">.nlmixrPreprocessLiteralFix</a></td>
+<td>This literally fixes parameters in the model</td></tr>
+<tr><td style="width: 25%;"><a href="dot-preProcessDataUi.html">.preProcessDataUi</a></td>
+<td>Preprocess the zero omegas</td></tr>
+<tr><td style="width: 25%;"><a href="dot-preProcessZeroOmega.html">.preProcessZeroOmega</a></td>
+<td>Preprocess the zero omegas</td></tr>
+</table>
+</div></body></html>

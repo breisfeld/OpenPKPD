@@ -1,0 +1,25 @@
+binom.bayes             Binomial confidence intervals using Bayesian
+                        inference
+binom.cloglog           Binomial confidence intervals using the cloglog
+                        parameterization
+binom.confint           Binomial confidence intervals
+binom.coverage          Probability coverage for binomial confidence
+                        intervals
+binom.length            Expected length for binomial confidence
+                        intervals
+binom.logit             Binomial confidence intervals using the logit
+                        parameterization
+binom.lrt               Binomial confidence intervals using the lrt
+                        likelihood
+binom.optim             Optimal binomial confidence intervals
+binom.plot              Coverage plots for binomial confidence
+                        intervals
+binom.power             Power curves for binomial parameterizations
+binom.probit            Binomial confidence intervals using the probit
+                        parameterization
+binom.profile           Binomial confidence intervals using the profile
+                        likelihood
+binom.sim               Simulates confidence intervals for binomial
+                        data
+cloglog.sample.size     Power and sample size
+tkbinom.power           Power curves for binomial parameterizations

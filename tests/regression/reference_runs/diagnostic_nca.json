@@ -1,0 +1,27 @@
+{
+  "_meta": {
+    "name": "diagnostic_nca",
+    "reference_kind": "internal-baseline",
+    "externally_validated": false,
+    "validation_level": "analytic and cross-tool-formula benchmark",
+    "dataset": "synthetic_theophylline_like",
+    "method": "NCA",
+    "seed": null,
+    "external_method_references": [
+      "Certara Phoenix WinNonlin NCA parameter formulas (plasma/serum data definitions for AUClast, Lambda_z, AUCINF, CL/F, Vz/F, MRT).",
+      "PKNCA introduction and usage vignette (default lin-up/log-down workflow and standard NCA interval/parameter conventions).",
+      "Gabrielsson J, Weiner D. Pharmacokinetic and Pharmacodynamic Data Analysis: Concepts and Applications."
+    ],
+    "validation_note": "docs/user_guide/validation.md",
+    "notes": "Self-consistent openpkpd regression baseline enriched with analytic one-compartment oral reference checks and cross-tool formula alignment against common NCA parameter conventions. Useful for drift detection, but not yet a published-dataset or direct Phoenix/PKNCA parity reference."
+  },
+  "cmax": 8.184214109602008,
+  "tmax": 2.0,
+  "auc_last": 98.3331175958803,
+  "auc_inf": 114.04722998024755,
+  "lambda_z": 0.08510637980332891,
+  "t_half": 8.144479675457104,
+  "cl_f": 2.805855083507267,
+  "vz_f": 32.96879846130545,
+  "mrt": 12.4061572005652
+}

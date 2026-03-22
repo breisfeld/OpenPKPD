@@ -1,0 +1,76 @@
+src/openpkpd/estimation/foce.py:236: UserWarning: ETA1 shrinkage is 99.9% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+src/openpkpd/estimation/foce.py:236: UserWarning: ETA2 shrinkage is 99.9% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+src/openpkpd/estimation/foce.py:236: UserWarning: ETA3 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+======================================================================
+Example 15: Bayesian Estimation (Laplace Approximation)
+======================================================================
+
+[Step 1] Running FOCE for MAP estimate ...
+  FOCE OFV:    82.8928
+  Converged:   True
+  FOCE THETA estimates:
+    THETA(1) [KA (hr⁻¹)] = 0.2640
+    THETA(2) [CL (L/hr)] = 0.0427
+    THETA(3) [V (L)] = 1.1133
+
+[Step 2] Running Bayesian estimation (Laplace approximation) ...
+  (This uses FOCE MAP + numerical Hessian for posterior approximation)
+
+  Backend used: laplace
+  OFV (MAP):   82.8928
+  n_samples:   2000
+
+======================================================================
+Posterior Summary (95% Credible Intervals)
+======================================================================
+Bayesian Posterior Summary — BAYES(Laplace)
+  Backend: laplace
+  OFV (MAP): 82.8928
+
+  Param            Mean         SD      CI_lo      CI_hi    R-hat    N_eff
+  ----------------------------------------------------------------------
+  THETA(1)       0.2499     0.7328    -1.1944     1.6608   1.0000     2000
+  THETA(2)       0.0459     0.1225    -0.1901     0.2810   1.0000     2000
+  THETA(3)       1.1234     0.5934    -0.0579     2.2962   1.0000     2000
+
+======================================================================
+Comparison: FOCE Point Estimates vs Bayesian Posterior
+======================================================================
+  Param                   FOCE_MAP    Bayes_Mean    95% CI lower    95% CI upper
+  ------------------------------------------------------------------------------
+  KA (hr⁻¹)                 0.2640        0.2499         -1.1944          1.6608
+  CL (L/hr)                 0.0427        0.0459         -0.1901          0.2810
+  V (L)                     1.1133        1.1234         -0.0579          2.2962
+
+======================================================================
+Population Parameters (OMEGA, SIGMA from MAP/FOCE)
+======================================================================
+  OMEGA diagonal: [1.74284310e+06 1.47578441e+04 5.65489062e+10]
+  SIGMA diagonal: [0.06022102]
+
+======================================================================
+Notes on Full MCMC Sampling
+======================================================================
+
+  The Laplace approximation is a fast, practical fallback that works
+  without any additional dependencies. For production-quality Bayesian
+  inference with proper uncertainty quantification, use the MCMC backends:
+
+  PyMC (recommended for general use):
+    pip install pymc
+    BAYESMethod(backend='pymc', n_samples=2000, n_chains=4)
+
+  NumPyro (JAX-based, faster on GPU/TPU):
+    pip install numpyro jax jaxlib
+    BAYESMethod(backend='numpyro', n_samples=2000, n_chains=4)
+
+  Key advantages of full MCMC over Laplace:
+    - Properly samples from the true posterior (not a Gaussian approx)
+    - Provides R-hat and effective sample size diagnostics
+    - Handles multimodal or skewed posterior distributions
+    - Required for hierarchical population PK/PD models with >5 subjects
+
+Done.

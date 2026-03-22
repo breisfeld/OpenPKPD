@@ -1,0 +1,24 @@
+manifest_version: 1
+id: nmsim_advan13_one_compartment_des
+title: NMsim ADVAN13 one-compartment DES
+description: Imported NMsim ADVAN13 example using $MODEL and $DES with a curated shared dataset.
+category: pk
+primary_mode: control_stream
+route: oral
+difficulty: advanced
+tags: [pk, oral, nmsim, advan13, des]
+sort_order: 170
+files:
+  dataset: ../../../../shared_data/nmautoverse/xgxr12.csv
+  control_stream: model.ctl
+  readme: README.md
+  preview_image: null
+gui:
+  load_dataset: true
+  load_control_stream: true
+  featured: false
+source:
+  kind: imported
+  url: https://github.com/NMautoverse/NMsim
+  license: MIT + file LICENSE
+

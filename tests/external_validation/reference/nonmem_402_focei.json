@@ -1,0 +1,76 @@
+{
+  "_meta": {
+    "benchmark_name": "NONMEM Run 402 \u2014 Two-Compartment IV (ADVAN3 TRANS4)",
+    "source": "NONMEM 7.4.3 FOCEI output (temp/nonmem/402.res)",
+    "reference_kind": "nonmem-7.4.3",
+    "externally_validated": true,
+    "dataset": "402.csv \u2014 30 subjects, 360 IV-bolus observations (Chapter 5 textbook dataset)",
+    "model": "2-compartment IV, IIV on V1/CL/V2/Q (diagonal OMEGA), proportional error",
+    "method": "FOCEI (METHOD=1 INTER)",
+    "software": "NONMEM",
+    "software_version": "7.4.3",
+    "convergence": "MINIMIZATION SUCCESSFUL",
+    "n_subjects": 30,
+    "n_observations": 360,
+    "n_function_evals": 282,
+    "significant_digits": 3.5,
+    "notes": [
+      "OFV reported without N*log(2pi) constant (NONMEM convention).",
+      "N*log(2PI) constant = 661.636; OFV with constant = 857.644.",
+      "OpenPKPD gets stuck at a local minimum (OFV~1497) due to V2/Q label-swap near initial values.",
+      "NONMEM succeeds because its L-BFGS implementation escapes the local basin more effectively.",
+      "Remedy: multi-start optimization or better initialization (V1~10, CL~4, V2~30, Q~9)."
+    ],
+    "dataset_citation": "Bauer RJ (2019). NONMEM tutorial part II: estimation methods and diagnostics for nonlinear mixed-effects models with examples from pharmacokinetic and pharmacodynamic studies. CPT Pharmacometrics Syst Pharmacol 8(8):538-556. [Dataset 402.csv: 30 subjects, IV bolus, 2-compartment PK.]"
+  },
+  "ofv": 196.008341625908,
+  "theta": {
+    "V1": 9.760346,
+    "CL": 3.876825,
+    "V2": 30.81783,
+    "Q": 8.773851
+  },
+  "theta_se": {
+    "V1": 0.243,
+    "CL": 0.107,
+    "V2": 1.28,
+    "Q": 0.273
+  },
+  "omega_diag": {
+    "V1": 0.01486943,
+    "CL": 0.01997162,
+    "V2": 0.02918796,
+    "Q": 0.02318324
+  },
+  "omega_diag_se": {
+    "V1": 0.00342,
+    "CL": 0.00525,
+    "V2": 0.0112,
+    "Q": 0.00565
+  },
+  "sigma_diag": {
+    "eps1": 0.008841256
+  },
+  "sigma_diag_se": {
+    "eps1": 0.000659
+  },
+  "shrinkage_eta_sd_pct": {
+    "V1": 9.9,
+    "CL": 9.3,
+    "V2": 22.7,
+    "Q": 10.0
+  },
+  "shrinkage_eps_sd_pct": 12.9,
+  "openpkpd_comparison": {
+    "ofv": 1497.121289,
+    "theta": {
+      "V1": 8.115,
+      "CL": 4.476,
+      "V2": 8.304,
+      "Q": 26.319
+    },
+    "pct_ofv_difference": 664.9,
+    "status": "local_minimum",
+    "diagnosis": "V2 and Q collapsed to a local minimum. NONMEM FOCEI succeeded with same initial values, indicating optimizer quality difference."
+  }
+}

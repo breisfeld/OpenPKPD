@@ -1,0 +1,26 @@
+{
+  "_meta": {
+    "name": "diagnostic_npde",
+    "reference_kind": "internal-baseline",
+    "externally_validated": false,
+    "validation_level": "literature-aligned synthetic benchmark",
+    "dataset": "synthetic_theophylline_like",
+    "method": "NPDE",
+    "seed": 7,
+    "external_method_references": [
+      "Brendel K, Comets E, Laffont C, Laveille C, Mentre F (2006) Metrics for external model evaluation with an application to the population pharmacokinetics of gliclazide.",
+      "Comets E, Brendel K, Mentre F (2008) Computing normalised prediction distribution errors to evaluate nonlinear mixed-effect models: the npde add-on package for R."
+    ],
+    "validation_note": "docs/user_guide/validation.md",
+    "notes": "Self-consistent openpkpd regression baseline enriched with literature-backed NPDE expectations for calibration and misspecification sensitivity. Useful for drift detection, but not yet a published-dataset or cross-software parity reference."
+  },
+  "mean_npde": -0.14941687800754178,
+  "var_npde": 0.8323212986086833,
+  "sw_stat": 0.9943483876158408,
+  "sw_pvalue": 0.796001116072828,
+  "quantiles": [
+    -1.7464232702528222,
+    -0.14191201670154055,
+    1.301350785606812
+  ]
+}

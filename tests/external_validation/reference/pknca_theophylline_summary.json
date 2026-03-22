@@ -1,0 +1,46 @@
+{
+  "benchmark_name": "PKNCA theophylline vignette summary",
+  "source_urls": [
+    "https://humanpred.r-universe.dev/PKNCA/doc/v02-example-theophylline.html",
+    "https://onlinehelp.certara.com/phoenix/8.2/topics/ncaparamformulas.htm",
+    "https://cran.r-project.org/web/packages/PKNCA/PKNCA.pdf"
+  ],
+  "notes": [
+    "Reference values are taken from the rendered PKNCA vignette 'Computing NCA Parameters for Theophylline'.",
+    "PKNCA documents lin-up/log-down integration and states that the package has been cross-validated against Phoenix WinNonlin.",
+    "The 0-24 AUClast row is reported separately from the 0-Inf summary row in the vignette output."
+  ],
+  "summary_0_24": {
+    "n_subjects": 12,
+    "auclast": {
+      "center": 74.6,
+      "dispersion": 24.3,
+      "summary_type": "geometric_mean [geometric_cv_percent]"
+    }
+  },
+  "summary_0_inf": {
+    "n_subjects": 12,
+    "cmax": {
+      "center": 8.65,
+      "dispersion": 17.0,
+      "summary_type": "geometric_mean [geometric_cv_percent]"
+    },
+    "tmax": {
+      "center": 1.14,
+      "lower": 0.63,
+      "upper": 3.55,
+      "summary_type": "median [min, max]"
+    },
+    "half_life": {
+      "center": 8.18,
+      "dispersion": 2.12,
+      "summary_type": "arithmetic_mean [sd]"
+    },
+    "aucinf_obs": {
+      "center": 115.0,
+      "dispersion": 28.4,
+      "summary_type": "geometric_mean [geometric_cv_percent]"
+    }
+  },
+  "dataset_citation": "Boeckmann AJ, Sheiner LB, Beal SL (1992). NONMEM Users Guide \u2014 Part V: Introductory Guide. University of California, San Francisco. [Theophylline dataset: 12 subjects, single oral dose, 132 observations.] Also distributed as datasets::Theoph in R: Pinheiro J, Bates D (2000). Mixed-Effects Models in S and S-PLUS. Springer, New York."
+}

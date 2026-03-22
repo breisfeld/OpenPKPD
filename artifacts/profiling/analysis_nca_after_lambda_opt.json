@@ -1,0 +1,162 @@
+{
+  "metadata": {
+    "date": "2026-03-16",
+    "seed": 77,
+    "workloads": [
+      "nca"
+    ],
+    "parameters": {
+      "fit_subjects": 6,
+      "fit_maxeval": 12,
+      "sim_subjects": 24,
+      "npde_simulations": 500,
+      "vpc_replicates": 500,
+      "n_bins": 8,
+      "nca_subjects": 2000,
+      "top_functions": 15
+    }
+  },
+  "nca": {
+    "name": "nca",
+    "wall_seconds": 4.047168,
+    "result": {
+      "rows": 2000
+    },
+    "stage_totals": {
+      "nca.compute_auc": {
+        "seconds": 0.18285801634192467,
+        "calls": 4000
+      },
+      "nca.compute_lambda_z": {
+        "seconds": 0.23861395753920078,
+        "calls": 1996
+      },
+      "nca.compute_subject": {
+        "seconds": 0.6023377834353596,
+        "calls": 2000
+      }
+    },
+    "top_functions": [
+      {
+        "function": "<lambda>",
+        "location": "profile_analysis.py:173",
+        "cumulative_seconds": 4.047055,
+        "self_seconds": 0.000718,
+        "ncalls": 1,
+        "primitive_calls": 1
+      },
+      {
+        "function": "compute_dataset",
+        "location": "nca.py:348",
+        "cumulative_seconds": 4.046333,
+        "self_seconds": 0.080789,
+        "ncalls": 1,
+        "primitive_calls": 1
+      },
+      {
+        "function": "__getitem__",
+        "location": "frame.py:4337",
+        "cumulative_seconds": 2.26943,
+        "self_seconds": 0.08095,
+        "ncalls": 18001,
+        "primitive_calls": 18001
+      },
+      {
+        "function": "_getitem_bool_array",
+        "location": "frame.py:4406",
+        "cumulative_seconds": 1.526646,
+        "self_seconds": 0.027813,
+        "ncalls": 6000,
+        "primitive_calls": 6000
+      },
+      {
+        "function": "take",
+        "location": "generic.py:4010",
+        "cumulative_seconds": 0.998113,
+        "self_seconds": 0.066181,
+        "ncalls": 6000,
+        "primitive_calls": 6000
+      },
+      {
+        "function": "take",
+        "location": "managers.py:1044",
+        "cumulative_seconds": 0.833532,
+        "self_seconds": 0.021618,
+        "ncalls": 6000,
+        "primitive_calls": 6000
+      },
+      {
+        "function": "new_method",
+        "location": "common.py:67",
+        "cumulative_seconds": 0.778243,
+        "self_seconds": 0.009438,
+        "ncalls": 6000,
+        "primitive_calls": 6000
+      },
+      {
+        "function": "_cmp_method",
+        "location": "series.py:6726",
+        "cumulative_seconds": 0.749812,
+        "self_seconds": 0.021342,
+        "ncalls": 6000,
+        "primitive_calls": 6000
+      },
+      {
+        "function": "compute_subject",
+        "location": "nca.py:200",
+        "cumulative_seconds": 0.591776,
+        "self_seconds": 0.112942,
+        "ncalls": 2000,
+        "primitive_calls": 2000
+      },
+      {
+        "function": "__eq__",
+        "location": "arraylike.py:40",
+        "cumulative_seconds": 0.516838,
+        "self_seconds": 0.003603,
+        "ncalls": 4000,
+        "primitive_calls": 4000
+      },
+      {
+        "function": "_construct_result",
+        "location": "series.py:6813",
+        "cumulative_seconds": 0.511085,
+        "self_seconds": 0.031666,
+        "ncalls": 6000,
+        "primitive_calls": 6000
+      },
+      {
+        "function": "_get_item",
+        "location": "frame.py:4966",
+        "cumulative_seconds": 0.464966,
+        "self_seconds": 0.015164,
+        "ncalls": 12001,
+        "primitive_calls": 12001
+      },
+      {
+        "function": "reindex_indexer",
+        "location": "managers.py:792",
+        "cumulative_seconds": 0.463368,
+        "self_seconds": 0.06049,
+        "ncalls": 6000,
+        "primitive_calls": 6000
+      },
+      {
+        "function": "_ixs",
+        "location": "frame.py:4292",
+        "cumulative_seconds": 0.42903,
+        "self_seconds": 0.015662,
+        "ncalls": 12001,
+        "primitive_calls": 12001
+      },
+      {
+        "function": "check_bool_indexer",
+        "location": "indexing.py:2647",
+        "cumulative_seconds": 0.418517,
+        "self_seconds": 0.014733,
+        "ncalls": 6000,
+        "primitive_calls": 6000
+      }
+    ]
+  }
+}

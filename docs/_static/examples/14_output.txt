@@ -1,0 +1,55 @@
+openpkpd/estimation/foce.py:236: UserWarning: ETA1 shrinkage is 59.3% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+openpkpd/estimation/foce.py:236: UserWarning: ETA2 shrinkage is 74.4% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+openpkpd/estimation/foce.py:236: UserWarning: ETA3 shrinkage is 83.1% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+============================================================
+Example 14: Simulation-based VPC
+============================================================
+Loaded 66 rows, 6 subjects
+Fitting theophylline FOCE model...
+Method: FOCEI
+OFV: 558.2349
+AIC: 578.2349
+BIC: inf   (n_obs = 0)
+n_parameters: 10
+Converged: False
+THETA: [ 1.5   0.08 30.  ]
+OMEGA (diagonal): [0.5 0.3 0.3]
+SIGMA (diagonal): [0.1]
+ETA shrinkage: ['59.3%', '74.4%', '83.1%']
+Shrinkage warnings:
+  ETA1 shrinkage is 59.3% (>30%). EBE-based analyses for this parameter may be unreliable.
+  ETA2 shrinkage is 74.4% (>30%). EBE-based analyses for this parameter may be unreliable.
+  ETA3 shrinkage is 83.1% (>30%). EBE-based analyses for this parameter may be unreliable.
+
+Fitted parameters:
+  KA = 1.5000 hr^-1
+  CL = 0.0800 L/hr
+  V  = 30.0000 L
+
+Generated 200 replicate datasets (12060 total rows)
+Running VPCEngine with 200 replicates...
+VPCEngine computation complete.
+Simulating 200 replicates (seed=42)...
+VPC percentiles computed for 30 time points.
+
+Generating plots...
+Creating prediction interval plot...
+Creating vpc_plot from VPCResult...
+Computing diagnostic DataFrame...
+Creating VPC via model_perf.vpc() (n_sim=100)...
+Creating simulation panel (individual profiles)...
+Creating spaghetti plot...
+
+Created 5 figures.
+  Saved: docs/_static/examples/14_vpc_prediction_interval.png
+  Saved: docs/_static/examples/14_vpc_engine.png
+  Saved: docs/_static/examples/14_vpc_model_perf.png
+  Saved: docs/_static/examples/14_simulation_panel.png
+  Saved: docs/_static/examples/14_spaghetti.png
+
+All figures saved to: docs/_static/examples
+
+Done.

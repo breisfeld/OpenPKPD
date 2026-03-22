@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+# pre-commit hook — formatting, linting, and machine-specific path checks.
+#
+# Checks (in order):
+#   1. ruff format  — auto-formats staged Python files and re-stages them
+#   2. ruff check   — lints staged Python files (no auto-fix; must be clean)
+#   3. machine-path — blocks absolute home-directory paths and hostnames
+#
+# Install:  just install-hooks
+# Bypass:   SKIP_CHECKS=1 git commit  (use sparingly; document why)
+
+set -uo pipefail
+
+[[ "${SKIP_CHECKS:-0}" == "1" ]] && exit 0
+# Legacy bypass name — keep working for existing users.
+[[ "${SKIP_MACHINE_CHECK:-0}" == "1" ]] && exit 0
+
+# ---------------------------------------------------------------------------
+# Collect staged Python files
+# ---------------------------------------------------------------------------
+py_files=()
+while IFS= read -r f; do
+    [[ -n "$f" ]] && py_files+=("$f")
+done < <(git diff --cached --name-only --diff-filter=ACM 2>/dev/null | grep '\.py$')
+
+# ---------------------------------------------------------------------------
+# 1. ruff format — auto-format and re-stage
+# ---------------------------------------------------------------------------
+if [[ ${#py_files[@]} -gt 0 ]]; then
+    if command -v uv &>/dev/null; then
+        uv run --extra dev ruff format "${py_files[@]}" --quiet
+    elif command -v ruff &>/dev/null; then
+        ruff format "${py_files[@]}" --quiet
+    fi
+    # Re-stage any files that ruff reformatted.
+    git add "${py_files[@]}"
+fi
+
+# ---------------------------------------------------------------------------
+# 2. ruff check — lint (errors must be fixed before committing)
+# ---------------------------------------------------------------------------
+if [[ ${#py_files[@]} -gt 0 ]]; then
+    lint_ok=true
+    if command -v uv &>/dev/null; then
+        uv run --extra dev ruff check "${py_files[@]}" || lint_ok=false
+    elif command -v ruff &>/dev/null; then
+        ruff check "${py_files[@]}" || lint_ok=false
+    fi
+    if [[ "$lint_ok" == "false" ]]; then
+        printf '\nERROR: ruff found lint errors in staged files.\n'
+        printf 'Run:  just format   to auto-fix what is fixable.\n'
+        printf 'To bypass: SKIP_CHECKS=1 git commit\n\n'
+        exit 1
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Build patterns from the current environment
+# ---------------------------------------------------------------------------
+patterns=()
+
+# $HOME covers:
+#   Linux   →  /home/alice
+#   macOS   →  /Users/alice
+#   Git Bash→  /c/Users/alice
+if [[ -n "${HOME:-}" ]]; then
+    patterns+=("$HOME")
+
+    # Git Bash: /c/Users/alice  →  also check  C:/Users/alice  and  C:\Users\alice
+    if [[ "$HOME" =~ ^/([a-zA-Z])/(.*) ]]; then
+        drive="${BASH_REMATCH[1]}"
+        rest="${BASH_REMATCH[2]}"
+        # Uppercase the drive letter (bash 3.2-compatible via tr)
+        drive_up="$(printf '%s' "$drive" | tr '[:lower:]' '[:upper:]')"
+        patterns+=("${drive_up}:/${rest}")
+        patterns+=("${drive_up}:\\${rest//\//\\}")
+    fi
+fi
+
+# Explicit cross-platform path prefixes for the current user
+_user="$(id -un 2>/dev/null || whoami 2>/dev/null || printf '')"
+if [[ -n "$_user" ]]; then
+    patterns+=(
+        "/home/$_user"
+        "/Users/$_user"
+        "C:/Users/$_user"
+        "C:\\Users\\$_user"
+    )
+fi
+
+# Machine hostname (short form — avoids matching FQDNs in legitimate URLs)
+_host="$(hostname -s 2>/dev/null || hostname 2>/dev/null || printf '')"
+[[ -n "$_host" ]] && patterns+=("$_host")
+
+# Deduplicate and drop empty entries
+unique_patterns=()
+for p in "${patterns[@]}"; do
+    [[ -z "$p" ]] && continue
+    already=0
+    for u in "${unique_patterns[@]}"; do
+        [[ "$u" == "$p" ]] && already=1 && break
+    done
+    [[ $already -eq 0 ]] && unique_patterns+=("$p")
+done
+
+# ---------------------------------------------------------------------------
+# Collect staged files (added, copied, or modified; skip deletes)
+# ---------------------------------------------------------------------------
+staged_files=()
+while IFS= read -r f; do
+    [[ -n "$f" ]] && staged_files+=("$f")
+done < <(git diff --cached --name-only --diff-filter=ACM 2>/dev/null)
+
+[[ ${#staged_files[@]} -eq 0 ]] && exit 0
+
+# ---------------------------------------------------------------------------
+# Scan each staged file
+# ---------------------------------------------------------------------------
+found=0
+for file in "${staged_files[@]}"; do
+    # Don't scan this hook script itself — its own pattern list would trigger.
+    [[ "$file" == "scripts/git-hooks/pre-commit" ]] && continue
+
+    for pattern in "${unique_patterns[@]}"; do
+        # grep -I silently skips binary files.
+        # git show reads the staged version, not the working-tree version.
+        hits="$(git show ":$file" 2>/dev/null \
+                | grep -In -- "$pattern" 2>/dev/null \
+                || true)"
+        if [[ -n "$hits" ]]; then
+            if [[ $found -eq 0 ]]; then
+                printf '\nERROR: Machine-specific content detected in staged files.\n'
+                printf 'Replace local paths/hostnames with relative paths or placeholders.\n'
+                printf 'To bypass: SKIP_MACHINE_CHECK=1 git commit\n\n'
+            fi
+            printf 'File:    %s\n' "$file"
+            printf 'Pattern: %s\n' "$pattern"
+            while IFS= read -r hit; do
+                printf '  %s\n' "$hit"
+            done <<< "$hits"
+            printf '\n'
+            found=1
+            break  # one match per file is enough to report
+        fi
+    done
+done
+
+[[ $found -ne 0 ]] && exit 1
+exit 0

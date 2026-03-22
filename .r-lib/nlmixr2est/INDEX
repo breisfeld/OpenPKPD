@@ -1,0 +1,96 @@
+.augPredIpredModel      Augment Prediction for Ipred Model
+.nlmixr0preProcessCovariatesPresent
+                        Preprocess Covariates needed (or other data
+                        items)
+.nlmixrPreprocessLiteralFix
+                        This literally fixes parameters in the model
+.preProcessDataUi       Preprocess the zero omegas
+.preProcessZeroOmega    Preprocess the zero omegas
+addCwres                Add CWRES
+addNpde                 NPDE calculation for nlmixr2
+addTable                Add table information to nlmixr2 fit object
+                        without tables
+agqControl              Control options for the agq estimation method
+assertNlmixrFit         Assert that this is a nlmixr2 fit object
+assertNlmixrFitData     Assert that this is a nlmixr2 fit data object
+bobyqaControl           Control for bobyqa estimation method in nlmixr2
+boxCox                  Cox Box, Yeo Johnson and inverse transformation
+cholSE                  Generalized Cholesky Matrix Decomposition
+foControl               Control options for the FO estimation method
+foceControl             Control options for the foce estimation method
+foceiControl            Control Options for FOCEi
+foiControl              Control options foir the FOI estimation method
+getValidNlmixrCtl.agq   Get valid nlmixr control object
+laplaceControl          Control options for the Laplace estimation
+                        method
+lbfgsb3cControl         Control for lbfgsb3c estimation method in
+                        nlmixr2
+n1qn1Control            Control for n1qn1 estimation method in nlmixr2
+newuoaControl           Control for newuoa estimation method in nlmixr2
+nlmControl              nlmixr2 defaults controls for nlm
+nlminbControl           nlmixr2 nlminb defaults
+nlmixr2                 nlmixr2 fits population PK and PKPD non-linear
+                        mixed effects models.
+nlmixr2AllEst           Show all the current estimation methods
+nlmixr2AugPredSolve     Augmented Prediction for nlmixr2 fit
+nlmixr2CreateOutputFromUi
+                        Create nlmixr output from the UI
+nlmixr2Est.agq          Generic for nlmixr2 estimation methods
+nlmixr2Gill83           Get the optimal forward difference interval by
+                        Gill83 method
+nlmixr2Hess             Calculate Hessian
+nlmixr2Keywords         A list and description of the fields in the
+                        nlmxir2 object
+nlmixr2Logo             Messages the nlmixr2 logo...
+nlmixr2NlmeControl      Control Values for nlme Fit with extra options
+                        for nlmixr
+nlmixr2Validate         Validate nlmixr2
+nlmixr2Version          Display nlmixr2's version
+nlmixr2fix              Try to fix a nlmixr2 fit
+nlmixrAddObjectiveFunctionDataFrame
+                        Add objective function data frame to the
+                        current objective function
+nlmixrAddTiming         Manually add time to a nlmixr2 object
+nlmixrCbind             nlmixrCbind
+nlmixrClone             Clone nlmixr environment
+nlmixrWithTiming        Time a part of a nlmixr operation and add to
+                        nlmixr object
+nlsControl              nlmixr2 defaults controls for nls
+nmNearPD                C++ implementation of Matrix's nearPD
+nmObjGetControl.agq     Get control object from fit
+nmObjGetEstimationModel
+                        Get the estimation model for a fit object
+                        depending on the object type
+nmObjGetFoceiControl.agq
+                        Method for getting focei compatible control
+                        object from nlmixr object
+nmObjGetIpredModel      Get the ipred model for a fit object depending
+                        on the object type
+nmObjGetPredOnly        Get the pred-only model for a fit depending on
+                        the object type
+nmObjHandleControlObject.agqControl
+                        Handle the control object
+nmObjHandleModelObject
+                        Handle Model Object
+nmObjUiSetCompressed    Set if the nlmixr2 object will return a
+                        compressed ui
+nmsimplex               Nelder-Mead simplex search
+ofv                     Return the objective function
+optimControl            nlmixr2 optim defaults
+posthocControl          Control options for the posthoc estimation
+                        method
+print.saemFit           Print an SAEM model fit summary
+residuals.nlmixr2FitData
+                        Extract residuals from the FOCEI fit
+rmEta                   Remove an eta from the model
+saemControl             Control Options for SAEM
+setCov                  Set the covariance type based on prior
+                        calculated covariances
+setOfv                  Set/get Objective function type for a nlmixr2
+                        object
+sqrtm                   Return the square root of general square matrix
+                        A
+summary.saemFit         Print an SAEM model fit summary
+tableControl            Output table/data.frame options
+uobyqaControl           Control for uobyqa estimation method in nlmixr2
+vpcSim                  VPC simulation

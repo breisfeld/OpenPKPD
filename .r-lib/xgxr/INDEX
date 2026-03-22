@@ -1,0 +1,80 @@
+StatSmoothOrdinal       Stat object for producing smooths through
+                        ordinal data
+StatSummaryBinQuant     Stat ggproto object for binning by quantile for
+                        xgx_stat_ci
+StatSummaryOrdinal      Stat ggproto object for creating ggplot layers
+                        of binned confidence intervals for
+                        probabiliities of classes in ordinal data
+case1_pkpd              Case 1 PKPD Data Set
+edit_rmd_template_str   Edit a Rmd Template from xgx
+get_rmd_name            Determine the name of a Rmd template
+get_rmd_str             'get_rmd_str' returns a Rmd template string,
+                        based on the desired PKPD parameters
+mad                     Multiple Ascending Dose Data Set
+mad_missing_duplicates
+                        Multiple Ascending Dose Data Set (Duplicates
+                        Removed)
+mad_nca                 Multiple Ascending Dose Noncompartmental
+                        Analysis (NCA) dataset
+nlmixr_theo_sd          nlmixr Theophylline SD Data Set
+predict.nls             predict.nls
+predictdf               Prediction data frame from ggplot2 Get
+                        predictions with standard errors into data
+                        frame
+predictdf.nls           Prediction data frame for nls
+predictdf.polr          Prediction data frame for polr
+sad                     Single Ascending Dose Data Set
+theme_xgx               Calls the standard theme for xGx graphics
+xgx_annotate_filenames
+                        Append filenames to bottom of the plot
+xgx_annotate_status     Create a status (e.g. DRAFT) annotation layer
+xgx_annotate_status_png
+                        Annotate a png file or directory of png files
+xgx_auto_explore        Produce an xgx-styled report the given dataset
+                        using xgx R markdown templates, or a
+                        user-provided R markdown template.  (Note: The
+                        R markdown template provided must be formatted
+                        in a similar manner to that of the xgx R
+                        markdown templates to work.) The working
+                        directory will contain a new directory
+                        ('xgx_autoexplore_output') after running this
+                        function, which will contain a directory for
+                        the dataset, and futher a directory for the
+                        type of analysis / R markdown template.
+xgx_breaks_log10        Sets the default breaks for log10
+xgx_breaks_time         Sets the default breaks for a time axis
+xgx_check_data          Check data for various issues
+xgx_conf_int            'xgx_conf_int' returns a dataframe with mean
+                        +/- confidence intervals
+xgx_dirs2char           Append filenames to bottom of the plot
+xgx_geom_ci             Plot data with mean and confidence intervals
+xgx_geom_pi             Plot data with median and percent intervals
+xgx_labels_log10        Nice labels for log10.
+xgx_minor_breaks_log10
+                        Sets the default minor_breaks for log10 scales
+xgx_plot                Create a new xgx plot
+xgx_save                Saving plot, automatically annotating the
+                        status and denoting the filenames
+xgx_save_table          Saving table as an image, also labeling the
+                        program that created the table and where the
+                        table is stored
+xgx_scale_x_log10       log10 scales the x axis with a "pretty" set of
+                        breaks
+xgx_scale_x_reverselog10
+                        Reverse-log transform for the x scale.
+xgx_scale_x_time_units
+                        Convert time units for plotting
+xgx_scale_y_log10       log10 scales the y axis with a "pretty" set of
+                        breaks
+xgx_scale_y_percentchangelog10
+                        percentchangelog10 transform for the y scale.
+xgx_scale_y_reverselog10
+                        Reverselog transform for the y scale.
+xgx_stat_ci             Plot data with mean and confidence intervals
+xgx_stat_pi             Plot data with median and percent intervals
+xgx_stat_smooth         Wrapper for stat_smooth
+xgx_summarize_covariates
+                        Summarize Covariate information in a dataset
+xgx_summarize_data      Check data for various issues
+xgx_theme               Calls the standard theme for xGx graphics
+xgx_theme_set           Sets the standard theme for xGx graphics

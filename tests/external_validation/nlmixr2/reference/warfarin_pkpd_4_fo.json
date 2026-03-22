@@ -1,0 +1,34 @@
+{
+  "method": "FO",
+  "software": "nlmixr2",
+  "dataset": "warfarin_joint_pkpd_4",
+  "n_subjects": 4,
+  "n_obs_in_likelihood": 67,
+  "ofv": 247.5304,
+  "theta": {
+    "KTR": 0.8968,
+    "KA": 0.8887,
+    "CL": 0.1337,
+    "V": 8.6756,
+    "EMAX": 0.999,
+    "EC50": 1.5735,
+    "KOUT": 0.0552,
+    "E0": 101.3225,
+    "PK_PROP_ERR": 0.0311,
+    "PK_ADD_ERR": 1.426,
+    "PD_ADD_ERR": 12.7622
+  },
+  "omega_diag": {
+    "E0": 9.981e-09
+  },
+  "raw_message": "Posthoc prediction with provided THETAs",
+  "meta": {
+    "description": "nlmixr2 FO joint PK/PD warfarin 4-subject reduced benchmark",
+    "endpoint_coding": {
+      "dose": 0,
+      "cp": 1,
+      "pca": 2
+    },
+    "notes": "Reduced empirical mixed-endpoint benchmark for runtime-practical external validation."
+  }
+}

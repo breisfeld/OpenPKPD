@@ -1,0 +1,4 @@
+plot.nlmixr2AugPred     Plot a nlmixr2 augPred object
+plot.nlmixr2FitData     Plot a nlmixr2 data object
+traceplot               Produce trace-plot for fit if applicable
+vpcPlot                 VPC based on ui model

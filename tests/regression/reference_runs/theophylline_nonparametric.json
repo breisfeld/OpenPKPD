@@ -1,0 +1,44 @@
+{
+  "ofv": 214.23409285673273,
+  "theta": [
+    1.2264661413588325,
+    2.750583389493541,
+    32.45042969732928
+  ],
+  "omega_diag": [
+    0.07106993473225148
+  ],
+  "sigma_diag": [
+    0.34905308525782813
+  ],
+  "converged": true,
+  "_meta": {
+    "name": "theophylline_nonparametric",
+    "reference_kind": "internal-baseline",
+    "externally_validated": false,
+    "dataset": "synthetic_theophylline_like",
+    "method": "NONPARAMETRIC",
+    "seed": 42,
+    "notes": "Self-consistent openpkpd regression baseline. Useful for drift detection but not yet an external scientific reference."
+  },
+  "support_weights": [
+    0.20107233844346697,
+    0.08484826826997628,
+    0.31141889740501033,
+    0.023844040893658512,
+    0.0646377490588339,
+    4.858923172975845e-05,
+    0.05140698224964073,
+    0.09442242106829093,
+    0.06464325252132613,
+    0.10265800190116575,
+    1.2756706336062632e-05,
+    0.0009867022505648296
+  ],
+  "empirical_mean": [
+    0.1714121435843929
+  ],
+  "empirical_variance": [
+    0.07106993473225148
+  ]
+}

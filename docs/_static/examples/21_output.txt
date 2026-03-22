@@ -1,0 +1,43 @@
+openpkpd/estimation/foce.py:236: UserWarning: ETA1 shrinkage is 93.4% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+openpkpd/estimation/foce.py:236: UserWarning: ETA2 shrinkage is 94.5% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+openpkpd/estimation/foce.py:236: UserWarning: ETA3 shrinkage is 92.9% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+openpkpd/estimation/foce.py:236: UserWarning: ETA1 shrinkage is 94.0% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+openpkpd/estimation/foce.py:236: UserWarning: ETA2 shrinkage is 94.3% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+openpkpd/estimation/foce.py:236: UserWarning: ETA3 shrinkage is 93.2% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+openpkpd/estimation/foce.py:236: UserWarning: ETA1 shrinkage is 88.4% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+openpkpd/estimation/foce.py:236: UserWarning: ETA2 shrinkage is 96.7% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+openpkpd/estimation/foce.py:236: UserWarning: ETA3 shrinkage is 93.1% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+============================================================
+Example 21: Laplacian Estimation with Prior Augmentation
+============================================================
+
+Running FOCE (baseline)...
+  FOCE OFV = 3.1819
+
+Running Laplacian (no prior)...
+  Laplacian OFV = 83.6063
+
+Running Laplacian + prior (KA=0.9, CL=0.13, V=8.7; 30% CV)...
+  Laplacian+Prior OFV = 1505.1847
+
+--- THETA comparison ---
+Parameter          Prior       FOCE    Laplacian    Lap+Prior
+--------------------------------------------------------------
+KA (hr⁻¹)         0.9000     0.8225       0.8515       0.8312
+CL (L/hr)         0.1300     0.1270       0.1537       0.1353
+V (L)             8.7000    10.1228       9.8471       9.0398
+
+OFV:   FOCE=3.18  Laplacian=83.61  Laplacian+Prior=1505.18
+
+Note: Laplacian OFV includes log|H_i| correction; Prior OFV also includes prior penalty term.
+These OFVs are not directly comparable across methods.
+Figure saved to docs/_static/examples

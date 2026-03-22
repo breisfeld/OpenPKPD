@@ -1,0 +1,86 @@
+{
+  "_meta": {
+    "benchmark_name": "NONMEM Run 504 \u2014 One-Compartment with Covariates (ADVAN1 TRANS2)",
+    "source": "NONMEM 7.5.0 FOCEI output (temp/nonmem/504.res)",
+    "reference_kind": "nonmem-7.5.0",
+    "externally_validated": true,
+    "dataset": "501.csv \u2014 60 subjects, 240 IV-infusion observations, covariates: WT, AGE, SEX",
+    "model": "1-compartment IV infusion, power-law covariates on CL and V, BLOCK(2) OMEGA, proportional error",
+    "method": "FOCEI (METHOD=COND INTERACTION)",
+    "software": "NONMEM",
+    "software_version": "7.5.0",
+    "convergence": "MINIMIZATION SUCCESSFUL",
+    "n_subjects": 60,
+    "n_observations": 240,
+    "n_function_evals": 370,
+    "significant_digits": 3.6,
+    "notes": [
+      "OFV reported without N*log(2pi) constant (NONMEM convention).",
+      "N*log(2PI) constant = 441.090; OFV with constant = 1499.394.",
+      "OpenPKPD achieves OFV=1139.52 (7.7% worse than NONMEM).",
+      "Main discrepancy: V~WT exponent (0.817 vs NONMEM 1.32), CL~AGE exponent (-0.203 vs -0.534).",
+      "Likely cause: block OMEGA optimization + covariate interaction creates difficult likelihood surface.",
+      "Remedy: better initialization of covariate exponents; tighter bounds on power-law parameters."
+    ],
+    "dataset_citation": "Bauer RJ (2019). NONMEM tutorial part II: estimation methods and diagnostics for nonlinear mixed-effects models with examples from pharmacokinetic and pharmacodynamic studies. CPT Pharmacometrics Syst Pharmacol 8(8):538-556. [Dataset 504.csv: 60 subjects, IV infusion, 1-compartment with covariates.]"
+  },
+  "ofv": 1058.30371065851,
+  "theta": {
+    "CL_ref": 3.03133,
+    "V_ref": 32.3836,
+    "CL_WT_exponent": 0.659784,
+    "V_WT_exponent": 1.32152,
+    "CL_AGE_exponent": -0.534065,
+    "V_AGE_exponent": 0.0522963,
+    "CL_SEX_multiplier": 0.903881,
+    "V_SEX_multiplier": 0.946765
+  },
+  "theta_se": {
+    "CL_ref": 0.116,
+    "V_ref": 1.58,
+    "CL_WT_exponent": 0.16,
+    "V_WT_exponent": 0.202,
+    "CL_AGE_exponent": 0.103,
+    "V_AGE_exponent": 0.131,
+    "CL_SEX_multiplier": 0.0514,
+    "V_SEX_multiplier": 0.0675
+  },
+  "omega_block": {
+    "CL_CL": 0.0307203,
+    "CL_V": 0.001479,
+    "V_V": 0.0466091
+  },
+  "omega_block_se": {
+    "CL_CL": 0.00916,
+    "CL_V": 0.00759,
+    "V_V": 0.0139
+  },
+  "sigma_diag": {
+    "eps1": 0.0502577
+  },
+  "sigma_diag_se": {
+    "eps1": 0.00676
+  },
+  "shrinkage_eta_sd_pct": {
+    "CL": 16.1,
+    "V": 17.1
+  },
+  "shrinkage_eps_sd_pct": 17.0,
+  "condition_number_R_matrix": 7.92,
+  "openpkpd_comparison": {
+    "ofv": 1139.515291,
+    "theta": {
+      "CL_ref": 3.113,
+      "V_ref": 38.75,
+      "CL_WT_exponent": 0.807,
+      "V_WT_exponent": 0.817,
+      "CL_AGE_exponent": -0.203,
+      "V_AGE_exponent": 0.069,
+      "CL_SEX_multiplier": 0.941,
+      "V_SEX_multiplier": 0.932
+    },
+    "pct_ofv_difference": 7.7,
+    "status": "converged_suboptimal",
+    "diagnosis": "Converged but to a suboptimal solution. V_WT_exponent and CL_AGE_exponent differ substantially from NONMEM. Block OMEGA optimization with power-law covariates is challenging."
+  }
+}

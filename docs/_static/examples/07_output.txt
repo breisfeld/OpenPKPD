@@ -1,0 +1,24 @@
+openpkpd/estimation/foce.py:236: UserWarning: ETA1 shrinkage is 72.5% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+openpkpd/estimation/foce.py:236: UserWarning: ETA2 shrinkage is 73.6% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+openpkpd/estimation/foce.py:236: UserWarning: ETA3 shrinkage is 82.3% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+Running FOCE...
+Method: FOCEI
+OFV: 278.7017
+AIC: 298.7017
+BIC: inf   (n_obs = 0)
+n_parameters: 10
+Converged: False
+THETA: [ 1.5   0.08 30.  ]
+OMEGA (diagonal): [0.5 0.3 0.3]
+SIGMA (diagonal): [0.1]
+ETA shrinkage: ['72.5%', '73.6%', '82.3%']
+Shrinkage warnings:
+  ETA1 shrinkage is 72.5% (>30%). EBE-based analyses for this parameter may be unreliable.
+  ETA2 shrinkage is 73.6% (>30%). EBE-based analyses for this parameter may be unreliable.
+  ETA3 shrinkage is 82.3% (>30%). EBE-based analyses for this parameter may be unreliable.
+
+Created 14 figures.
+Figures saved to docs/_static/examples

@@ -1,0 +1,5 @@
+armadillo_version       Get Armadillo version
+pkg_template            Start a new project with the armadillo4r
+                        package template
+unvendor                Unvendor the armadillo4r headers
+vendor                  Vendor the cpp4r and armadillo4r headers

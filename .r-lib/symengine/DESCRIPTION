@@ -1,0 +1,43 @@
+Package: symengine
+Title: Interface to the 'SymEngine' Library
+Version: 0.2.11
+Authors@R: c(person("Jialin", "Ma", email="marlin@inventati.org", role = c("cre", "aut")),
+             person("Isuru", "Fernando", email="isuruf@gmail.com", role = c("aut")),
+             person("Xin", "Chen", email="xinchen.tju@gmail.com", role = c("aut")))
+Description: 
+    Provides an R interface to 'SymEngine' <https://github.com/symengine/>,
+    a standalone 'C++' library for fast symbolic manipulation. The package has functionalities
+    for symbolic computation like calculating exact mathematical expressions, solving
+    systems of linear equations and code generation.
+Depends: R (>= 4.2)
+Imports: methods, Rcpp
+Suggests: crayon, pracma, testthat (>= 2.1.0), knitr, rmarkdown
+LinkingTo: Rcpp
+SystemRequirements: GNU make, cmake, gmp, mpfr
+SystemRequirementsNote: gmp (deb package: libgmp-dev, rpm package:
+        gmp-devel), mpfr (deb package: libmpfr-dev, rpm package:
+        mpfr-devel)
+Encoding: UTF-8
+URL: https://github.com/symengine/symengine.R
+BugReports: https://github.com/symengine/symengine.R/issues
+License: GPL (>= 2)
+Copyright: The R package bundles the 'SymEngine' library source and its
+        subcomponents under 'src/upstream' directory. See file
+        COPYRIGHTS for retained copyright notices as a relicensing and
+        redistribution requirement.
+RoxygenNote: 7.3.2
+Collate: 'RcppExports.R' 'basic-getinfo.R' 'classes.R' 'basic.R'
+        'codegen.R' 'double_visitor.R' 'function_symbol.R' 'knitr.R'
+        'lambdify.R' 'language_conversion.R' 'matrix.R' 'misc.R'
+        'ops.R' 'solve.R' 'summary.R' 'symbolic_array.R' 'symengine.R'
+        'symengine_info.R' 'utils-subset.R' 'vector.R' 'zzz.R'
+VignetteBuilder: knitr
+NeedsCompilation: yes
+Packaged: 2026-03-03 14:14:52 UTC; jma1
+Author: Jialin Ma [cre, aut],
+  Isuru Fernando [aut],
+  Xin Chen [aut]
+Maintainer: Jialin Ma <marlin@inventati.org>
+Repository: CRAN
+Date/Publication: 2026-03-04 06:30:37 UTC
+Built: R 4.3.3; x86_64-pc-linux-gnu; 2026-03-13 14:49:14 UTC; unix

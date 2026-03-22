@@ -1,0 +1,41 @@
+============================================================
+Example 22: PBPK Model — 5-Organ Human Template
+============================================================
+
+Compartments: ['lung', 'liver', 'kidney', 'gut', 'central']
+Output compartment: 'central' (index 5)
+
+Dose: 100 mg IV bolus at t=0 into blood/central
+Observation times: [ 0.25  0.5   1.    2.    4.    6.    8.   12.   16.   24.  ] h
+
+Solving PBPK ODE system...
+
+--- Plasma (central) concentration profile ---
+  Time (h)    C_plasma (mg/L)
+------------------------------
+      0.25             1.5935
+      0.50             0.4606
+      1.00             0.0388
+      2.00             0.0003
+      4.00             0.0000
+      6.00             0.0000
+      8.00             0.0000
+     12.00             0.0000
+     16.00             0.0000
+     24.00             0.0000
+
+--- Tissue concentration comparison at key times ---
+  Time (h)       Plasma        Liver       Kidney
+--------------------------------------------------
+      0.25       1.5935       8.0686       4.6843
+      0.50       0.4606       2.3869       1.3527
+      1.00       0.0388       0.2013       0.1139
+      2.00       0.0003       0.0014       0.0008
+      4.00       0.0000       0.0000       0.0000
+      6.00       0.0000       0.0000       0.0000
+      8.00       0.0000       0.0000       0.0000
+     12.00       0.0000       0.0000       0.0000
+     16.00       0.0000       0.0000       0.0000
+     24.00       0.0000       0.0000       0.0000
+
+Figure saved to docs/_static/examples

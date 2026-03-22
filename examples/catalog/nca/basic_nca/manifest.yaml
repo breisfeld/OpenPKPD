@@ -1,0 +1,21 @@
+manifest_version: 1
+id: basic_nca
+title: Basic NCA
+description: Introductory dense-profile NCA example using a shared theophylline dataset.
+category: nca
+primary_mode: nca
+route: oral
+difficulty: starter
+tags: [nca, pk, auc, half-life]
+sort_order: 40
+files:
+  dataset: ../../../shared_data/theophylline/theophylline.csv
+  readme: null
+  preview_image: null
+gui:
+  load_dataset: true
+  load_control_stream: false
+  featured: true
+source:
+  kind: internal
+

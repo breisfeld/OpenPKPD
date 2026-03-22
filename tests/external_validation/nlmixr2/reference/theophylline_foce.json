@@ -1,0 +1,29 @@
+{
+  "method": "FOCEI",
+  "software": "nlmixr2",
+  "software_version": "5.0.0",
+  "dataset": "boeckmann_theo_sd",
+  "n_subjects": 12,
+  "n_obs_in_likelihood": 120,
+  "ofv": -298.3628,
+  "theta": {
+    "KA": 1.4382,
+    "CL": 2.7932,
+    "V": 32.1929
+  },
+  "omega_diag": {
+    "KA": 0.413,
+    "CL": 0.0604,
+    "V": 0.0205
+  },
+  "sigma_prop_err_variance": 0.0242,
+  "raw_message": "false convergence (8)",
+  "meta": {
+    "description": "nlmixr2 FOCEI reference for openpkpd external validation",
+    "externally_validated": true,
+    "reference_software": "nlmixr2",
+    "model": "1-cmt oral, IIV on KA/CL/V, prop error",
+    "parameterisation": "log-normal: KA=exp(lka+eta.ka), etc.",
+    "tolerance_notes": "OFV compared within 10 units; THETA within 25%. Differences expected from numerical integration vs analytical solution and different gradient computation methods."
+  }
+}

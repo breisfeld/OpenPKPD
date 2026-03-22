@@ -1,0 +1,7 @@
+armadillo4r-package	armadillo4r-package
+armadillo4r	armadillo4r-package
+armadillo_version	armadillo_version
+check_cpp4r	check_cpp4r
+pkg_template	pkg_template
+unvendor	unvendor
+vendor	vendor

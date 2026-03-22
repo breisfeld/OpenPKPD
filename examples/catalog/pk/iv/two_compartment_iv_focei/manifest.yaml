@@ -1,0 +1,22 @@
+manifest_version: 1
+id: two_compartment_iv_focei
+title: Two-compartment IV FOCEI
+description: Textbook two-compartment IV bolus control-stream example. The original 402.csv reference is not bundled and must be supplied separately.
+category: pk
+primary_mode: control_stream
+route: iv
+difficulty: advanced
+tags: [pk, iv, two-compartment, focei, textbook]
+sort_order: 190
+files:
+  dataset: null
+  control_stream: model.ctl
+  readme: null
+  preview_image: null
+gui:
+  load_dataset: false
+  load_control_stream: true
+  featured: false
+source:
+  kind: internal
+

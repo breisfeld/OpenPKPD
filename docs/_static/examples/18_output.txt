@@ -1,0 +1,21 @@
+============================================================
+Example 18: Parallel bootstrap with get_backend()
+============================================================
+
+Dataset: 3 subjects, 15 observations
+
+Generating 10 bootstrap replicates...
+Backend: _MultiprocessingBackend  (n_jobs=2)
+
+Fitting 10 bootstrap replicates in parallel...
+Converged: 10/10
+
+Bootstrap 95% confidence intervals:
+  KA    : median=0.1682  95% CI=[0.1261, 1.5880]  (n=10 converged)
+  CL    : median=0.0468  95% CI=[0.0430, 0.0516]  (n=10 converged)
+  V     : median=0.1080  95% CI=[0.1012, 1.0037]  (n=10 converged)
+
+Context manager usage (auto-close backend):
+  map([1..5], x*2) = [2, 4, 6, 8, 10]
+
+Done.

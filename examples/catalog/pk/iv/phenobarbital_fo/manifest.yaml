@@ -1,0 +1,22 @@
+manifest_version: 1
+id: phenobarbital_fo
+title: Phenobarbital FO
+description: Neonatal phenobarbital population PK example using a vendored simulated dataset.
+category: pk
+primary_mode: control_stream
+route: iv
+difficulty: intermediate
+tags: [pk, iv, phenobarbital, neonatal, fo]
+sort_order: 100
+files:
+  dataset: ../../../../shared_data/phenobarbital/phenobarbital_simulated.csv
+  control_stream: model.ctl
+  readme: null
+  preview_image: null
+gui:
+  load_dataset: true
+  load_control_stream: true
+  featured: false
+source:
+  kind: internal
+

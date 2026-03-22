@@ -1,0 +1,24 @@
+{
+  "ofv": 193.80986467378088,
+  "theta": [
+    1.452992391577217,
+    2.7500941641082517,
+    32.451573910364935
+  ],
+  "omega_diag": [
+    0.053111557271899784
+  ],
+  "sigma_diag": [
+    0.35727209018101835
+  ],
+  "converged": true,
+  "_meta": {
+    "name": "theophylline_foce",
+    "reference_kind": "internal-baseline",
+    "externally_validated": false,
+    "dataset": "synthetic_theophylline_like",
+    "method": "FOCE",
+    "seed": null,
+    "notes": "Self-consistent openpkpd regression baseline. Useful for drift detection but not yet an external scientific reference."
+  }
+}

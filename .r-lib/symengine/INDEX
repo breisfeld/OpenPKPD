@@ -1,0 +1,29 @@
+==,Basic,Basic-method   Bindings for Operators and Math Functions
+D,SymEngineDataType-method
+                        Derivatives of a Symbolic Expression
+DoubleVisitor           Double Visitor
+Function                Create a FunctionSymbol
+LCM                     Some Special Math Functions
+Matrix                  DenseMatrix Constructor
+S                       Converting R object to Basic
+Vector                  Symbolic Vector
+as.character,Basic-method
+                        Some Conversion Methods
+as.matrix.DenseMatrix   Methods Related to DenseMatrix
+cbind.SymEngineDataType
+                        Joining DenseMatrix
+codegen                 Code Generation
+det                     Calculate the Determinant of DenseMatrix
+evalf                   Evaluating a SymEngine Object
+expand                  Expand a Symbolic Expression
+get_type                Get Information about Basic Object
+lambdify                Convert A Basic/VecBasic Object to R Function
+length,VecBasic-method
+                        Methods Related to VecBasic
+solve                   Solve Symbolic Equations
+subs                    Substitute Expressions in SymEngine Objects
+symengine               symengine: R interface to SymEngine C++ library
+                        for symbolic computation
+symengine_version       Information about SymEngine Library
+t                       Transpose (as) a DenseMatrix
+use_vars                Initializing Variables

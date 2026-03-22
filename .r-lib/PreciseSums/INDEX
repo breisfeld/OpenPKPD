@@ -1,0 +1,13 @@
+fsum                    Return an accurate floating point sum of values
+kahanSum                Using the Kahan method, take a more accurate
+                        sum
+neumaierSum             Using the Neumaier method, take a more accurate
+                        sum
+pairwiseSum             Return an accurate floating point sum of values
+psProd                  Using PreciceSums's default method, take a
+                        product
+psSetProd               Choose the type of product to use in
+                        PreciceSums.  These are used in the PreciceSums
+                        'prod' blocks
+psSetSum                Choose the type of sums to use for PreciceSums.
+psSum                   Using PreciceSums's default method, take a sum

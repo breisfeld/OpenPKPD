@@ -1,0 +1,47 @@
+{
+  "_meta": {
+    "benchmark_name": "Phenobarbital Neonatal Population PK \u2014 Grasela & Donn 1985",
+    "source": "Grasela TH Jr, Donn SM. Neonatal population pharmacokinetics of phenobarbital derived from routine clinical data. Dev Pharmacol Ther. 1985;8(6):374-83. PMID: 4075936",
+    "reference_kind": "published-literature",
+    "externally_validated": true,
+    "dataset": "59 preterm neonates with varying birthweights; multiple IV bolus doses; sparse sampling (1-3 observations/subject)",
+    "model": "1-compartment IV bolus, clearance scaled by birthweight (WT), proportional error",
+    "method": "FO (First-Order approximation, NONMEM)",
+    "software": "NONMEM (original Sheiner & Beal implementation)",
+    "notes": [
+      "Parameters normalised to a 1-kg neonate; multiply by actual weight to get individual parameter.",
+      "CL/kg and V/kg are the typical values from the published paper.",
+      "BSV expressed as approximate coefficient of variation (CV%) from the paper.",
+      "This dataset is available as MEMSS::Phenobarb in R and is Example 1 in NONMEM Users Guide Part V.",
+      "Half-life derived from CL and V: t\u00bd = V*ln(2)/CL \u2248 (0.96/0.0047)*0.693 \u2248 141 h.",
+      "OpenPKPD test uses a simulated dataset with identical population parameters (tests/external_validation/data/phenobarbital_simulated.csv)."
+    ]
+  },
+  "theta": {
+    "CL_per_kg": 0.0047,
+    "V_per_kg": 0.96
+  },
+  "theta_units": {
+    "CL_per_kg": "L/h/kg",
+    "V_per_kg": "L/kg"
+  },
+  "bsv_cv_pct": {
+    "CL": 19,
+    "V": 16
+  },
+  "derived": {
+    "halflife_h": 141.6,
+    "halflife_units": "h (for 1 kg neonate at typical parameters)"
+  },
+  "openpkpd_simulation_parameters": {
+    "dataset": "tests/external_validation/data/phenobarbital_simulated.csv",
+    "n_subjects": 59,
+    "seed": 42,
+    "CL_pop_per_kg": 0.0047,
+    "V_pop_per_kg": 0.96,
+    "omega_CL": 0.0361,
+    "omega_V": 0.0256,
+    "sigma_proportional": 0.04
+  },
+  "dataset_citation": "Grasela TH Jr, Donn SM (1985). Neonatal population pharmacokinetics of phenobarbital derived from routine clinical data. Dev Pharmacol Ther 8(6):374-383. [Simulated dataset (seed=42) generated from published population parameters: CL=0.0047 L/h/kg, V=0.96 L/kg, 59 preterm neonates.]"
+}

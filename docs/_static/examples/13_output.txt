@@ -1,0 +1,125 @@
+src/openpkpd/estimation/foce.py:236: UserWarning: ETA1 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+src/openpkpd/estimation/foce.py:236: UserWarning: ETA2 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+src/openpkpd/estimation/foce.py:236: UserWarning: ETA3 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+src/openpkpd/estimation/foce.py:236: UserWarning: ETA1 shrinkage is 99.9% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+src/openpkpd/estimation/foce.py:236: UserWarning: ETA2 shrinkage is 99.9% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+src/openpkpd/estimation/foce.py:236: UserWarning: ETA1 shrinkage is 96.2% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+src/openpkpd/estimation/foce.py:236: UserWarning: ETA2 shrinkage is 97.5% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+============================================================
+Example 13: Covariate Search — Theophylline PK
+============================================================
+
+Dataset: NONMEMDataset(n_subjects=6, n_rows=64, columns=['ID', 'TIME', 'AMT', 'DV', 'EVID', 'MDV', 'WT', 'AGE', 'CMT', 'RATE', 'ADDL', 'II', 'SS'])
+
+Fitting base model (FOCE, maxeval=80)...
+Method: FOCE
+OFV: 143.6854
+AIC: 157.6854
+BIC: 172.1085   (n_obs = 58)
+n_parameters: 7
+Converged: True
+THETA: [0.47967392 0.06400059 0.10270377]
+OMEGA (diagonal): [1.52823326e+16 1.93394621e+18 7.64801892e+28]
+SIGMA (diagonal): [0.0389823]
+ETA shrinkage: ['100.0%', '100.0%', '100.0%']
+Shrinkage warnings:
+  ETA1 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.
+  ETA2 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.
+  ETA3 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.
+
+============================================================
+Manual LRT: WT (power) on CL
+============================================================
+$PK code with covariate:
+
+KA = THETA(1)*EXP(ETA(1))
+CL = THETA(2)*EXP(ETA(2))
+V  = THETA(3)*EXP(ETA(3))
+; Power effect of WT on CL (THETA(4))
+CL = CL * (WT/70)**THETA(4)
+
+Fitting model with WT→CL power covariate...
+Method: FOCE
+OFV: 143.6854
+AIC: 159.6854
+BIC: 176.1690   (n_obs = 58)
+n_parameters: 8
+Converged: True
+THETA: [0.58222882 0.04057747 1.34310364 0.51643926]
+OMEGA (diagonal): [5.45776601e+04 1.08676374e+05 6.57876733e+09]
+SIGMA (diagonal): [0.03898486]
+ETA shrinkage: ['99.9%', '99.9%', '100.0%']
+Shrinkage warnings:
+  ETA1 shrinkage is 99.9% (>30%). EBE-based analyses for this parameter may be unreliable.
+  ETA2 shrinkage is 99.9% (>30%). EBE-based analyses for this parameter may be unreliable.
+  ETA3 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.
+
+Base OFV          : 143.6854
+Covariate OFV     : 143.6854
+ΔOFV              : -0.0000
+p-value (LRT, 1df): 1.0000
+THETA(4) [WT→CL]  : 0.5164
+>>> WT (power) on CL is NOT significant at 5% level.
+
+============================================================
+Covariate Effect Parameterizations — Numerical Demo
+============================================================
+Base CL = 5.0 L/hr
+
+  Power   WT= 35.0 kg → CL = 2.9730 L/hr (ratio = 0.595)
+  Power   WT= 55.0 kg → CL = 4.1727 L/hr (ratio = 0.835)
+  Power   WT= 70.0 kg → CL = 5.0000 L/hr (ratio = 1.000)
+  Power   WT= 90.0 kg → CL = 6.0371 L/hr (ratio = 1.207)
+  Power   WT=120.0 kg → CL = 7.4909 L/hr (ratio = 1.498)
+
+  Linear  AGE=20.0 yr → CL = 4.0000 L/hr (ratio = 0.800)
+  Linear  AGE=40.0 yr → CL = 5.0000 L/hr (ratio = 1.000)
+  Linear  AGE=60.0 yr → CL = 6.0000 L/hr (ratio = 1.200)
+  Linear  AGE=80.0 yr → CL = 7.0000 L/hr (ratio = 1.400)
+
+  ExpSN   WT= 50.0 kg → V  = 20.1096 L   (ratio = 0.670)
+  ExpSN   WT= 70.0 kg → V  = 30.0000 L   (ratio = 1.000)
+  ExpSN   WT= 90.0 kg → V  = 44.7547 L   (ratio = 1.492)
+
+Generated NM-TRAN $PK code snippets:
+
+  ; Power effect of WT on CL (reference = 70.0)
+  CL = CL * (WT/70.0)**THETA(4)
+
+  ; Linear effect of AGE on CL (reference = 40.0)
+  CL = CL * (1 + THETA(5) * (AGE - 40.0))
+
+  ; Exponential effect of WT on V (reference = 70.0)
+  V = V * EXP(THETA(6) * (WT - 70.0))
+
+============================================================
+SCMEngine: Automatic Stepwise Covariate Search
+============================================================
+Candidates to test:
+  CL ~ WT [power, ref=70.0]
+  V ~ WT [power, ref=70.0]
+  CL ~ AGE [linear, ref=40.0]
+Forward p-value threshold : 0.05
+Backward p-value threshold: 0.001
+
+Running SCM (this may take a moment; maxeval=80)...
+
+============================================================
+Stepwise Covariate Modeling (SCM) Summary
+============================================================
+Base OFV  : 143.6854
+Final OFV : 143.6854
+ΔOFV      : +0.0000
+
+Steps:
+
+No covariate relationships were accepted.
+============================================================
+Example 13 complete.

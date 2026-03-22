@@ -1,0 +1,162 @@
+{
+  "metadata": {
+    "date": "2026-03-16",
+    "seed": 77,
+    "workloads": [
+      "diagnostics"
+    ],
+    "parameters": {
+      "fit_subjects": 6,
+      "fit_maxeval": 12,
+      "sim_subjects": 24,
+      "npde_simulations": 500,
+      "vpc_replicates": 500,
+      "n_bins": 8,
+      "nca_subjects": 2000,
+      "top_functions": 15
+    }
+  },
+  "diagnostics": {
+    "name": "diagnostics",
+    "wall_seconds": 0.009007,
+    "result": {
+      "rows": 42
+    },
+    "stage_totals": {
+      "diagnostics.cwres_subject": {
+        "seconds": 0.0006330201867967844,
+        "calls": 6
+      },
+      "diagnostics.finite_diff_jacobian": {
+        "seconds": 0.003998210653662682,
+        "calls": 12
+      },
+      "individual.evaluate": {
+        "seconds": 0.004138911608606577,
+        "calls": 96
+      }
+    },
+    "top_functions": [
+      {
+        "function": "<lambda>",
+        "location": "profile_analysis.py:126",
+        "cumulative_seconds": 0.00892,
+        "self_seconds": 3e-05,
+        "ncalls": 1,
+        "primitive_calls": 1
+      },
+      {
+        "function": "compute_diagnostics",
+        "location": "diagnostics.py:120",
+        "cumulative_seconds": 0.008888,
+        "self_seconds": 0.000551,
+        "ncalls": 1,
+        "primitive_calls": 1
+      },
+      {
+        "function": "_prediction_eta_jacobian",
+        "location": "diagnostics.py:60",
+        "cumulative_seconds": 0.00407,
+        "self_seconds": 3.1e-05,
+        "ncalls": 12,
+        "primitive_calls": 12
+      },
+      {
+        "function": "_finite_diff_jacobian",
+        "location": "diagnostics.py:28",
+        "cumulative_seconds": 0.003958,
+        "self_seconds": 0.000333,
+        "ncalls": 12,
+        "primitive_calls": 12
+      },
+      {
+        "function": "evaluate",
+        "location": "individual.py:349",
+        "cumulative_seconds": 0.003872,
+        "self_seconds": 0.000153,
+        "ncalls": 96,
+        "primitive_calls": 96
+      },
+      {
+        "function": "_evaluate_predictions",
+        "location": "individual.py:236",
+        "cumulative_seconds": 0.00372,
+        "self_seconds": 0.00071,
+        "ncalls": 96,
+        "primitive_calls": 96
+      },
+      {
+        "function": "__init__",
+        "location": "frame.py:702",
+        "cumulative_seconds": 0.001868,
+        "self_seconds": 6.9e-05,
+        "ncalls": 1,
+        "primitive_calls": 1
+      },
+      {
+        "function": "solve",
+        "location": "advan2.py:124",
+        "cumulative_seconds": 0.001729,
+        "self_seconds": 0.001098,
+        "ncalls": 96,
+        "primitive_calls": 96
+      },
+      {
+        "function": "wrapper",
+        "location": "_util.py:1149",
+        "cumulative_seconds": 0.00134,
+        "self_seconds": 0.000221,
+        "ncalls": 24,
+        "primitive_calls": 24
+      },
+      {
+        "function": "nested_data_to_arrays",
+        "location": "construction.py:463",
+        "cumulative_seconds": 0.000947,
+        "self_seconds": 2.6e-05,
+        "ncalls": 1,
+        "primitive_calls": 1
+      },
+      {
+        "function": "to_arrays",
+        "location": "construction.py:759",
+        "cumulative_seconds": 0.000897,
+        "self_seconds": 2e-05,
+        "ncalls": 1,
+        "primitive_calls": 1
+      },
+      {
+        "function": "__call__",
+        "location": "code_compiler.py:339",
+        "cumulative_seconds": 0.000888,
+        "self_seconds": 0.00013,
+        "ncalls": 96,
+        "primitive_calls": 96
+      },
+      {
+        "function": "arrays_to_mgr",
+        "location": "construction.py:96",
+        "cumulative_seconds": 0.000779,
+        "self_seconds": 2e-05,
+        "ncalls": 1,
+        "primitive_calls": 1
+      },
+      {
+        "function": "_pk_fn",
+        "location": "<pk_code>:2",
+        "cumulative_seconds": 0.000719,
+        "self_seconds": 0.000407,
+        "ncalls": 96,
+        "primitive_calls": 96
+      },
+      {
+        "function": "_cwres_subject",
+        "location": "diagnostics.py:81",
+        "cumulative_seconds": 0.00061,
+        "self_seconds": 0.000106,
+        "ncalls": 6,
+        "primitive_calls": 6
+      }
+    ]
+  }
+}

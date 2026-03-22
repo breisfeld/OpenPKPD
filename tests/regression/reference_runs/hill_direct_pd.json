@@ -1,0 +1,60 @@
+{
+  "_meta": {
+    "name": "hill_direct_pd",
+    "reference_kind": "internal-baseline",
+    "externally_validated": false,
+    "dataset": "synthetic_direct_pd_hill",
+    "method": "HillModel.fit",
+    "seed": 42,
+    "validation_level": "fixed synthetic direct PD regression benchmark",
+    "validation_note": "docs/user_guide/analysis_validation_gaps.md",
+    "notes": "Self-consistent openpkpd direct PD regression baseline on a fixed concentration-effect dataset. Useful for drift detection but not yet an external scientific reference."
+  },
+  "true_params": {
+    "E0": 1.0,
+    "Emax": 10.0,
+    "EC50": 4.0,
+    "gamma": 1.7
+  },
+  "fit_init": {
+    "E0": 0.0,
+    "Emax": 8.0,
+    "EC50": 2.0,
+    "gamma": 1.0
+  },
+  "params": {
+    "E0": 0.9865636040223419,
+    "Emax": 10.279961859241608,
+    "EC50": 4.175403556916398,
+    "gamma": 1.6319123924988101
+  },
+  "ofv": -96.09015738612064,
+  "aic": -88.09015738612064,
+  "converged": true,
+  "predicted": [
+    9.504821980960877,
+    9.022760490146366,
+    8.4523689386289,
+    7.79953342315483,
+    7.080173037842654,
+    6.319924157572005,
+    5.551106636928347,
+    4.8075090719966695,
+    4.118664567349344,
+    3.5055734596363326,
+    2.979038785333208,
+    2.5405258845634786,
+    2.184571765610902,
+    1.901603182148658,
+    1.6803656474016186,
+    1.5096310854528128,
+    1.3791909578482444,
+    1.2803000912781624,
+    1.205764622255377,
+    1.149833263429954,
+    1.1080010947580587,
+    1.076791372619861,
+    1.0535497318980425,
+    1.0362656703885618
+  ]
+}

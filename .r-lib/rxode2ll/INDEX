@@ -1,0 +1,28 @@
+llikBeta                Calculate the log likelihood of the binomial
+                        function (and its derivatives)
+llikBinom               Calculate the log likelihood of the binomial
+                        function (and its derivatives)
+llikCauchy              log likelihood of Cauchy distribution and it's
+                        derivatives (from stan)
+llikChisq               log likelihood and derivatives for chi-squared
+                        distribution
+llikExp                 log likelihood and derivatives for exponential
+                        distribution
+llikF                   log likelihood and derivatives for F
+                        distribution
+llikGamma               log likelihood and derivatives for Gamma
+                        distribution
+llikGeom                log likelihood and derivatives for Geom
+                        distribution
+llikNbinom              Calculate the log likelihood of the negative
+                        binomial function (and its derivatives)
+llikNbinomMu            Calculate the log likelihood of the negative
+                        binomial function (and its derivatives)
+llikNorm                Log likelihood for normal distribution
+llikPois                log-likelihood for the Poisson distribution
+llikT                   Log likelihood of T and it's derivatives (from
+                        stan)
+llikUnif                log likelihood and derivatives for Unif
+                        distribution
+llikWeibull             log likelihood and derivatives for Weibull
+                        distribution

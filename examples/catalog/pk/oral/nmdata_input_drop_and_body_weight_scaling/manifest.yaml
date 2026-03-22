@@ -1,0 +1,24 @@
+manifest_version: 1
+id: nmdata_input_drop_and_body_weight_scaling
+title: NMdata input drop and body-weight scaling
+description: Imported NMdata example showcasing $INPUT rename/drop behavior and body-weight scaling.
+category: pk
+primary_mode: control_stream
+route: oral
+difficulty: intermediate
+tags: [pk, oral, nmdata, input, scaling]
+sort_order: 120
+files:
+  dataset: ../../../../shared_data/nmautoverse/xgxr1.csv
+  control_stream: model.ctl
+  readme: README.md
+  preview_image: null
+gui:
+  load_dataset: true
+  load_control_stream: true
+  featured: false
+source:
+  kind: imported
+  url: https://github.com/NMautoverse/NMdata
+  license: MIT + file LICENSE
+

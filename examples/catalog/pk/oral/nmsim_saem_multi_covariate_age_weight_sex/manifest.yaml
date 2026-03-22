@@ -1,0 +1,24 @@
+manifest_version: 1
+id: nmsim_saem_multi_covariate_age_weight_sex
+title: NMsim SAEM multi-covariate age/weight/sex
+description: Imported NMsim SAEM example with age, weight, and sex covariates on a curated shared dataset.
+category: pk
+primary_mode: control_stream
+route: oral
+difficulty: advanced
+tags: [pk, oral, nmsim, saem, covariate, age, weight, sex]
+sort_order: 180
+files:
+  dataset: ../../../../shared_data/nmautoverse/xgxr2covs.csv
+  control_stream: model.ctl
+  readme: README.md
+  preview_image: null
+gui:
+  load_dataset: true
+  load_control_stream: true
+  featured: false
+source:
+  kind: imported
+  url: https://github.com/NMautoverse/NMsim
+  license: MIT + file LICENSE
+

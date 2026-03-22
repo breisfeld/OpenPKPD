@@ -1,0 +1,18 @@
+openpkpd/estimation/fo.py:114: UserWarning: ETA1 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+openpkpd/estimation/fo.py:114: UserWarning: ETA2 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.
+  res.compute_shrinkage()
+Running FO on 2-cmt IV model...
+Method: FO
+OFV: -40.8415
+AIC: -24.8415
+BIC: inf   (n_obs = 0)
+n_parameters: 8
+Converged: True
+THETA: [ 1.24529389 94.17357065  0.20316919  3.04172412]
+OMEGA (diagonal): [77.09224477  0.99739723]
+SIGMA (diagonal): [0.00601016]
+ETA shrinkage: ['100.0%', '100.0%']
+Shrinkage warnings:
+  ETA1 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.
+  ETA2 shrinkage is 100.0% (>30%). EBE-based analyses for this parameter may be unreliable.

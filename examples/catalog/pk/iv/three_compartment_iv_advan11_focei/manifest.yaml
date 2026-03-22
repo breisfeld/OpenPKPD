@@ -1,0 +1,22 @@
+manifest_version: 1
+id: three_compartment_iv_advan11_focei
+title: Three-compartment IV ADVAN11 FOCEI
+description: Three-compartment IV PK example with an ADVAN11 control stream and curated shared dataset.
+category: pk
+primary_mode: control_stream
+route: iv
+difficulty: advanced
+tags: [pk, iv, three-compartment, advan11, focei]
+sort_order: 80
+files:
+  dataset: ../../../../shared_data/pk_iv/three_compartment_iv.csv
+  control_stream: model.ctl
+  readme: null
+  preview_image: null
+gui:
+  load_dataset: true
+  load_control_stream: true
+  featured: false
+source:
+  kind: internal
+

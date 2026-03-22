@@ -1,0 +1,18 @@
+as.lotri                As lower triangular matrix
+lotri                   Easily Specify block-diagonal matrices with
+                        lower triangular info
+lotriAsExpression       Change a matrix or lotri matrix to a lotri
+                        expression
+lotriDataFrameToLotriExpression
+                        Convert a lotri data frame to a lotri
+                        expression
+lotriEst                Extract or remove lotri estimate data frame
+                        from lotri object
+lotriIsBlockMat         Determine if the matrix is a block matrix
+lotriMat                Create a matrix from a list of matrices
+lotriMatInv             Converts a matrix into a list of block matrices
+lotriNearPD             C++ implementation of Matrix's nearPD
+lotriSep                Separate a lotri matrix into above and below
+                        lotri matrices
+rcm                     Use the RCM algorithm to permute to banded
+                        matrix

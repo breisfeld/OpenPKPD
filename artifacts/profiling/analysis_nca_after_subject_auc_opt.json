@@ -1,0 +1,162 @@
+{
+  "metadata": {
+    "date": "2026-03-16",
+    "seed": 77,
+    "workloads": [
+      "nca"
+    ],
+    "parameters": {
+      "fit_subjects": 6,
+      "fit_maxeval": 12,
+      "sim_subjects": 24,
+      "npde_simulations": 500,
+      "vpc_replicates": 500,
+      "n_bins": 8,
+      "nca_subjects": 2000,
+      "top_functions": 15
+    }
+  },
+  "nca": {
+    "name": "nca",
+    "wall_seconds": 0.735676,
+    "result": {
+      "rows": 2000
+    },
+    "stage_totals": {
+      "nca.compute_auc": {
+        "seconds": 0.2837275476194918,
+        "calls": 4000
+      },
+      "nca.compute_lambda_z": {
+        "seconds": 0.22144568478688598,
+        "calls": 1996
+      },
+      "nca.compute_subject": {
+        "seconds": 0.6653406722471118,
+        "calls": 2000
+      }
+    },
+    "top_functions": [
+      {
+        "function": "<lambda>",
+        "location": "profile_analysis.py:173",
+        "cumulative_seconds": 0.735606,
+        "self_seconds": 0.000938,
+        "ncalls": 1,
+        "primitive_calls": 1
+      },
+      {
+        "function": "compute_dataset",
+        "location": "nca.py:349",
+        "cumulative_seconds": 0.734652,
+        "self_seconds": 0.023883,
+        "ncalls": 1,
+        "primitive_calls": 1
+      },
+      {
+        "function": "compute_subject",
+        "location": "nca.py:200",
+        "cumulative_seconds": 0.657497,
+        "self_seconds": 0.075401,
+        "ncalls": 2000,
+        "primitive_calls": 2000
+      },
+      {
+        "function": "_compute_auc",
+        "location": "nca.py:621",
+        "cumulative_seconds": 0.269737,
+        "self_seconds": 0.132169,
+        "ncalls": 4000,
+        "primitive_calls": 4000
+      },
+      {
+        "function": "_compute_lambda_z",
+        "location": "nca.py:676",
+        "cumulative_seconds": 0.212442,
+        "self_seconds": 0.123766,
+        "ncalls": 1996,
+        "primitive_calls": 1996
+      },
+      {
+        "function": "_wrapreduction_any_all",
+        "location": "fromnumeric.py:86",
+        "cumulative_seconds": 0.099708,
+        "self_seconds": 0.03957,
+        "ncalls": 33749,
+        "primitive_calls": 33749
+      },
+      {
+        "function": "any",
+        "location": "fromnumeric.py:2436",
+        "cumulative_seconds": 0.095482,
+        "self_seconds": 0.018719,
+        "ncalls": 25756,
+        "primitive_calls": 25756
+      },
+      {
+        "function": "<method 'reduce' of 'numpy.ufunc' objects>",
+        "location": "~:0",
+        "cumulative_seconds": 0.071624,
+        "self_seconds": 0.071624,
+        "ncalls": 43671,
+        "primitive_calls": 43671
+      },
+      {
+        "function": "diff",
+        "location": "_function_base_impl.py:1402",
+        "cumulative_seconds": 0.041013,
+        "self_seconds": 0.03513,
+        "ncalls": 6000,
+        "primitive_calls": 6000
+      },
+      {
+        "function": "_wrapfunc",
+        "location": "fromnumeric.py:48",
+        "cumulative_seconds": 0.039256,
+        "self_seconds": 0.010669,
+        "ncalls": 15978,
+        "primitive_calls": 15978
+      },
+      {
+        "function": "sum",
+        "location": "fromnumeric.py:2304",
+        "cumulative_seconds": 0.037486,
+        "self_seconds": 0.010308,
+        "ncalls": 7920,
+        "primitive_calls": 7920
+      },
+      {
+        "function": "cumsum",
+        "location": "fromnumeric.py:2838",
+        "cumulative_seconds": 0.032718,
+        "self_seconds": 0.006856,
+        "ncalls": 9980,
+        "primitive_calls": 9980
+      },
+      {
+        "function": "all",
+        "location": "fromnumeric.py:2548",
+        "cumulative_seconds": 0.02872,
+        "self_seconds": 0.005774,
+        "ncalls": 7993,
+        "primitive_calls": 7993
+      },
+      {
+        "function": "_wrapreduction",
+        "location": "fromnumeric.py:66",
+        "cumulative_seconds": 0.025261,
+        "self_seconds": 0.010001,
+        "ncalls": 7922,
+        "primitive_calls": 7922
+      },
+      {
+        "function": "<method 'cumsum' of 'numpy.ndarray' objects>",
+        "location": "~:0",
+        "cumulative_seconds": 0.017207,
+        "self_seconds": 0.017207,
+        "ncalls": 9980,
+        "primitive_calls": 9980
+      }
+    ]
+  }
+}

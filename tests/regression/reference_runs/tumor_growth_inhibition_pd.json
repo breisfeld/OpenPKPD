@@ -1,0 +1,51 @@
+{
+  "_meta": {
+    "name": "tumor_growth_inhibition_pd",
+    "reference_kind": "internal-baseline",
+    "externally_validated": false,
+    "dataset": "synthetic_tumor_growth_inhibition_pd",
+    "method": "TumorGrowthInhibitionModel.fit",
+    "seed": 3,
+    "validation_level": "fixed synthetic tumor-growth inhibition regression benchmark",
+    "validation_note": "docs/user_guide/analysis_validation_gaps.md",
+    "notes": "Self-consistent openpkpd regression baseline. Useful for drift detection but not yet an external scientific reference."
+  },
+  "true_params": {
+    "lambda0": 0.29949662080618694,
+    "lambda1": 1.9833639932414355,
+    "K1": 0.19876584325612448,
+    "K2": 0.024586784112521964,
+    "psi": 15.0,
+    "X0": 148.75748987215476
+  },
+  "fit_init": {
+    "lambda0": 0.3,
+    "lambda1": 2.0,
+    "K1": 0.2,
+    "K2": 0.02,
+    "psi": 15.0,
+    "X0": 150.0
+  },
+  "params": {
+    "lambda0": 0.29803760341840463,
+    "lambda1": 1.9829701547562066,
+    "K1": 0.19869255747445136,
+    "K2": 0.025591513344042784,
+    "psi": 15.0,
+    "X0": 148.7295742256685
+  },
+  "ofv": 20.510923470692944,
+  "aic": 32.510923470692944,
+  "converged": true,
+  "predicted": [
+    148.7295742256685,
+    154.17122884302577,
+    158.89523072507924,
+    160.11098247869361,
+    159.63379683400981,
+    158.76478658135403,
+    158.17556382241472,
+    159.0019763294965,
+    160.70932359096471
+  ]
+}

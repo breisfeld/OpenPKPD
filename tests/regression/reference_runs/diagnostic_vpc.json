@@ -1,0 +1,50 @@
+{
+  "_meta": {
+    "name": "diagnostic_vpc",
+    "reference_kind": "internal-baseline",
+    "externally_validated": false,
+    "validation_level": "literature-aligned synthetic benchmark",
+    "dataset": "synthetic_theophylline_like",
+    "method": "VPC",
+    "seed": 7,
+    "external_method_references": [
+      "Karlsson MO, Holford N (2008) A tutorial on visual predictive checks.",
+      "Bergstrand M, Hooker AC, Wallin JE, Karlsson MO (2011) Prediction-corrected visual predictive checks for diagnosing nonlinear mixed-effects models."
+    ],
+    "validation_note": "docs/user_guide/validation.md",
+    "notes": "Self-consistent openpkpd regression baseline enriched with literature-backed VPC expectations for coverage and misspecification sensitivity. Useful for drift detection, but not yet a published-dataset or cross-software parity reference."
+  },
+  "coverage_fraction": 0.8333333333333334,
+  "obs_p50": [
+    6.199154220468936,
+    7.830237363612502,
+    7.3649129522334515,
+    5.604767066733684,
+    4.181639492040553,
+    1.5377698244620688
+  ],
+  "sim_p50_mid": [
+    6.126787609209792,
+    8.185570656710931,
+    7.303671620946019,
+    5.684250121108765,
+    3.718219432543086,
+    1.3393192615916338
+  ],
+  "sim_p5_lo": [
+    3.963247862365778,
+    7.5467988671397865,
+    7.066551772738966,
+    5.451377753386379,
+    3.489931658428712,
+    1.1388871687288817
+  ],
+  "sim_p95_hi": [
+    8.138348841178212,
+    8.531017092370933,
+    7.528276495357393,
+    5.944970986706172,
+    3.9579681005250538,
+    1.5580219969959994
+  ]
+}

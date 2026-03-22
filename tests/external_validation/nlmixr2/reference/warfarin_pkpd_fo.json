@@ -1,0 +1,43 @@
+{
+  "method": "FO",
+  "software": "nlmixr2",
+  "software_version": "5.0.0",
+  "dataset": "warfarin_joint_pkpd",
+  "n_subjects": 32,
+  "n_obs_in_likelihood": 483,
+  "ofv": 1430.804,
+  "theta": {
+    "KTR": 1.1094,
+    "KA": 1.1649,
+    "CL": 0.1444,
+    "V": 6.9814,
+    "EMAX": 0.999,
+    "EC50": 1.325,
+    "KOUT": 0.0524,
+    "E0": 96.1467,
+    "PK_PROP_ERR": 0.153,
+    "PK_ADD_ERR": 0.5733,
+    "PD_ADD_ERR": 3.7504
+  },
+  "omega_diag": {
+    "CL": 0.0768,
+    "V": 0.0595,
+    "EC50": 0.1997,
+    "KOUT": 0.0107,
+    "E0": 0.0024
+  },
+  "raw_message": "Posthoc prediction with provided THETAs",
+  "meta": {
+    "description": "nlmixr2 FO joint PK/PD warfarin reference for openpkpd external validation",
+    "externally_validated": true,
+    "reference_software": "nlmixr2",
+    "model": "Joint 4-state warfarin PK/PD model with PK and PD endpoints routed by DVID",
+    "parameterisation": "KTR/KA/CL/V/EMAX/EC50/KOUT/E0 with PK add+prop error and PD additive error",
+    "endpoint_coding": {
+      "dose": 0,
+      "cp": 1,
+      "pca": 2
+    },
+    "notes": "This mixed-endpoint benchmark is intended for the first empirical DVID-routed external validation path."
+  }
+}

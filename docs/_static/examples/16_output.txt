@@ -1,0 +1,22 @@
+============================================================
+Example 16: Delay Differential Equation (DDE) PK model
+============================================================
+    Time    ODE (no delay)    DDE (tau=0.5h)    Analytical
+------------------------------------------------------------
+    0.10            9.8020           10.0000        9.8020
+    1.31            7.6948           10.0000        7.6948
+    2.52            6.0407           10.0000        6.0407
+    3.73            4.7421           10.0000        4.7421
+    4.94            3.7227           10.0000        3.7227
+    6.15            2.9224           10.0000        2.9224
+    7.36            2.2942           10.0000        2.2942
+    8.57            1.8010           10.0000        1.8010
+    9.78            1.4138           10.0000        1.4138
+   10.99            1.1099           10.0000        1.1099
+
+Max ODE vs analytical error: 2.63e-06  (should be < 1e-4)
+Max DDE vs ODE difference:  9.09e+00  (should be > 0 with tau=0.5)
+
+DDE model with tau=0.5 h produces delayed elimination — as expected.
+
+Figure saved to docs/_static/examples/16_dde_model.png

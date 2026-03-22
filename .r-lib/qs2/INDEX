@@ -1,0 +1,30 @@
+base85_decode           Z85 Decoding
+base85_encode           Z85 Encoding
+base91_decode           basE91 Decoding
+base91_encode           basE91 Encoding
+blosc_shuffle_raw       Shuffle a raw vector
+blosc_unshuffle_raw     Un-shuffle a raw vector
+catquo                  catquo
+decode_source           Decode a compressed string
+encode_source           Encode and compress a file or string
+qd_deserialize          qd_deserialize
+qd_read                 qd_read
+qd_save                 qd_save
+qd_serialize            qd_serialize
+qopt                    qs2 Option Getter/Setter
+qs_deserialize          qs_deserialize
+qs_read                 qs_read
+qs_readm                qs_readm
+qs_save                 qs_save
+qs_savem                qs_savem
+qs_serialize            qs_serialize
+qs_to_rds               qs2 to RDS format
+qx_dump                 qx_dump
+rds_to_qs               RDS to qs2 format
+starnames               Official list of IAU Star Names
+xxhash_raw              XXH3_64 hash
+zstd_compress_bound     Zstd compress bound
+zstd_compress_raw       Zstd compression
+zstd_decompress_raw     Zstd decompression
+zstd_file_functions     Zstd file helpers
+zstd_in                 Zstd file substitution for input

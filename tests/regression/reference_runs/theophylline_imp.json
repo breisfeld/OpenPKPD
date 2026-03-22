@@ -1,0 +1,24 @@
+{
+  "ofv": 5736.137651305346,
+  "theta": [
+    1.5000012295513265,
+    3.000002038319399,
+    34.99998763640927
+  ],
+  "omega_diag": [
+    0.090000136031159
+  ],
+  "sigma_diag": [
+    0.01000001073975589
+  ],
+  "converged": true,
+  "_meta": {
+    "name": "theophylline_imp",
+    "reference_kind": "internal-baseline",
+    "externally_validated": false,
+    "dataset": "synthetic_theophylline_like",
+    "method": "IMP",
+    "seed": 42,
+    "notes": "Self-consistent openpkpd regression baseline. Useful for drift detection but not yet an external scientific reference."
+  }
+}

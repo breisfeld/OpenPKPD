@@ -1,0 +1,433 @@
+"""
+OpenPKPD — Notebook 03: Estimation Methods
+
+Covers:
+  - FO (First-Order)
+  - FOCE / FOCEI (First-Order Conditional Estimation with Interaction)
+  - SAEM (Stochastic Approximation EM)
+  - IMP (Importance Sampling)
+  - Nonparametric estimation
+  - Laplacian approximation
+  - Comparison of OFV across methods
+"""
+
+import marimo
+
+__generated_with = "0.10.0"
+app = marimo.App(width="medium", app_title="OpenPKPD — Estimation Methods")
+
+
+@app.cell
+def _():
+    import marimo as mo
+
+    return (mo,)
+
+
+@app.cell
+def _(mo):
+    mo.md(
+        r"""
+        # Estimation Methods
+
+        Population PK/PD models are fitted by maximising the likelihood (or
+        equivalently minimising the **Objective Function Value**, OFV) over the
+        population parameters $\Theta$, $\Omega$, $\Sigma$.
+
+        Because the marginal likelihood requires integrating over the random
+        effects $\eta_i$, various approximations are used:
+
+        | Method | Approximation | Speed | Accuracy |
+        |--------|--------------|-------|----------|
+        | **FO** | First-order Taylor around η=0 | Fastest | Lowest |
+        | **FOCE** | First-order Taylor around η̂ᵢ | Fast | Good |
+        | **FOCEI** | FOCE + ε-η interaction | Fast | Better |
+        | **Laplacian** | Second-order Taylor | Moderate | High |
+        | **SAEM** | Stochastic EM on latent η | Slow | Very high |
+        | **IMP** | Monte Carlo importance sampling | Slow | Very high |
+        | **Nonparametric** | NPML / NPMLE | Moderate | Distribution-free |
+
+        OpenPKPD also supports **Bayesian estimation** (PyMC/NumPyro back-ends)
+        via `method="BAYES"`.
+        """
+    )
+    return
+
+
+@app.cell
+def _():
+    import io
+    import numpy as np
+    import pandas as pd
+    from openpkpd import ModelBuilder
+    from openpkpd.data.dataset import NONMEMDataset
+
+    return io, np, pd, NONMEMDataset, ModelBuilder
+
+
+@app.cell
+def _(io, pd, NONMEMDataset):
+    THEO_CSV = """\
+ID,TIME,AMT,DV,EVID,MDV,WT
+1,0,4.02,0,1,1,79.6
+1,0.27,0,0.74,0,0,79.6
+1,0.57,0,1.72,0,0,79.6
+1,1.02,0,7.91,0,0,79.6
+1,1.92,0,8.31,0,0,79.6
+1,3.5,0,8.33,0,0,79.6
+1,5.02,0,6.85,0,0,79.6
+1,7.03,0,6.08,0,0,79.6
+1,9.0,0,5.4,0,0,79.6
+1,12.05,0,4.55,0,0,79.6
+1,24.37,0,1.25,0,0,79.6
+2,0,4.4,0,1,1,72.4
+2,0.35,0,0.96,0,0,72.4
+2,0.6,0,2.33,0,0,72.4
+2,1.07,0,4.71,0,0,72.4
+2,2.13,0,8.33,0,0,72.4
+2,3.5,0,9.02,0,0,72.4
+2,5.02,0,7.14,0,0,72.4
+2,7.02,0,5.68,0,0,72.4
+2,9.1,0,4.55,0,0,72.4
+2,12.1,0,3.01,0,0,72.4
+2,25.0,0,0.9,0,0,72.4
+3,0,4.95,0,1,1,70.5
+3,0.27,0,0.64,0,0,70.5
+3,0.58,0,1.92,0,0,70.5
+3,1.02,0,4.44,0,0,70.5
+3,1.92,0,7.03,0,0,70.5
+3,3.5,0,9.07,0,0,70.5
+3,5.02,0,7.56,0,0,70.5
+3,7.02,0,6.59,0,0,70.5
+3,9.0,0,5.88,0,0,70.5
+3,12.15,0,4.73,0,0,70.5
+3,24.17,0,1.25,0,0,70.5
+4,0,4.53,0,1,1,72.7
+4,0.3,0,1.03,0,0,72.7
+4,0.52,0,2.02,0,0,72.7
+4,1.0,0,5.63,0,0,72.7
+4,1.92,0,8.6,0,0,72.7
+4,3.5,0,8.38,0,0,72.7
+4,5.02,0,7.54,0,0,72.7
+4,7.07,0,6.88,0,0,72.7
+4,9.0,0,5.78,0,0,72.7
+4,12.12,0,3.99,0,0,72.7
+4,24.08,0,1.17,0,0,72.7
+"""
+
+    df = pd.read_csv(io.StringIO(THEO_CSV))
+    ds = NONMEMDataset.from_dataframe(df)
+    ds
+    return THEO_CSV, df, ds
+
+
+@app.cell
+def _(mo):
+    mo.md(
+        r"""
+        ## 1. FO — First-Order Estimation
+
+        FO linearises the model around $\hat{\eta}_i = 0$ for every subject.
+        It is the fastest method but biased when IIV is large or the model
+        is nonlinear in $\eta$.
+
+        ```python
+        .estimation(method="FO", maxeval=500)
+        ```
+
+        **Use when:** Initial exploration, very large datasets, or as a warm
+        start before FOCE.
+        """
+    )
+    return
+
+
+@app.cell
+def _(ModelBuilder, ds):
+    def build_model(method: str, interaction: bool = False, maxeval: int = 500):
+        return (
+            ModelBuilder()
+            .problem(f"Theophylline 1-cmt — {method}")
+            .dataset(ds)
+            .subroutines(advan=2, trans=2)
+            .pk("""
+KA = THETA(1)*EXP(ETA(1))
+CL = THETA(2)*EXP(ETA(2))
+V  = THETA(3)*EXP(ETA(3))
+""")
+            .error("Y = F*(1 + EPS(1))")
+            .theta([(0.01, 1.5, 20), (0.001, 0.08, 5), (0.1, 30, 500)])
+            .omega([0.5, 0.3, 0.3])
+            .sigma(0.1)
+            .estimation(method=method, interaction=interaction, maxeval=maxeval)
+            .build()
+        )
+
+    built_fo = build_model("FO")
+    result_fo = built_fo.fit()
+    print(f"FO  OFV = {result_fo.ofv:.4f}  converged={result_fo.converged}")
+    return build_model, built_fo, result_fo
+
+
+@app.cell
+def _(mo):
+    mo.md(
+        r"""
+        ## 2. FOCE / FOCEI — First-Order Conditional Estimation
+
+        FOCE evaluates the likelihood at the *conditional* mode $\hat{\eta}_i$
+        for each subject.  This is more accurate than FO for nonlinear models.
+
+        Adding `interaction=True` accounts for the $\varepsilon$-$\eta$ interaction
+        (i.e. the residual variance depends on individual predictions), giving **FOCEI**.
+        FOCEI is the default recommended method for most PK/PD analyses.
+
+        ```python
+        .estimation(method="FOCE", interaction=True, maxeval=9999)
+        ```
+
+        **FOCEI OFV formula** (per-subject contribution):
+
+        $$
+        \text{OFV}_i = (\mathbf{y}_i - \mathbf{f}_i)^\top \mathbf{C}_i^{-1}
+                       (\mathbf{y}_i - \mathbf{f}_i)
+                     + \ln|\mathbf{C}_i|
+                     + \hat{\boldsymbol{\eta}}_i^\top \boldsymbol{\Omega}^{-1} \hat{\boldsymbol{\eta}}_i
+                     + \ln|\boldsymbol{\Omega}|
+                     + n_i \ln(2\pi)
+        $$
+
+        where $\mathbf{C}_i = G_i \Omega G_i^\top + R_i$ is the marginal
+        covariance of the data.
+        """
+    )
+    return
+
+
+@app.cell
+def _(build_model):
+    built_foce = build_model("FOCE", interaction=True, maxeval=600)
+    result_foce = built_foce.fit()
+    print(f"FOCE OFV = {result_foce.ofv:.4f}  converged={result_foce.converged}")
+    return built_foce, result_foce
+
+
+@app.cell
+def _(mo):
+    mo.md(
+        r"""
+        ## 3. SAEM — Stochastic Approximation EM
+
+        SAEM is a global stochastic optimisation algorithm that avoids local
+        minima and scales well to complex models.  It is particularly useful
+        when:
+
+        - The model is highly nonlinear
+        - Good initial estimates are unavailable
+        - The IIV structure is complex (correlated, large)
+
+        ```python
+        .estimation(
+            method="SAEM",
+            nburn=200,    # stochastic burn-in iterations
+            niter=100,    # smoothing iterations
+            seed=42,
+        )
+        ```
+
+        SAEM may be followed by IMP for an accurate OFV estimate:
+
+        ```python
+        .estimation(method="SAEM", nburn=300, niter=100)
+        .estimation(method="IMP", isample=1000)  # chained estimation
+        ```
+        """
+    )
+    return
+
+
+@app.cell
+def _(build_model):
+    built_saem = build_model.__wrapped__ if hasattr(build_model, "__wrapped__") else build_model
+
+    from openpkpd import ModelBuilder
+    from openpkpd.data.dataset import NONMEMDataset
+
+    # Rebuild ds inline for SAEM demo
+    import io, pandas as pd
+
+    _THEO = """\
+ID,TIME,AMT,DV,EVID,MDV
+1,0,4.02,0,1,1
+1,1.02,0,7.91,0,0
+1,3.5,0,8.33,0,0
+1,7.03,0,6.08,0,0
+1,12.05,0,4.55,0,0
+1,24.37,0,1.25,0,0
+2,0,4.4,0,1,1
+2,1.07,0,4.71,0,0
+2,3.5,0,9.02,0,0
+2,7.02,0,5.68,0,0
+2,12.1,0,3.01,0,0
+2,25.0,0,0.9,0,0
+3,0,4.95,0,1,1
+3,1.02,0,4.44,0,0
+3,3.5,0,9.07,0,0
+3,7.02,0,6.59,0,0
+3,12.15,0,4.73,0,0
+3,24.17,0,1.25,0,0
+"""
+    _ds_saem = NONMEMDataset.from_dataframe(pd.read_csv(io.StringIO(_THEO)))
+
+    built_saem_model = (
+        ModelBuilder()
+        .problem("Theophylline SAEM")
+        .dataset(_ds_saem)
+        .subroutines(advan=2, trans=2)
+        .pk("""
+KA = THETA(1)*EXP(ETA(1))
+CL = THETA(2)*EXP(ETA(2))
+V  = THETA(3)*EXP(ETA(3))
+""")
+        .error("Y = F*(1 + EPS(1))")
+        .theta([(0.01, 1.5, 20), (0.001, 0.08, 5), (0.1, 30, 500)])
+        .omega([0.5, 0.3, 0.3])
+        .sigma(0.1)
+        .estimation(method="SAEM", nburn=100, niter=50, seed=42)
+        .build()
+    )
+    result_saem = built_saem_model.fit()
+    print(f"SAEM OFV = {result_saem.ofv:.4f}  converged={result_saem.converged}")
+    return (
+        ModelBuilder,
+        NONMEMDataset,
+        _THEO,
+        _ds_saem,
+        built_saem,
+        built_saem_model,
+        io,
+        pd,
+        result_saem,
+    )
+
+
+@app.cell
+def _(mo):
+    mo.md(
+        r"""
+        ## 4. Comparing Methods
+
+        We compare the OFV and parameter estimates across methods.
+        A **lower OFV is better** (= higher likelihood).
+
+        Note: FO OFV is not directly comparable to FOCE/SAEM OFV because
+        different approximations are used.  Always compare models fitted
+        with the *same* method.
+        """
+    )
+    return
+
+
+@app.cell
+def _(mo, pd, result_fo, result_foce, result_saem):
+    comparison = pd.DataFrame(
+        {
+            "Method": ["FO", "FOCE+I", "SAEM"],
+            "OFV": [result_fo.ofv, result_foce.ofv, result_saem.ofv],
+            "KA": [r.theta_final[0] for r in [result_fo, result_foce, result_saem]],
+            "CL": [r.theta_final[1] for r in [result_fo, result_foce, result_saem]],
+            "V": [r.theta_final[2] for r in [result_fo, result_foce, result_saem]],
+            "Converged": [r.converged for r in [result_fo, result_foce, result_saem]],
+        }
+    ).round(4)
+
+    mo.vstack(
+        [
+            mo.md("### Parameter Estimates by Method"),
+            mo.ui.table(comparison),
+        ]
+    )
+    return (comparison,)
+
+
+@app.cell
+def _(mo):
+    mo.md(
+        r"""
+        ## 5. OFV History Plot
+
+        When available, the OFV trajectory over optimisation iterations
+        helps diagnose convergence:
+        """
+    )
+    return
+
+
+@app.cell
+def _():
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from openpkpd.plots.model_perf import ofv_history
+
+    return matplotlib, ofv_history, plt
+
+
+@app.cell
+def _(ofv_history, result_foce):
+    try:
+        fig_ofv = ofv_history(result_foce, title="FOCE OFV history")
+        fig_ofv
+    except Exception as e:
+        print(f"OFV history plot not available: {e}")
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(
+        r"""
+        ## 6. Nonparametric Estimation
+
+        The nonparametric estimator (NPMLE) makes no distributional assumption
+        about $\eta$.  Instead, it finds a discrete support that maximises the
+        likelihood.
+
+        ```python
+        .estimation(method="NONPARAMETRIC", npde_options={"support_size": 50})
+        ```
+
+        The result contains a support grid and probability weights instead
+        of an $\Omega$ matrix.
+
+        ## 7. Bayesian Estimation
+
+        OpenPKPD interfaces with **PyMC** or **NumPyro** for full Bayesian
+        posterior sampling (MCMC):
+
+        ```python
+        .estimation(method="BAYES", nsamples=2000, nchains=4, seed=42)
+        ```
+
+        Requires `pip install openpkpd[jax]` (for NumPyro) or `openpkpd[bayes]`
+        (for PyMC).  See notebook `11_advanced.py` for a worked Bayesian example.
+
+        ## Summary
+
+        | Method | `.estimation(method=...)` | Key options |
+        |--------|--------------------------|-------------|
+        | FO | `"FO"` | `maxeval` |
+        | FOCE | `"FOCE"` | `interaction=True`, `maxeval` |
+        | SAEM | `"SAEM"` | `nburn`, `niter`, `seed` |
+        | IMP | `"IMP"` | `isample`, `seed` |
+        | Laplacian | `"LAPLACIAN"` | `maxeval` |
+        | Nonparametric | `"NONPARAMETRIC"` | `support_size` |
+        | Bayesian | `"BAYES"` | `nsamples`, `nchains`, `seed` |
+        """
+    )
+    return
+
+
+if __name__ == "__main__":
+    app.run()

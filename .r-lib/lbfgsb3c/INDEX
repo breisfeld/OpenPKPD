@@ -1,0 +1,3 @@
+.lbfgsb3cPtr            Get the lbfgsb3c pointer
+lbfgsb3c                Interfacing wrapper for the Nocedal - Morales
+                        LBFGSB3 (Fortran) limited memory BFGS solver.

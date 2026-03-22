@@ -1,0 +1,5 @@
+pkg_template            Start a new project with the cpp4r package
+                        template
+register                Generates wrappers for registered C++ functions
+unvendor                Unvendor the cpp4r headers
+vendor                  Vendor the cpp4r headers

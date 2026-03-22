@@ -1,0 +1,22 @@
+manifest_version: 1
+id: warfarin_oral_focei
+title: Warfarin oral FOCEI
+description: Oral PK example using a curated NONMEM-style control stream and bundled dataset.
+category: pk
+primary_mode: control_stream
+route: oral
+difficulty: intermediate
+tags: [pk, oral, warfarin, focei]
+sort_order: 20
+files:
+  dataset: ../../../../shared_data/warfarin/warfarin.csv
+  control_stream: model.ctl
+  readme: null
+  preview_image: null
+gui:
+  load_dataset: true
+  load_control_stream: true
+  featured: true
+source:
+  kind: internal
+

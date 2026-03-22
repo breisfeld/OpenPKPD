@@ -1,0 +1,35 @@
+{
+  "ofv": 214.23409285673273,
+  "theta": [
+    1.2264661413588325,
+    2.750583389493541,
+    32.45042969732928
+  ],
+  "omega_diag": [
+    320653.2906897976
+  ],
+  "sigma_diag": [
+    0.34905308525782813
+  ],
+  "converged": true,
+  "_meta": {
+    "name": "theophylline_bayes_laplace",
+    "reference_kind": "internal-baseline",
+    "externally_validated": false,
+    "dataset": "synthetic_theophylline_like",
+    "method": "BAYES-laplace",
+    "seed": 42,
+    "notes": "Self-consistent openpkpd regression baseline. Useful for drift detection but not yet an external scientific reference."
+  },
+  "posterior_ci_lo": [
+    -5.71018713070271,
+    2.607373120410799,
+    31.16871039848923
+  ],
+  "posterior_ci_hi": [
+    8.146465180584615,
+    2.8905113091667562,
+    33.632035044962244
+  ],
+  "backend_used": "laplace"
+}

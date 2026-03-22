@@ -1,0 +1,46 @@
+{
+  "_meta": {
+    "benchmark_name": "NONMEM Run 504f \u2014 One-Compartment with Fixed Covariates (ADVAN1 TRANS2)",
+    "source": "NONMEM 7.5.0 FOCEI output (temp/nonmem/504f.res)",
+    "reference_kind": "nonmem-7.5.0",
+    "externally_validated": true,
+    "dataset": "501.csv \u2014 60 subjects, 240 IV-infusion observations, covariates: WT, AGE, SEX (some fixed)",
+    "model": "1-compartment IV infusion, some covariate exponents fixed (TRANS4 NONMEM convention), BLOCK(2) OMEGA, proportional error",
+    "method": "FOCEI (METHOD=COND INTERACTION)",
+    "software": "NONMEM",
+    "software_version": "7.5.0",
+    "convergence": "MINIMIZATION SUCCESSFUL",
+    "n_subjects": 60,
+    "n_observations": 240,
+    "notes": [
+      "504f is the fixed-covariate variant: WT exponents set to 0.75 (CL) and 1.0 (V), SEX multipliers fixed to 1.0.",
+      "OpenPKPD achieves OFV=1179.22 (10.7% worse than NONMEM 1065.36).",
+      "AGE exponent for V fixed to 0.0 in NONMEM run."
+    ],
+    "dataset_citation": "Bauer RJ (2019). NONMEM tutorial part II: estimation methods and diagnostics for nonlinear mixed-effects models with examples from pharmacokinetic and pharmacodynamic studies. CPT Pharmacometrics Syst Pharmacol 8(8):538-556. [Dataset 504.csv: 60 subjects, IV infusion, 1-compartment with fixed covariate exponents.]"
+  },
+  "ofv": 1065.3623671336,
+  "theta": {
+    "CL_ref": 2.87809,
+    "V_ref": 32.3319,
+    "CL_WT_exponent": 0.75,
+    "V_WT_exponent": 1.0,
+    "CL_AGE_exponent": -0.529474,
+    "V_AGE_exponent": 0.0,
+    "CL_SEX_multiplier": 1.0,
+    "V_SEX_multiplier": 1.0
+  },
+  "omega_block": {
+    "CL_CL": 0.0341202,
+    "CL_V": 0.00114646,
+    "V_V": 0.0505107
+  },
+  "sigma_diag": {
+    "eps1": 0.0499643
+  },
+  "openpkpd_comparison": {
+    "ofv": 1179.224867,
+    "pct_ofv_difference": 10.7,
+    "status": "converged_suboptimal"
+  }
+}

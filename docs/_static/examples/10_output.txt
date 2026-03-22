@@ -1,0 +1,94 @@
+examples/10_blq_handling.py:324: UserWarning: ETA1 shrinkage is 99.8% (>30%). EBE-based analyses for this parameter may be unreliable.
+  result.compute_shrinkage()
+examples/10_blq_handling.py:324: UserWarning: ETA2 shrinkage is 99.2% (>30%). EBE-based analyses for this parameter may be unreliable.
+  result.compute_shrinkage()
+examples/10_blq_handling.py:324: UserWarning: ETA3 shrinkage is 99.8% (>30%). EBE-based analyses for this parameter may be unreliable.
+  result.compute_shrinkage()
+examples/10_blq_handling.py:324: UserWarning: ETA1 shrinkage is 99.8% (>30%). EBE-based analyses for this parameter may be unreliable.
+  result.compute_shrinkage()
+examples/10_blq_handling.py:324: UserWarning: ETA2 shrinkage is 99.2% (>30%). EBE-based analyses for this parameter may be unreliable.
+  result.compute_shrinkage()
+examples/10_blq_handling.py:324: UserWarning: ETA3 shrinkage is 99.8% (>30%). EBE-based analyses for this parameter may be unreliable.
+  result.compute_shrinkage()
+examples/10_blq_handling.py:324: UserWarning: ETA1 shrinkage is 99.8% (>30%). EBE-based analyses for this parameter may be unreliable.
+  result.compute_shrinkage()
+examples/10_blq_handling.py:324: UserWarning: ETA2 shrinkage is 99.2% (>30%). EBE-based analyses for this parameter may be unreliable.
+  result.compute_shrinkage()
+examples/10_blq_handling.py:324: UserWarning: ETA3 shrinkage is 99.8% (>30%). EBE-based analyses for this parameter may be unreliable.
+  result.compute_shrinkage()
+============================================================
+Example 10: BLQ Handling — M1 vs M3 vs M5
+============================================================
+
+Simulated dataset:
+  Subjects          : 20
+  Total observations: 180
+  BLQ observations  : 0 (0.0%)
+  LLOQ              : 0.3 mg/L
+
+True parameters:
+  KA = 1.20 hr-1
+  CL = 0.150 L/hr
+  V  = 10.00 L
+  SIGMA (prop) = 0.050
+
+──────────────────────────────────────────────────
+Fitting BLQ method: M1
+  OFV       = 560.8130
+  Converged = True
+  n_obs     = 180
+  AIC       = 580.8130
+  BIC       = 612.7426
+
+  Parameter estimates:
+    KA = 0.5187  (true: 1.20)
+    CL = 0.0291  (true: 0.150)
+    V  = 3.3866  (true: 10.00)
+  ETA shrinkage: ['99.8%', '99.2%', '99.8%']
+
+──────────────────────────────────────────────────
+Fitting BLQ method: M3
+  OFV       = 560.8130
+  Converged = True
+  n_obs     = 180
+  AIC       = 580.8130
+  BIC       = 612.7426
+
+  Parameter estimates:
+    KA = 0.5187  (true: 1.20)
+    CL = 0.0291  (true: 0.150)
+    V  = 3.3866  (true: 10.00)
+  ETA shrinkage: ['99.8%', '99.2%', '99.8%']
+
+──────────────────────────────────────────────────
+Fitting BLQ method: M5
+  OFV       = 560.8130
+  Converged = True
+  n_obs     = 180
+  AIC       = 580.8130
+  BIC       = 612.7426
+
+  Parameter estimates:
+    KA = 0.5187  (true: 1.20)
+    CL = 0.0291  (true: 0.150)
+    V  = 3.3866  (true: 10.00)
+  ETA shrinkage: ['99.8%', '99.2%', '99.8%']
+
+============================================================
+Model Comparison Table (sorted by AIC)
+============================================================
+Model    OFV  n_params    AIC    BIC  dOFV  dAIC
+   M1 560.81        10 580.81 612.74  0.00  0.00
+   M3 560.81        10 580.81 612.74  0.00  0.00
+   M5 560.81        10 580.81 612.74  0.00  0.00
+
+────────────────────────────────────────────────────────────
+Key takeaways:
+  M1 excludes 0 BLQ observations, discarding information about the terminal phase.
+  M3 uses the full censored likelihood, maximally preserving information from BLQ data.
+  M5 imputes BLQ as LLOQ/2, which can bias parameter estimates if BLQ% is high (>20%).
+
+  Best model by AIC: M1
+
+  OFV(M1) - OFV(M3) = 0.00
+  (Note: M1 vs M3 are not nested; this is illustrative only.)

@@ -4,7 +4,7 @@
 
 # OpenPKPD
 
-Open-source Python 3.12 toolkit for population PK/PD analysis, with a native Python API,
+Open-source Python toolkit for population PK/PD analysis, with a native Python API,
 NONMEM-style control-stream support, a CLI, and a Qt desktop GUI.
 
 

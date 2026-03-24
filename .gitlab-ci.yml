@@ -28,6 +28,7 @@ stages:
 - test
 - build
 - package
+- publish
 - docs
 
 # ---------------------------------------------------------------------------
@@ -100,17 +101,120 @@ test:integration:
     expire_in: 1 week
 
 # ---------------------------------------------------------------------------
-# Build — Python wheel (all platforms via Linux runner)
+# Build — Rust extension wheels (per-platform) + source distribution
+#
+# Linux:   runs inside ghcr.io/pyo3/maturin (manylinux_2_28 container).
+# macOS:   runs on self-hosted runners; Rust toolchain must be pre-installed.
+# Windows: runs on self-hosted runner; Rust toolchain must be pre-installed.
+#
+# All wheel jobs trigger on version tags and can be run manually on any branch.
+# The pure-Python fallback (no _core) is covered by test:unit which runs
+# without building the Rust extension.
 # ---------------------------------------------------------------------------
 
-build:wheel:
+.wheel_rules: &wheel_rules
+  rules:
+  - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+/
+  - when: manual
+    allow_failure: true
+
+build:wheel:linux:
   stage: build
+  image: ghcr.io/pyo3/maturin
+  before_script: []   # override default — maturin image needs no uv bootstrap
+  <<: *wheel_rules
   script:
-  - uv build --wheel
+  # manylinux_2_28 wheel — compatible with most modern Linux distributions
+  - maturin build --release --compatibility manylinux_2_28 --out dist/
+  tags:
+  - linux-x86_64
   artifacts:
     paths:
     - dist/*.whl
-    expire_in: 1 week
+    expire_in: 4 weeks
+
+build:wheel:macos-arm64:
+  stage: build
+  image: null
+  before_script:
+  - pip3 install --quiet "maturin>=1.5,<2"
+  <<: *wheel_rules
+  script:
+  - maturin build --release --out dist/
+  tags:
+  - macos-arm64
+  artifacts:
+    paths:
+    - dist/*.whl
+    expire_in: 4 weeks
+
+build:wheel:macos-x86:
+  stage: build
+  image: null
+  before_script:
+  - pip install --quiet "maturin>=1.5,<2"
+  <<: *wheel_rules
+  script:
+  - maturin build --release --out dist/
+  tags:
+  - macos-x86_64
+  artifacts:
+    paths:
+    - dist/*.whl
+    expire_in: 4 weeks
+
+build:wheel:windows:
+  stage: build
+  image: null
+  before_script:
+  - pip install --quiet "maturin>=1.5,<2"
+  <<: *wheel_rules
+  script:
+  - maturin build --release --out dist/
+  tags:
+  - windows-x64
+  artifacts:
+    paths:
+    - dist/*.whl
+    expire_in: 4 weeks
+
+build:sdist:
+  stage: build
+  before_script:
+  - pip install --quiet uv "maturin>=1.5,<2"
+  <<: *wheel_rules
+  script:
+  - maturin sdist --out dist/
+  artifacts:
+    paths:
+    - dist/*.tar.gz
+    expire_in: 4 weeks
+
+# ---------------------------------------------------------------------------
+# Publish — upload wheels + sdist to PyPI
+#
+# Requires CI variable PYPI_API_TOKEN set in GitLab project settings.
+# Only runs on version tags after all wheel builds succeed.
+# ---------------------------------------------------------------------------
+
+publish:pypi:
+  stage: publish
+  image: python:3.12-slim
+  before_script: []
+  rules:
+  - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+/
+  needs:
+  - build:wheel:linux
+  - build:wheel:macos-arm64
+  - build:wheel:macos-x86
+  - build:wheel:windows
+  - build:sdist
+  script:
+  - pip install --quiet twine
+  - twine upload --non-interactive dist/*
+  variables:
+    TWINE_USERNAME: __token__
+    TWINE_PASSWORD: $PYPI_API_TOKEN
 
 # ---------------------------------------------------------------------------
 # Package — platform installers

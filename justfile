@@ -215,6 +215,18 @@ test-notebooks: install-notebooks
     {{uv_notebooks}} pytest tests/integration/test_notebooks.py -v -m "slow and integration"
 
 # ---------------------------------------------------------------------------
+# Rust compiled extensions
+# ---------------------------------------------------------------------------
+
+# Build the openpkpd._core Rust extension (release mode) and copy into package.
+# Requires: Rust toolchain (rustup.rs).  Run once after cloning or after
+# modifying rust/src/lib.rs.
+build-core:
+    cd rust && cargo build --release
+    cp rust/target/release/lib_core.so \
+       src/openpkpd/_core.cpython-312-x86_64-linux-gnu.so
+
+# ---------------------------------------------------------------------------
 # Git hooks
 # ---------------------------------------------------------------------------
 

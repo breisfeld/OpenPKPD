@@ -59,6 +59,9 @@ tr:nth-child(even) { background: #f2f2f2; }
 .stat-card .value { font-size: 1.4em; font-weight: bold; color: #2c3e50; margin-top: 0.2em; }
 img { max-width: 100%; margin: 1em 0; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
 pre { white-space: pre-wrap; word-break: break-word; margin: 0; }
+details { margin: 0.5em 0; }
+details summary { cursor: pointer; color: #2980b9; font-size: 0.9em; padding: 0.3em 0; }
+details summary:hover { text-decoration: underline; }
 .footer { margin-top: 3em; font-size: 0.8em; color: #999; border-top: 1px solid #eee; padding-top: 1em; }
 @media print {
   body { margin: 0; background: white; }
@@ -175,17 +178,98 @@ def _matrix_table_html(name: str, mat: np.ndarray) -> str:
 
 def _shrinkage_html(result: EstimationResult) -> str:
     parts = []
+    high_shrinkage_indices: list[int] = []
+
     if result.eta_shrinkage is not None and len(result.eta_shrinkage) > 0:
-        rows = "".join(
-            f"<tr><td>ETA({k + 1})</td><td>{sh * 100:.1f}%</td>"
-            f"{'<td class="warning">HIGH</td>' if sh > 0.3 else '<td></td>'}</tr>"
-            for k, sh in enumerate(result.eta_shrinkage)
-        )
+        n_eta = result.omega_final.shape[0]
+        rows = []
+        for k, sh in enumerate(result.eta_shrinkage):
+            omega_kk = float(result.omega_final[k, k]) if k < n_eta else 0.0
+            target_sd = float(np.sqrt(max(omega_kk, 0.0)))
+            corr_str = f"{1.0 / (1.0 - sh):.3f}" if sh < 1.0 - 1e-8 else "&#8734;"
+            high = sh > 0.3
+            if high:
+                high_shrinkage_indices.append(k)
+            flag = (
+                '<td style="color:#e74c3c;font-weight:bold">HIGH</td>'
+                if high
+                else "<td></td>"
+            )
+            rows.append(
+                f"<tr><td>ETA({k + 1})</td><td>{sh * 100:.1f}%</td>"
+                f"<td>{target_sd:.4f}</td><td>{corr_str}</td>{flag}</tr>"
+            )
+        body = "".join(rows)
         parts.append(
             "<h3>ETA Shrinkage</h3>"
-            "<table><thead><tr><th>ETA</th><th>Shrinkage</th><th>Note</th></tr></thead>"
-            f"<tbody>{rows}</tbody></table>"
+            "<table><thead><tr><th>ETA</th><th>Shrinkage</th>"
+            "<th>Target SD (&radic;&Omega;<sub>kk</sub>)</th>"
+            "<th>Correction&nbsp;(1&nbsp;/&nbsp;1&minus;sh)</th>"
+            "<th>Note</th></tr></thead>"
+            f"<tbody>{body}</tbody></table>"
         )
+
+        if high_shrinkage_indices and result.post_hoc_etas:
+            deshrunk = result.compute_deshrinkage_etas()
+            if deshrunk:
+                # Explanation callout
+                parts.append(
+                    "<div style='background:#e8f4fd;border-left:4px solid #3498db;"
+                    "padding:0.8em 1em;margin:0.8em 0'>"
+                    "<b>De-shrunken EBEs (Combes 2013 correction)</b><br>"
+                    "EBEs from FOCE/FOCEI are biased toward zero: shrinkage &gt; 30% means "
+                    "the raw EBEs underestimate between-subject variability and should not be "
+                    "used directly for covariate plots or ETA histograms. "
+                    "The correction below rescales each subject&rsquo;s ETA so that "
+                    "SD(adj&nbsp;&eta;<sub>k</sub>)&nbsp;=&nbsp;&radic;&Omega;<sub>kk</sub> exactly: "
+                    "<i>&eta;&#770;<sub>adj,ik</sub> = &eta;&#770;<sub>ik</sub> / "
+                    "(1 &minus; shrinkage<sub>k</sub>)</i>. "
+                    "Relative subject ordering is preserved."
+                    "</div>"
+                )
+
+                # SD summary: raw vs de-shrunken vs target
+                subjects = list(result.post_hoc_etas.keys())
+                raw_matrix = np.array(
+                    [result.post_hoc_etas[sid] for sid in subjects], dtype=float
+                )
+                adj_matrix = np.array(
+                    [deshrunk[sid] for sid in subjects], dtype=float
+                )
+                n_cols = raw_matrix.shape[1] if raw_matrix.ndim > 1 else 1
+                stat_rows = []
+                for k in range(min(n_eta, n_cols)):
+                    raw_sd = float(np.std(raw_matrix[:, k], ddof=1)) if len(subjects) > 1 else 0.0
+                    adj_sd = float(np.std(adj_matrix[:, k], ddof=1)) if len(subjects) > 1 else 0.0
+                    omega_kk = float(result.omega_final[k, k])
+                    tgt_sd = float(np.sqrt(max(omega_kk, 0.0)))
+                    stat_rows.append(
+                        f"<tr><td>ETA({k + 1})</td><td>{raw_sd:.4f}</td>"
+                        f"<td>{adj_sd:.4f}</td><td>{tgt_sd:.4f}</td></tr>"
+                    )
+                parts.append(
+                    "<h4>SD summary: raw vs de-shrunken EBEs</h4>"
+                    "<table><thead><tr><th>ETA</th><th>SD (raw EBEs)</th>"
+                    "<th>SD (de-shrunken)</th>"
+                    "<th>Target &radic;&Omega;<sub>kk</sub></th></tr></thead>"
+                    f"<tbody>{''.join(stat_rows)}</tbody></table>"
+                )
+
+                # Collapsible per-subject table
+                hdr = "".join(f"<th>ETA({k + 1}) adj</th>" for k in range(n_cols))
+                detail_rows = []
+                for i, sid in enumerate(subjects):
+                    vals = adj_matrix[i] if adj_matrix.ndim > 1 else [float(adj_matrix[i])]
+                    cells = "".join(f"<td>{float(v):.4f}</td>" for v in vals)
+                    detail_rows.append(f"<tr><td>{sid}</td>{cells}</tr>")
+                parts.append(
+                    "<details><summary><b>Per-subject de-shrunken ETAs</b>"
+                    " &#9660; click to expand</summary>"
+                    f"<table><thead><tr><th>Subject</th>{hdr}</tr></thead>"
+                    f"<tbody>{''.join(detail_rows)}</tbody></table>"
+                    "</details>"
+                )
+
     if result.eps_shrinkage is not None and len(result.eps_shrinkage) > 0:
         rows = "".join(
             f"<tr><td>EPS({k + 1})</td><td>{sh * 100:.1f}%</td></tr>"

@@ -595,3 +595,6 @@ TSWLatexianTemp*
 # xwatermark package
 *.xwm
 
+
+# Internal dev planning docs
+docs/dev/

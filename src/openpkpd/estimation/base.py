@@ -273,6 +273,52 @@ class EstimationResult:
             eps_sh = 1.0 - float(np.std(valid, ddof=1)) if len(valid) > 1 else 0.0
             self.eps_shrinkage = np.array([eps_sh])
 
+    def compute_deshrinkage_etas(self) -> dict[int, np.ndarray]:
+        """
+        Return de-shrunken EBEs using the Combes (2013) rescaling correction.
+
+        EBEs from FOCE (and to a lesser extent SAEM) are biased toward zero
+        because the posterior mode is shrunk relative to the true individual
+        values.  This method rescales each subject's ETA vector so that the
+        marginal variance matches omega_kk exactly:
+
+            eta_adj_ik = eta_ik / (1 − shrinkage_k)
+
+        which is equivalent to:
+
+            eta_adj_ik = eta_ik × sqrt(omega_kk) / SD(EBEs_k)
+
+        The relative ranking of subjects is preserved.  Subjects with the
+        same sign as the population mean shift in proportion to their original
+        EBE magnitude.
+
+        Returns an empty dict when post-hoc ETAs or shrinkage have not been
+        computed, or when a random effect is fully shrunk (SD(EBEs) ≈ 0).
+
+        Reference
+        ---------
+        Combes F-P, Retout S, Frey N, Mentré F (2013).  Prediction of shrinkage
+        of individual parameters using the Bayesian information matrix in
+        nonlinear mixed-effects models with evaluation in pharmacokinetics.
+        Pharm Res 30:2355–2367.  https://doi.org/10.1007/s11095-013-1079-3
+        """
+        if not self.post_hoc_etas or len(self.eta_shrinkage) == 0:
+            return {}
+
+        subjects = list(self.post_hoc_etas.keys())
+        eta_matrix = np.array([self.post_hoc_etas[sid] for sid in subjects], dtype=float)
+        n_eta = self.omega_final.shape[0]
+
+        for k in range(min(n_eta, eta_matrix.shape[1])):
+            shrinkage_k = float(self.eta_shrinkage[k])
+            denom = 1.0 - shrinkage_k
+            if abs(denom) < 1e-8:
+                # Fully shrunk: de-shrinkage is undefined, leave as zero
+                continue
+            eta_matrix[:, k] /= denom
+
+        return {sid: eta_matrix[i] for i, sid in enumerate(subjects)}
+
 
 class EstimationMethod(ABC):
     """

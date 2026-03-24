@@ -238,8 +238,13 @@ class IMPMethod(EstimationMethod):
                     params.sigma,
                     trans=population_model.trans,
                 )
-                # log p(eta_s | Omega) — prior
-                log_prior = -0.5 * float(eta_s @ omega_inv @ eta_s) - 0.5 * log_det_omega
+                # log p(eta_s | Omega) — prior (full multivariate-normal formula)
+                n_eta = len(eta_s)
+                log_prior = (
+                    -0.5 * float(eta_s @ omega_inv @ eta_s)
+                    - 0.5 * log_det_omega
+                    - 0.5 * n_eta * math.log(2.0 * math.pi)
+                )
                 # log q(eta_s) — proposal
                 log_proposal = multivariate_normal.logpdf(eta_s, mean=eta_map, cov=V_prop)
                 log_weights[s] = ll_data + log_prior - log_proposal

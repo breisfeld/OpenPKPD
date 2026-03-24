@@ -74,8 +74,9 @@ class _GaussianParams:
 
 
 def _implemented_log_marginal_gaussian(dv: float, sigma_var: float, omega_var: float) -> float:
+    """Closed-form log p(y) = log N(y; 0, sigma_var + omega_var) — fully normalised."""
     total_var = sigma_var + omega_var
-    return float(-0.5 * (np.log(total_var) + dv**2 / total_var))
+    return float(-0.5 * (np.log(2.0 * np.pi * total_var) + dv**2 / total_var))
 
 
 def test_importance_sample_matches_closed_form_gaussian_log_marginal() -> None:

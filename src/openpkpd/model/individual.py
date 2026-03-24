@@ -29,6 +29,60 @@ from openpkpd.pk.base import PKSubroutine
 from openpkpd.utils.constants import BLQMethod
 from openpkpd.utils.errors import PKError
 
+# ---------------------------------------------------------------------------
+# Optional Rust-compiled inner-loop extension (openpkpd._core).
+# Falls back silently to the pure-Python path if the extension is not built.
+# Build:  cd rust && cargo build --release
+#         cp target/release/lib_core.so \
+#            ../src/openpkpd/_core.cpython-312-x86_64-linux-gnu.so
+# ---------------------------------------------------------------------------
+try:
+    from openpkpd._core import neg2ll_obs_loop as _neg2ll_obs_loop_rust
+
+    _RUST_CORE_AVAILABLE = True
+except ImportError:
+    _RUST_CORE_AVAILABLE = False
+
+# BLQMethod string → integer code expected by the Rust function
+_BLQ_METHOD_CODE: dict[str | None, int] = {
+    None: 0,
+    BLQMethod.M1: 1,
+    BLQMethod.M2: 2,
+    BLQMethod.M3: 3,
+    BLQMethod.M4: 4,
+    BLQMethod.M5: 5,
+    BLQMethod.M6: 6,
+    BLQMethod.M7: 7,
+}
+
+
+_NAN_LLOQ_CACHE: dict[int, np.ndarray] = {}
+
+
+def _build_lloq_array(lloq: object, n: int) -> np.ndarray:
+    """Return a float64 array of length *n* with per-obs LLOQ values.
+
+    NaN encodes "no LLOQ for this observation" (i.e. normal non-BLQ obs).
+    Accepts None (all NaN), a scalar float, or an array.
+
+    The all-NaN case (lloq=None, the common path) reuses a cached array to
+    avoid allocating a new one on every log_likelihood call.
+    """
+    if lloq is None:
+        cached = _NAN_LLOQ_CACHE.get(n)
+        if cached is None:
+            cached = np.full(n, np.nan, dtype=np.float64)
+            _NAN_LLOQ_CACHE[n] = cached
+        return cached
+    out = np.full(n, np.nan, dtype=np.float64)
+    if np.ndim(lloq) == 0:
+        out[:] = float(lloq)  # type: ignore[arg-type]
+    else:
+        arr = np.asarray(lloq, dtype=float)
+        length = min(len(arr), n)
+        out[:length] = arr[:length]
+    return out
+
 _W_PROP_THETA_RE = re.compile(r"^w=f\*theta\[(\d+)\]$", re.IGNORECASE)
 _W_THETA_RE = re.compile(r"^w=theta\[(\d+)\]$", re.IGNORECASE)
 _W_SQRT_RE = re.compile(
@@ -184,6 +238,60 @@ class IndividualModel:
                     return "combined_theta", (int(sqrt_match.group(1)), int(sqrt_match.group(2)))
         elif n_eps == 2 and normalized_lines == ("y=f+eps[0]+f*eps[1]",):
             return "combined_eps", ()
+        return None
+
+    def _fast_obs_model(
+        self,
+        f: np.ndarray,
+        theta: np.ndarray,
+        sigma: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray] | None:
+        """Return (pred, var) arrays for common error models without looping.
+
+        Used by ``evaluate_observation_model`` when eps=0 (estimation path).
+        pred = f (no shift when eps=0 for all detected patterns).
+        var  = per-observation residual variance from sigma and theta.
+
+        Returns None if the pattern is not handled (falls back to Python loop).
+        """
+        common = self._common_error_model
+        if common is None:
+            return None
+        kind, theta_idx = common
+        f_arr = np.asarray(f, dtype=float)
+        n = len(f_arr)
+        s00 = max(float(sigma[0, 0]) if sigma.size > 0 else 1.0, 1e-10)
+
+        if kind == "proportional":
+            # Y = F*(1+EPS)  →  var = F² · σ₀₀
+            return f_arr.copy(), np.maximum(f_arr * f_arr * s00, 1e-10)
+
+        if kind == "additive":
+            # Y = F+EPS  →  var = σ₀₀ (constant)
+            return f_arr.copy(), np.full(n, s00)
+
+        if kind == "proportional_theta":
+            # W = F·θ[k],  Y = F+W·EPS  →  var = (θ[k]·F)² · σ₀₀
+            w = float(theta[theta_idx[0]])
+            return f_arr.copy(), np.maximum((w * f_arr) ** 2 * s00, 1e-10)
+
+        if kind == "additive_theta":
+            # W = θ[k],  Y = F+W·EPS  →  var = θ[k]² · σ₀₀
+            w = float(theta[theta_idx[0]])
+            return f_arr.copy(), np.full(n, max(w * w * s00, 1e-10))
+
+        if kind == "combined_theta":
+            # W = √(θ[k1]²+(F·θ[k2])²),  Y = F+W·EPS  →  var = W² · σ₀₀
+            add_sd = float(theta[theta_idx[0]])
+            prop_sd = float(theta[theta_idx[1]])
+            w2 = add_sd * add_sd + (prop_sd * f_arr) ** 2
+            return f_arr.copy(), np.maximum(w2 * s00, 1e-10)
+
+        if kind == "combined_eps":
+            # Y = F+EPS[0]+F·EPS[1]  →  var = σ₀₀ + F²·σ₁₁
+            s11 = max(float(sigma[1, 1]) if sigma.size >= 4 else s00, 1e-10)
+            return f_arr.copy(), np.maximum(s00 + f_arr * f_arr * s11, 1e-10)
+
         return None
 
     def simulate_error_predictions_fast(
@@ -424,6 +532,16 @@ class IndividualModel:
 
         if self.error_callable is None:
             return ipred, obs_mask, f, pred, var
+
+        # ── Fast path for standard error models (eps=0 estimation path) ──────
+        # When the $ERROR block matches a detected standard pattern and eps is
+        # zero (all FOCE/SAEM inner-loop calls), skip the per-observation Python
+        # loop entirely and compute pred/var with vectorised NumPy operations.
+        # This eliminates ~13 µs/call (FOCE: saves ~5.5M µs across 424k calls).
+        if eps_val is None and self._common_error_model is not None and not self._error_requires_amounts:
+            _fast = self._fast_obs_model(f, theta, sigma)
+            if _fast is not None:
+                return ipred, obs_mask, f, _fast[0], _fast[1]
 
         dv = self.subject_events.obs_dv
         obs_times = self.subject_events.obs_times
@@ -776,7 +894,25 @@ class IndividualModel:
         active_lloq = lloq if lloq is not None else self.lloq
 
         dv = self.subject_events.obs_dv
+        n = len(obs_mask)
 
+        # ── Rust fast-path ────────────────────────────────────────────────
+        # Delegates the entire per-observation loop to the compiled extension.
+        # Array conversions use np.asarray (zero-copy when already correct dtype).
+        if _RUST_CORE_AVAILABLE:
+            lloq_arr = _build_lloq_array(active_lloq, n)
+            blq_code = _BLQ_METHOD_CODE.get(active_method, 0)
+            dv_arr = np.asarray(dv, dtype=np.float64)
+            return _neg2ll_obs_loop_rust(
+                dv_arr[:n] if len(dv_arr) > n else dv_arr,
+                np.asarray(pred, dtype=np.float64),
+                np.asarray(var, dtype=np.float64),
+                np.asarray(obs_mask, dtype=bool),
+                lloq_arr,
+                blq_code,
+            )
+
+        # ── Pure-Python fallback ──────────────────────────────────────────
         # Track whether this subject has had its first BLQ (for M6)
         seen_blq_m6: bool = False
 

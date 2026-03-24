@@ -218,13 +218,16 @@ test-notebooks: install-notebooks
 # Rust compiled extensions
 # ---------------------------------------------------------------------------
 
-# Build the openpkpd._core Rust extension (release mode) and copy into package.
-# Requires: Rust toolchain (rustup.rs).  Run once after cloning or after
-# modifying rust/src/lib.rs.
+# Build and install the openpkpd._core Rust extension in-place (development).
+# Requires: Rust toolchain (rustup.rs) and maturin (installed via uv sync --extra dev).
+# Run once after cloning or after modifying rust/src/lib.rs.
 build-core:
-    cd rust && cargo build --release
-    cp rust/target/release/lib_core.so \
-       src/openpkpd/_core.cpython-312-x86_64-linux-gnu.so
+    env -u CONDA_PREFIX uv run maturin develop --release
+
+# Build a distributable wheel for the current platform only (not manylinux).
+# For production manylinux wheels use the CI pipeline.
+build-wheel:
+    env -u CONDA_PREFIX uv run maturin build --release --out dist/
 
 # ---------------------------------------------------------------------------
 # Git hooks

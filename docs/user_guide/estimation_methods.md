@@ -151,6 +151,40 @@ result.compute_shrinkage()
 print(result.summary())
 ```
 
+### ETA shrinkage and de-shrinkage
+
+After calling `compute_shrinkage()`, per-ETA shrinkage fractions are stored in
+`result.eta_shrinkage`:
+
+```python
+result.compute_shrinkage()
+# result.eta_shrinkage: array of shrinkage fractions, e.g. [0.62]
+# Shrinkage > 30% triggers a warning and is flagged in the HTML report.
+```
+
+EBEs (Empirical Bayes Estimates, i.e. post-hoc ETAs) from FOCE are
+systematically shrunk toward zero.  When shrinkage is high, covariate plots
+and ETA distributions based on raw EBEs underrepresent between-subject
+variability.  The Combes (2013) rescaling correction adjusts each subject's
+ETA vector so that `SD(eta_k) = sqrt(omega_kk)` exactly:
+
+```python
+adjusted_etas = result.compute_deshrinkage_etas()
+# Returns dict[subject_id → adjusted_eta_vector]
+# adjusted_etas[1]  # de-shrunken ETA for subject 1
+```
+
+The correction factor per random effect `k` is `1 / (1 − shrinkage_k)`.
+Subjects retain their relative ordering; only the dispersion is corrected.
+De-shrunken ETAs are appropriate for covariate plots and ETA histograms when
+FOCE shrinkage exceeds roughly 30%.  SAEM EBEs typically have lower shrinkage
+and often need less correction.
+
+> **Reference:** Combes F-P, Retout S, Frey N, Mentré F (2013).
+> *Prediction of shrinkage of individual parameters using the Bayesian
+> information matrix in nonlinear mixed-effects models.*
+> Pharm Res 30:2355–2367.
+
 `method="BAYES"` returns a `BayesianResult`, which adds posterior-specific
 fields such as:
 

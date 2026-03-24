@@ -5,6 +5,42 @@ This project follows [Semantic Versioning](https://semver.org).
 
 ---
 
+## 0.2.2 — 2026-03-24
+
+### Changed
+
+**IMP estimation — corrected marginal likelihood normalisation**
+- Fixed a systematic bias in `IMPMethod._importance_sample()` where the log-prior
+  contribution was missing the `−n_eta/2 · log(2π)` normalisation term.
+- The bias was proportional to the number of random effects (~11 OFV units per ETA per
+  subject for a 12-subject run), causing IMP to converge to a false mode or fail to
+  converge at all on models where FOCE/SAEM converge cleanly.
+- Updated the Theophylline IMP regression reference from the placeholder value
+  (OFV = 5736, theta at initials) to the true minimum (OFV = 3381).
+
+**ETA de-shrinkage (Combes 2013)**
+- `EstimationResult.compute_deshrinkage_etas()` returns a subject-keyed dict of
+  de-shrunken EBEs using the Combes (2013) rescaling correction:
+  `eta_adj_ik = eta_ik / (1 − shrinkage_k)`.
+- This adjusts the EBE dispersion to match `sqrt(omega_kk)` exactly, making covariate
+  plots and ETA histograms valid even when FOCE shrinkage exceeds 30%.
+- A warning note ("Consider de-shrinkage") is now shown in the HTML report for any
+  ETA row whose shrinkage exceeds 30%.
+- See `docs/user_guide/estimation_methods.md` for full usage documentation and
+  the Combes (2013) reference.
+
+**Fast-path error model evaluation (observation-model loop bypass)**
+- `IndividualModel._fast_obs_model()` detects standard `$ERROR` patterns
+  (proportional, additive, proportional_theta, additive_theta, combined_theta,
+  combined_eps) and evaluates them with vectorized NumPy instead of the
+  per-observation Python loop.
+- The fast path is used automatically when `eps=0` (estimation path); the
+  full per-observation loop is retained for simulation.
+- Measured on the Theophylline benchmark (12 subjects, 7 obs, proportional error):
+  `evaluate_observation_model` reduced from ~50 µs/call to ~18 µs/call (~2.8×).
+
+---
+
 ## 0.2.1 — 2026-03-22
 
 ### Changed

@@ -123,6 +123,13 @@ module-name = "openpkpd._core"
 features = ["pyo3/extension-module"]
 # Cargo.toml stays under rust/ to keep sources organised
 manifest-path = "rust/Cargo.toml"
+# Explicitly include the LICENSE file in the sdist.
+# Maturin resolves file discovery relative to the Cargo manifest (rust/), so the
+# project-root LICENSE is not picked up automatically — but its path is still
+# written into the wheel/sdist metadata, causing PyPI to reject the upload.
+include = [
+    { path = "LICENSE", format = "sdist" },
+]
 # Paths to omit from source distributions (gitignored paths are excluded automatically)
 sdist-exclude = [
     ".r-lib/",

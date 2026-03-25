@@ -258,17 +258,24 @@ bump-version version:
 show-version:
     @{{uv_base}} python scripts/bump_version.py
 
-# Build the source distribution and wheel
+# Build the source distribution and wheel (platform-native; not suitable for Linux PyPI upload)
 build:
     rm -rf dist/
     uv build
 
+# Build a manylinux_2_28 wheel + sdist using the maturin Docker image (Linux publish target).
+# Requires Docker. Matches what the CI pipeline produces.
+build-manylinux:
+    rm -rf dist/
+    docker run --rm -v "$(pwd)":/io ghcr.io/pyo3/maturin build --release --compatibility manylinux_2_28 --out dist/
+    env -u CONDA_PREFIX uv run maturin sdist --out dist/
+
 # Publish to TestPyPI (reads PYPI_TEST_API_TOKEN from .env)
-publish-to-pypi-test: build
+publish-to-pypi-test: build-manylinux
     uv publish --publish-url https://test.pypi.org/legacy/ --token "$PYPI_TEST_API_TOKEN"
 
 # Publish to PyPI (reads PYPI_API_TOKEN from .env)
-publish-to-pypi: build
+publish-to-pypi: build-manylinux
     uv publish --token "$PYPI_API_TOKEN"
 
 # ---------------------------------------------------------------------------

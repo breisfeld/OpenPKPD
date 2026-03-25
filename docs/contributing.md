@@ -5,6 +5,22 @@ a development environment, run the test suite, and submit a pull request.
 
 ## Development setup
 
+### Prerequisites
+
+- **Python 3.12+** and **[uv](https://docs.astral.sh/uv/)**
+- **[Rust toolchain](https://rustup.rs/)** — required to compile the `openpkpd._core`
+  extension. Install once with:
+
+  ```bash
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+  ```
+
+  On Windows, download and run `rustup-init.exe` from [rustup.rs](https://rustup.rs/).
+  The Rust toolchain is needed at build time only — end-users who install a
+  pre-built wheel from PyPI do not need it.
+
+### Setup
+
 ```bash
 git clone https://github.com/your-org/OpenPKPD.git
 cd OpenPKPD
@@ -12,9 +28,16 @@ cd OpenPKPD
 # Install all extras including dev tools
 uv sync --all-extras
 
+# Compile and install the Rust extension in-place
+just build-core
+
 # Verify
 uv run pytest -q
 ```
+
+> **Note:** If you skip `just build-core`, the package will still import and all
+> tests will pass — the pure-Python fallback is used automatically. The compiled
+> extension only affects runtime performance of the log-likelihood inner loop.
 
 ## `just` workflow and platform support
 
@@ -38,6 +61,7 @@ just run-example 01
 
 Remaining external prerequisites depend on the recipe:
 
+- `build-core` / `build-wheel` require the **Rust toolchain** (`rustup`)
 - `install-hooks` requires `git`
 - `build-docs-pdf` requires a working LaTeX installation
 - `watch-docs` and the `*-and-open` recipes require browser/open support on the host

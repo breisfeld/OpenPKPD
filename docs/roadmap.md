@@ -1,7 +1,7 @@
 # OpenPKPD Development Roadmap
 
 **Audit basis:** 2026-03 source-tree review and documentation refresh  
-**Last updated:** 2026-03-09
+**Last updated:** 2026-03-26
 
 This roadmap highlights the **remaining high-value follow-up work** after the
 2026-03 documentation audit. It intentionally avoids listing features that are
@@ -21,6 +21,19 @@ as missing roadmap goals:
 - MPI backend hooks in the parallel layer
 - PFIM/optimal-design entry from `BuiltModel.design()`
 - GUI covariate workflow scaffolding
+- SBML model import (`io/sbml.py`, example 17)
+- R interoperability bridge (`r_bridge/`, `rpy2` optional extra)
+- `$MIXTURE` as a runtime path (`mixture/mixture.py`, discrete EM algorithm,
+  subpopulation output via `mixture_writer.py`)
+- `$PRIOR` / prior-driven estimation across API and control-stream entry points
+  (`prior/prior.py`, MAP penalty, NWPRI-compatible covariance priors)
+- native NumPy/SciPy NUTS/HMC sampler requiring neither JAX nor PyMC
+  (`estimation/nuts.py`)
+- IOV (inter-occasion variability) with OCC column and block-diagonal OMEGA
+  (example 23)
+- PBPK model template (`pk/pbpk/`, `FiveOrganPBPK`, five named organs, example 22)
+- Ray parallel backend in addition to multiprocessing, Dask, and MPI
+- GUI bootstrap, VPC, NPDE, and SCM services
 
 These areas may still need validation, documentation, or workflow expansion, but
 they are no longer “feature absent” gaps.
@@ -31,32 +44,34 @@ they are no longer “feature absent” gaps.
 
 ### 1.1 Harden advanced estimator validation
 
-**Current state:** SAEM, IMP/IMPMAP, `BAYES`, and nonparametric estimation all
-exist.
+**Current state:** SAEM, IMP/IMPMAP, `BAYES`, NUTS, and nonparametric estimation
+all exist.
 
 **Gap:** These paths still need broader regression and benchmark coverage than
 the core FO/FOCE workflow.
 
 **What’s needed:**
 
-- add reference/regression tests for SAEM, IMP/IMPMAP, `BAYES`, and
+- add reference/regression tests for SAEM, IMP/IMPMAP, `BAYES`, NUTS, and
   nonparametric estimation
 - verify posterior diagnostics and backend fallback behavior for `BAYES`
 - expand benchmark comparisons beyond theophylline-style base cases
 
-### 1.2 Close parser-versus-runner gaps
+### 1.2 Close remaining parser-versus-runner gaps
 
-**Current state:** The parser recognizes more NONMEM-style records than the
-runner currently exposes as equally mature end-to-end workflows.
+**Current state:** `$MIXTURE` and `$PRIOR` now have full runtime paths.
+`$SIMULATION` has a simulation engine. The remaining gap is narrower than
+before.
 
-**Gap:** `$SIMULATION`, `$MIXTURE`, and `$PRIOR` support is stronger at parse
-time than in polished runtime workflows.
+**Gap:** Some less-common NONMEM records (e.g. `$SIMULATION` end-to-end via
+control-stream entry, multi-problem `$PROB` runs, `$ABBREVIATED`) are
+recognized at parse time but not fully exercised as polished runtime workflows.
 
 **What’s needed:**
 
-- validate `$SIMULATION` end-to-end
-- make `$MIXTURE` a clearer runtime path
-- confirm prior-driven workflows consistently across API and control-stream entry points
+- validate `$SIMULATION` end-to-end from `.ctl` entry
+- confirm multi-problem workflow handling
+- test less-common record types that the parser accepts
 
 ### 1.3 Improve simulation-diagnostics maturity
 
@@ -73,34 +88,35 @@ time than in polished runtime workflows.
 ### 1.4 Promote advanced workflows to first-class UX
 
 **Current state:** Library support exists for design, advanced diagnostics, and
-simulation-driven workflows.
+simulation-driven workflows. The GUI exposes bootstrap, VPC, NPDE, and SCM
+as services, but the Advanced page is still mostly a placeholder.
 
-**Gap:** Some of that functionality is still easier to reach from Python than
-from the CLI or GUI.
+**Gap:** Some functionality is still easier to reach from Python than from the
+CLI or GUI.
 
 **What’s needed:**
 
-- add clearer examples and user-guide coverage for advanced workflows
-- expose VPC/bootstrap/design workflows more directly in the GUI
+- turn the Advanced GUI page into a real workflow hub
+- add user-guide coverage for recently added features (NUTS, PBPK, IOV, HMM)
 - improve CLI discoverability where advanced capabilities are already available
 
 ---
 
 ## Priority 2 — Competitive maturity improvements
 
-### 2.1 Expand GUI completeness
+### 2.1 Harden newer-feature test and documentation coverage
 
-**Current state:** The GUI covers data, model authoring, fit execution, NCA,
-results, plots, diagnostics, and covariates.
+**Current state:** Many features added recently (NUTS, PBPK, IOV, HMM, TTE,
+SBML) have working examples but limited test depth and user-guide coverage.
 
-**Gap:** The Advanced area is still mostly a placeholder, and advanced artifact
-navigation can be improved.
+**Gap:** Newer features need regression tests, API reference polish, and
+user-guide chapters comparable to the core FO/FOCE workflow.
 
 **What’s needed:**
 
-- turn the Advanced page into a real workflow hub
-- surface simulation/diagnostic pipelines more directly in the UI
-- improve run management and artifact navigation for scenario-heavy work
+- add regression and integration tests for NUTS, PBPK, IOV, HMM, SAEM, IMP
+- expand user-guide chapters for recently added features
+- ensure API reference auto-docs cover all public classes in new modules
 
 ### 2.2 Improve new-design and simulation ergonomics
 
@@ -116,55 +132,67 @@ surface area.
 - add examples and tests for design/simulation handoff
 - ensure outputs match the standard `SimulationResult` workflow expectations
 
-### 2.3 Parallelize more expensive search workflows
+### 2.3 Deepen parallel backend utilization
 
-**Current state:** multiprocessing, Dask, Ray, and MPI backend hooks are
-available.
+**Current state:** Multiprocessing, Dask, Ray, and MPI backends are all
+available. Bootstrap and SAEM use subject-level parallelism. SCM uses
+`ThreadPoolExecutor` for candidate evaluation.
 
-**Gap:** Not every expensive workflow makes full use of the available parallel
-infrastructure.
+**Gap:** Not every expensive workflow makes full use of the best available
+backend. Backend-selection ergonomics could be clearer.
 
 **What’s needed:**
 
-- parallelize SCM candidate evaluation more aggressively
+- extend SCM to use process-level parallelism under Dask/Ray/multiprocessing
+  backends (not just threads)
 - expand validation for bootstrap/SSE/SCM under alternate backends
 - improve backend-selection ergonomics and error reporting
 
 ### 2.4 Broaden reporting and interchange
 
-**Current state:** OpenPKPD writes NONMEM-like outputs, HTML reports, and NCA/CDISC helpers.
+**Current state:** OpenPKPD writes NONMEM-like outputs, HTML/PDF reports, and
+NCA/CDISC SDTM helpers. A NONMEM output reader (`nonmem_reader.py`) exists.
 
 **Gap:** Interchange and reporting remain narrower than commercial stacks.
 
 **What’s needed:**
 
-- expand CDISC exports beyond current helpers
-- add NONMEM result-file import/reuse workflows
+- expand CDISC exports beyond current SDTM helpers (e.g. ADaM domains)
+- improve NONMEM result-file import/reuse workflows
 - improve downstream interoperability for external analysis/reporting tools
 
 ---
 
 ## Priority 3 — Medium-term extensions
 
-### 3.1 Broader external interoperability
+### 3.1 Deepen external interoperability
 
-Potential directions:
+SBML import and an R bridge exist. Potential directions for further work:
 
-- R integration via `rpy2`
-- richer import/export bridges for external pharmacometrics tools
+- richer SBML round-trip (export as well as import)
+- deeper nlmixr2/Monolix result interchange
 - more reusable conversion paths for diagnostics/reporting ecosystems
 
-### 3.2 Bayesian independence from optional backends
+### 3.2 Promote the native NUTS sampler to primary Bayesian fallback
 
-**Current state:** `BAYES` works best with PyMC or NumPyro/JAX and otherwise
-falls back to a Laplace approximation.
+**Current state:** A native NumPy/SciPy NUTS/HMC sampler (`estimation/nuts.py`)
+exists that requires neither JAX nor PyMC. The `BAYES` estimator currently
+prefers PyMC/NumPyro when available and otherwise falls back to a Laplace
+approximation, bypassing the native sampler.
 
-**Gap:** A native posterior sampler without optional ecosystem dependencies does
-not yet exist.
+**Gap:** The native NUTS sampler is not yet wired as the primary `BAYES`
+fallback, and its diagnostics (R-hat, ESS, trace plots) are not yet integrated
+with the standard output layer.
+
+**What's needed:**
+
+- promote the native NUTS sampler as the default `BAYES` fallback (ahead of
+  Laplace) when PyMC/NumPyro are absent
+- integrate NUTS convergence diagnostics (R-hat, ESS) into the reporting layer
 
 ### 3.3 Full nonparametric support-point optimization
 
-**Current state:** nonparametric estimation is present.
+**Current state:** Nonparametric estimation (NPML) is present.
 
 **Gap:** Support-point location optimization is still less complete than a full
 NPEM-style implementation.
@@ -189,14 +217,15 @@ external QA process support.
 | Area | Current state | Target improvement | Effort | Impact |
 |------|---------------|--------------------|:------:|:------:|
 | Advanced estimator validation | P | broader regression and benchmark coverage | M | High |
-| Parser-versus-runner parity | P | stronger end-to-end runtime support | M | High |
+| Parser-versus-runner parity | P | end-to-end for remaining records | S | High |
 | Simulation diagnostics maturity | P | validated and better-polished workflows | M | High |
-| GUI advanced workflow exposure | P | first-class advanced workflows | M | High |
+| GUI advanced workflow hub | P | turn Advanced page into real workflow hub | M | High |
+| Newer feature test/doc coverage | P | regression tests + user-guide chapters | M | High |
 | New-design simulation ergonomics | P | clearer, better-tested workflow | S | Medium |
-| Parallel search/SCM utilization | P | fuller backend usage | S | Medium |
+| Parallel backend utilization | P | process-level SCM parallelism, backend UX | S | Medium |
 | Reporting and interchange | P | richer import/export/report paths | M | Medium |
-| External interoperability | P | better cross-tool integration | M | Medium |
-| Native backend-independent Bayesian sampling | P | true sampler without optional backends | L | Low |
+| External interoperability depth | P | richer SBML + nlmixr2/Monolix bridges | M | Low |
+| Native NUTS as primary Bayes fallback | P | wire NUTS as default fallback, add diagnostics | S | Medium |
 | Full nonparametric support-point optimization | P | closer to full NPEM behavior | L | Low |
 | GPU acceleration | N | accelerated solver/objective stack | XL | Low |
 | GxP validation package | N | formal validation program | XL | Low |

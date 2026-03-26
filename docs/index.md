@@ -6,7 +6,7 @@
 :align: center
 ```
 
-**Open-source Python 3.12 toolkit for population PK/PD analysis.**
+**Open-source Python toolkit for population PK/PD analysis.**
 
 OpenPKPD provides a pure-Python estimation engine that reads NONMEM control
 streams, accepts the same data format, and produces NONMEM 7.x-compatible output

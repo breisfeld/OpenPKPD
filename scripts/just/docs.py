@@ -20,30 +20,11 @@ def env_for(target: str) -> dict[str, str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("target", choices=["html", "latexpdf", "rinoh", "clean", "watch"])
+    parser.add_argument("target", choices=["html", "latexpdf", "clean", "watch"])
     args = parser.parse_args()
 
     if args.target == "watch":
         cmd = ["sphinx-autobuild", "docs", "docs/_build/html", "--open-browser"]
-    elif args.target == "rinoh":
-        # sphinx-design uses grid/card directives that rinohtype cannot render.
-        # Build from the user_guide root (clean MyST prose) and drop sphinx_design.
-        extensions_without_design = (
-            "sphinx.ext.autodoc,"
-            "sphinx.ext.autosummary,"
-            "sphinx.ext.napoleon,"
-            "sphinx.ext.viewcode,"
-            "sphinx.ext.intersphinx,"
-            "sphinx_autodoc_typehints,"
-            "myst_parser,"
-            "sphinx_copybutton"
-        )
-        cmd = [
-            "sphinx-build", "-M", "rinoh",
-            "docs", "docs/_build",
-            "-D", f"extensions={extensions_without_design}",
-            "-D", "root_doc=rinoh_index",
-        ]
     else:
         cmd = ["sphinx-build", "-M", args.target, "docs", "docs/_build"]
 

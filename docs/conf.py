@@ -121,21 +121,6 @@ latex_engine = "xelatex"  # Unicode-safe; handles emoji without errors
 latex_use_xindy = False  # Prefer makeindex for broader local toolchain support
 
 # ---------------------------------------------------------------------------
-# rinohtype PDF output
-# ---------------------------------------------------------------------------
-# Explicit document list avoids the "converting from latex_documents" warning.
-# Pages with very wide tables (analysis_tools, comparison, etc.) are excluded
-# because rinohtype's layout engine loops on tables wider than the page.
-rinoh_documents = [
-    dict(
-        doc="rinoh_index",
-        target="openpkpd",
-        title="OpenPKPD User Guide",
-        author="OpenPKPD contributors",
-    ),
-]
-
-# ---------------------------------------------------------------------------
 # Misc
 # ---------------------------------------------------------------------------
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]

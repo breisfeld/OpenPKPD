@@ -150,6 +150,9 @@ capture-examples: install-plots
 # Documentation
 # ---------------------------------------------------------------------------
 
+# Build HTML and PDF documentation
+build-docs: build-docs-html build-docs-pdf
+
 # Build HTML documentation
 build-docs-html: install-docs
     {{uv_docs}} python scripts/just/docs.py html
@@ -168,14 +171,6 @@ build-docs-pdf: install-docs
 build-docs-pdf-and-open: build-docs-pdf
     {{uv_base}} python scripts/just/system.py open docs/_build/latex/openpkpd.pdf
 
-# Build PDF user manual via rinohtype (no LaTeX required)
-build-docs-pdf-rinoh: install-docs
-    {{uv_docs}} python scripts/just/docs.py rinoh
-    @echo "PDF: docs/_build/rinoh/openpkpd.pdf"
-
-# Build and open rinohtype PDF
-build-docs-pdf-rinoh-and-open: build-docs-pdf-rinoh
-    {{uv_base}} python scripts/just/system.py open docs/_build/rinoh/openpkpd.pdf
 
 # Clean documentation build artifacts
 clean-docs:

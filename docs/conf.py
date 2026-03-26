@@ -82,17 +82,24 @@ intersphinx_mapping = {
 }
 
 # ---------------------------------------------------------------------------
-# Theme: sphinx-rtd-theme
+# Theme: pydata-sphinx-theme
 # ---------------------------------------------------------------------------
-html_theme = "sphinx_rtd_theme"
+html_theme = "pydata_sphinx_theme"
+html_logo = "OpenPKPD_logo.svg"
+html_favicon = "OpenPKPD_icon.ico"
 html_theme_options = {
-    "logo_only": False,
     "navigation_depth": 4,
-    "collapse_navigation": False,
-    "sticky_navigation": True,
-    "includehidden": True,
-    "titles_only": False,
-    "style_external_links": True,
+    "show_nav_level": 1,
+    "show_toc_level": 2,
+    "navbar_align": "left",
+    "icon_links": [
+        {
+            "name": "GitLab",
+            "url": "https://gitlab.com/breisfeld/OpenPKPD",
+            "icon": "fa-brands fa-gitlab",
+            "type": "fontawesome",
+        },
+    ],
 }
 html_title = f"OpenPKPD {version}"
 html_static_path = ["_static"]

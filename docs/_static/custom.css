@@ -1,16 +1,11 @@
-/* Minor tweaks to the ReadTheDocs theme */
-
-/* Slightly wider content area */
-.wy-nav-content {
-    max-width: 900px;
-}
+/* Minor tweaks for the PyData Sphinx Theme */
 
 /* Monospace font for inline code in parameter tables */
-.rst-content dl dt code {
+.bd-content dl dt code {
     font-size: 90%;
 }
 
 /* Tighten up parameter description lists */
-.rst-content dl.field-list dd {
+.bd-content dl.field-list dd {
     margin-bottom: 0.4em;
 }

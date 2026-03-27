@@ -51,6 +51,7 @@ _NAMED_MODELS: tuple[tuple[str, int, int], ...] = (
     ("1-compartment IV bolus, Michaelis-Menten  (ADVAN1 / TRANS2)", 1, 2),
     ("2-compartment IV bolus  (ADVAN3 / TRANS4)", 3, 4),
     ("2-compartment oral  (ADVAN4 / TRANS4)", 4, 4),
+    ("N-compartment general linear  (ADVAN5 / TRANS1)", 5, 1),
     ("3-compartment IV bolus  (ADVAN11 / TRANS4)", 11, 4),
     ("3-compartment oral  (ADVAN12 / TRANS4)", 12, 4),
     ("ODE / user-defined  (ADVAN6)", 6, 1),
@@ -82,6 +83,7 @@ _ADVAN_HELP_TEXT = (
     "Common choices:\n"
     "  ADVAN2/TRANS2 — 1-compartment, oral, CL/V/KA\n"
     "  ADVAN4/TRANS4 — 2-compartment, oral, CL/V1/Q/V2/KA\n"
+    "  ADVAN5/TRANS1 — N-compartment linear, micro rate constants Kij/Ki0\n"
     "  ADVAN6        — ODE-based user-defined model"
 )
 _OMEGA_HELP_TEXT = (

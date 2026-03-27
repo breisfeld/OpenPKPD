@@ -1,8 +1,9 @@
 """
-External-validation tests for analytical PK subroutines (ADVAN1–ADVAN3).
+External-validation tests for analytical PK subroutines (ADVAN1–ADVAN3, ADVAN5).
 
 Every test checks openpkpd output against a closed-form pharmacokinetic
-solution derived directly from the underlying differential equations.
+solution derived directly from the underlying differential equations, or
+against an independent scipy.integrate.odeint numerical reference.
 No fitting is performed; all reference values are analytically exact.
 
 References
@@ -23,6 +24,7 @@ from openpkpd.data.event_processor import DoseEvent
 from openpkpd.pk.analytical.advan1 import ADVAN1
 from openpkpd.pk.analytical.advan2 import ADVAN2
 from openpkpd.pk.analytical.advan3 import ADVAN3
+from openpkpd.pk.analytical.advan5 import ADVAN5
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -343,3 +345,275 @@ class TestODECrossValidation:
 
         sol = ADVAN3().solve({"K": K, "K12": K12, "K21": K21, "V1": V1}, _bolus(D), OBS)
         np.testing.assert_allclose(sol.ipred, c_ref, rtol=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# ADVAN5 — General N-Compartment Linear Model
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.external_validation
+class TestADVAN5Reference:
+    """
+    External validation for ADVAN5 against closed-form biexponential solutions
+    (N=2) and independent scipy.integrate.odeint references (N=3 and N=4).
+
+    Closed-form for N=2 bolus (Gibaldi & Perrier Ch. 4):
+      α, β  = roots of  λ² − (K + K12 + K21)λ + K·K21 = 0
+      A = (α − K21) / (α − β),   B = (K21 − β) / (α − β)
+      C(t) = D/V1 · [A·exp(−α·t) + B·exp(−β·t)]
+    """
+
+    @staticmethod
+    def _alpha_beta(K, K12, K21):
+        s = K + K12 + K21
+        disc = math.sqrt(s**2 - 4.0 * K * K21)
+        return (s + disc) / 2.0, (s - disc) / 2.0
+
+    @pytest.mark.parametrize(
+        "K,K12,K21,V1",
+        [
+            (0.20, 0.30, 0.10, 20.0),
+            (0.10, 0.50, 0.20, 15.0),
+            (0.40, 0.10, 0.30, 30.0),
+            (0.15, 0.80, 0.40, 10.0),
+            (0.30, 0.20, 0.15, 25.0),
+        ],
+    )
+    def test_n2_concentration_matches_biexponential(self, K, K12, K21, V1):
+        """
+        ADVAN5 (N=2) must match the textbook biexponential formula exactly.
+
+        The formula is derived from the eigenvalues α, β of the 2×2 rate matrix
+        and is independent of the ADVAN5 implementation.  Tolerance 1e-7 is
+        consistent with double-precision eigendecomposition.
+        """
+        D = 100.0
+        params = {"K": K, "K12": K12, "K21": K21, "V1": V1}
+        sol = ADVAN5().solve(params, _bolus(D), OBS)
+
+        alpha, beta = self._alpha_beta(K, K12, K21)
+        A = (alpha - K21) / (alpha - beta)
+        B = (K21 - beta) / (alpha - beta)
+        expected = (D / V1) * (A * np.exp(-alpha * OBS) + B * np.exp(-beta * OBS))
+
+        np.testing.assert_allclose(
+            sol.ipred, expected, rtol=1e-7,
+            err_msg=f"N=2 biexponential mismatch for K={K}, K12={K12}, K21={K21}, V1={V1}",
+        )
+
+    def test_n2_coefficient_sum_is_one(self):
+        """A + B = 1 (all drug starts in central compartment at t=0)."""
+        K, K12, K21 = 0.2, 0.3, 0.1
+        alpha, beta = self._alpha_beta(K, K12, K21)
+        A = (alpha - K21) / (alpha - beta)
+        B = (K21 - beta) / (alpha - beta)
+        assert pytest.approx(1.0, abs=1e-12) == A + B
+
+    def test_n2_terminal_slope_matches_smallest_eigenvalue(self):
+        """
+        At late times the log-linear slope of C(t) approaches −β, the smaller
+        positive eigenvalue (slowest decay mode).
+        """
+        K, K12, K21, V1, D = 0.05, 1.0, 0.3, 10.0, 100.0
+        _, beta = self._alpha_beta(K, K12, K21)
+        # Sample two points deep in the terminal phase
+        t_late = np.array([80.0, 100.0])
+        sol = ADVAN5().solve({"K": K, "K12": K12, "K21": K21, "V1": V1}, _bolus(D), t_late)
+        observed_slope = (math.log(sol.ipred[1]) - math.log(sol.ipred[0])) / (
+            t_late[1] - t_late[0]
+        )
+        assert observed_slope == pytest.approx(-beta, rel=1e-4)
+
+    def test_n3_bolus_vs_odeint(self):
+        """
+        ADVAN5 (N=3, 3-compartment IV bolus) matches scipy.integrate.odeint
+        to 1e-5 relative tolerance.
+
+        The ODE system is defined independently from the ADVAN5 implementation:
+          dA1/dt = −(K + K12 + K13)·A1 + K21·A2 + K31·A3
+          dA2/dt =  K12·A1 − K21·A2
+          dA3/dt =  K13·A1 − K31·A3
+        """
+        K, K12, K21, K13, K31, V1, D = 0.1, 0.05, 0.025, 0.02, 0.0067, 10.0, 100.0
+        params = {"K": K, "K12": K12, "K21": K21, "K13": K13, "K31": K31, "V1": V1}
+        sol = ADVAN5().solve(params, _bolus(D), OBS)
+
+        def odes(y, _t):
+            return [
+                -(K + K12 + K13) * y[0] + K21 * y[1] + K31 * y[2],
+                K12 * y[0] - K21 * y[1],
+                K13 * y[0] - K31 * y[2],
+            ]
+
+        t_grid = np.concatenate([[0.0], OBS])
+        y_ode = odeint(odes, [D, 0.0, 0.0], t_grid, rtol=1e-12, atol=1e-14)
+        c_ref = y_ode[1:, 0] / V1
+
+        np.testing.assert_allclose(sol.ipred, c_ref, rtol=1e-5,
+                                   err_msg="ADVAN5 N=3 bolus diverges from odeint reference")
+
+    def test_n3_all_compartment_amounts_vs_odeint(self):
+        """
+        All three compartment amounts from ADVAN5 match odeint to 1e-5.
+
+        Validates the full state vector, not just IPRED.
+        """
+        K, K12, K21, K13, K31, V1, D = 0.15, 0.08, 0.04, 0.03, 0.015, 12.0, 200.0
+        params = {"K": K, "K12": K12, "K21": K21, "K13": K13, "K31": K31, "V1": V1}
+        sol = ADVAN5().solve(params, _bolus(D), OBS)
+
+        def odes(y, _t):
+            return [
+                -(K + K12 + K13) * y[0] + K21 * y[1] + K31 * y[2],
+                K12 * y[0] - K21 * y[1],
+                K13 * y[0] - K31 * y[2],
+            ]
+
+        t_grid = np.concatenate([[0.0], OBS])
+        y_ode = odeint(odes, [D, 0.0, 0.0], t_grid, rtol=1e-12, atol=1e-14)
+        amounts_ref = y_ode[1:, :]   # (n_times, 3)
+
+        np.testing.assert_allclose(
+            sol.amounts, amounts_ref, rtol=1e-5, atol=1e-8,
+            err_msg="ADVAN5 N=3 compartment amounts diverge from odeint",
+        )
+
+    def test_n4_bolus_vs_odeint(self):
+        """
+        ADVAN5 (N=4, 4-compartment IV bolus) matches scipy.integrate.odeint
+        to 1e-5.  This is the primary validation for N > 3.
+        """
+        K, K12, K21, K13, K31, K14, K41 = 0.1, 0.05, 0.025, 0.02, 0.0067, 0.01, 0.005
+        V1, D = 10.0, 100.0
+        params = {
+            "K": K, "K12": K12, "K21": K21,
+            "K13": K13, "K31": K31,
+            "K14": K14, "K41": K41,
+            "V1": V1,
+        }
+        sol = ADVAN5().solve(params, _bolus(D), OBS)
+
+        def odes(y, _t):
+            return [
+                -(K + K12 + K13 + K14) * y[0] + K21 * y[1] + K31 * y[2] + K41 * y[3],
+                K12 * y[0] - K21 * y[1],
+                K13 * y[0] - K31 * y[2],
+                K14 * y[0] - K41 * y[3],
+            ]
+
+        t_grid = np.concatenate([[0.0], OBS])
+        y_ode = odeint(odes, [D, 0.0, 0.0, 0.0], t_grid, rtol=1e-12, atol=1e-14)
+        c_ref = y_ode[1:, 0] / V1
+
+        np.testing.assert_allclose(sol.ipred, c_ref, rtol=1e-5,
+                                   err_msg="ADVAN5 N=4 bolus diverges from odeint reference")
+
+    def test_n3_infusion_vs_odeint(self):
+        """
+        ADVAN5 (N=3) zero-order infusion into compartment 1 matches odeint.
+
+        Tests both the during-infusion and post-infusion phases.
+        """
+        K, K12, K21, K13, K31, V1 = 0.1, 0.05, 0.025, 0.02, 0.0067, 10.0
+        rate, duration = 50.0, 2.0
+        dose = [DoseEvent(time=0.0, amount=rate * duration, rate=rate)]
+        t_obs = np.array([0.5, 1.0, 2.0, 3.0, 6.0, 12.0, 24.0])
+        params = {"K": K, "K12": K12, "K21": K21, "K13": K13, "K31": K31, "V1": V1}
+
+        sol = ADVAN5().solve(params, dose, t_obs)
+
+        def odes(y, t):
+            r = rate if t <= duration else 0.0
+            return [
+                r - (K + K12 + K13) * y[0] + K21 * y[1] + K31 * y[2],
+                K12 * y[0] - K21 * y[1],
+                K13 * y[0] - K31 * y[2],
+            ]
+
+        t_grid = np.concatenate([[0.0], t_obs])
+        y_ode = odeint(odes, [0.0, 0.0, 0.0], t_grid, rtol=1e-12, atol=1e-14)
+        c_ref = y_ode[1:, 0] / V1
+
+        np.testing.assert_allclose(sol.ipred, c_ref, rtol=1e-5,
+                                   err_msg="ADVAN5 N=3 infusion diverges from odeint reference")
+
+    def test_n4_dose_into_peripheral_vs_odeint(self):
+        """
+        ADVAN5 (N=4) bolus into compartment 3 (peripheral) matches odeint.
+
+        Validates that non-central dosing is correctly handled by the
+        state-vector initialisation in _bolus_response_n.
+        """
+        K, K12, K21, K13, K31, K14, K41 = 0.1, 0.05, 0.025, 0.02, 0.0067, 0.01, 0.005
+        V1, D = 10.0, 100.0
+        params = {
+            "K": K, "K12": K12, "K21": K21,
+            "K13": K13, "K31": K31,
+            "K14": K14, "K41": K41,
+            "V1": V1,
+        }
+        dose = [DoseEvent(time=0.0, amount=D, compartment=3)]
+        sol = ADVAN5().solve(params, dose, OBS)
+
+        def odes(y, _t):
+            return [
+                -(K + K12 + K13 + K14) * y[0] + K21 * y[1] + K31 * y[2] + K41 * y[3],
+                K12 * y[0] - K21 * y[1],
+                K13 * y[0] - K31 * y[2],
+                K14 * y[0] - K41 * y[3],
+            ]
+
+        t_grid = np.concatenate([[0.0], OBS])
+        y_ode = odeint(odes, [0.0, 0.0, D, 0.0], t_grid, rtol=1e-12, atol=1e-14)
+        c_ref = y_ode[1:, 0] / V1
+
+        np.testing.assert_allclose(sol.ipred, c_ref, rtol=1e-5,
+                                   err_msg="ADVAN5 N=4 peripheral dose diverges from odeint")
+
+    def test_n3_mass_balance_no_elimination(self):
+        """
+        With no elimination (K=0, Ki0=0), total drug in all compartments
+        must equal the initial dose at all observation times.
+        """
+        K12, K21, K13, K31, V1, D = 0.3, 0.15, 0.1, 0.05, 10.0, 100.0
+        params = {"K12": K12, "K21": K21, "K13": K13, "K31": K31, "V1": V1}
+        # No elimination: K=0 is implied by absence of K/Ki0 key — but we need at
+        # least one rate constant key; include K10=0 explicitly to satisfy parser.
+        params["K10"] = 0.0
+        sol = ADVAN5().solve(params, _bolus(D), OBS)
+
+        total_drug = sol.amounts.sum(axis=1)  # shape (n_times,)
+        np.testing.assert_allclose(
+            total_drug, D, rtol=1e-6,
+            err_msg="Total drug should equal dose when elimination is zero",
+        )
+
+    def test_n2_multiple_doses_superposition_vs_closed_form(self):
+        """
+        Two-dose superposition for N=2 matches sum of two biexponential terms.
+
+        Tests that ADVAN5 implements linear superposition correctly by comparing
+        to a closed-form reference computed independently for each dose.
+        """
+        K, K12, K21, V1 = 0.15, 0.30, 0.12, 15.0
+        D1, D2, t2 = 100.0, 75.0, 8.0
+        t_after = np.array([10.0, 14.0, 20.0, 36.0])  # all after second dose
+
+        sol = ADVAN5().solve(
+            {"K": K, "K12": K12, "K21": K21, "V1": V1},
+            [DoseEvent(time=0.0, amount=D1), DoseEvent(time=t2, amount=D2)],
+            t_after,
+        )
+
+        alpha, beta = self._alpha_beta(K, K12, K21)
+        A = (alpha - K21) / (alpha - beta)
+        B = (K21 - beta) / (alpha - beta)
+
+        c1 = (D1 / V1) * (A * np.exp(-alpha * t_after) + B * np.exp(-beta * t_after))
+        c2 = (D2 / V1) * (
+            A * np.exp(-alpha * (t_after - t2)) + B * np.exp(-beta * (t_after - t2))
+        )
+        np.testing.assert_allclose(sol.ipred, c1 + c2, rtol=1e-7,
+                                   err_msg="Two-dose superposition mismatch vs closed form")
+

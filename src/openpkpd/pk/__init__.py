@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from openpkpd.pk.absorption.parallel import ParallelAbsorption
 from openpkpd.pk.absorption.transit import TransitAbsorption
-from openpkpd.pk.analytical import ADVAN1, ADVAN2, ADVAN3, ADVAN4, ADVAN11, ADVAN12
+from openpkpd.pk.analytical import ADVAN1, ADVAN2, ADVAN3, ADVAN4, ADVAN5, ADVAN11, ADVAN12
 from openpkpd.pk.base import PKSolution, PKSubroutine
 from openpkpd.pk.ode import ADVAN6, ADVAN8, ADVAN10, ADVAN13
 from openpkpd.pk.ode.dde import DDESubroutine
@@ -21,6 +21,7 @@ _ADVAN_MAP: dict[int, type[PKSubroutine]] = {
     2: ADVAN2,
     3: ADVAN3,
     4: ADVAN4,
+    5: ADVAN5,
     6: ADVAN6,
     8: ADVAN8,
     10: ADVAN10,
@@ -80,6 +81,7 @@ __all__ = [
     "ADVAN2",
     "ADVAN3",
     "ADVAN4",
+    "ADVAN5",
     "ADVAN6",
     "ADVAN8",
     "ADVAN10",

@@ -1,8 +1,10 @@
 """
-C3: ODE vs analytical comparison test.
+C3: ODE vs analytical comparison tests.
 
-For a 2-compartment IV bolus, compare ADVAN6+DES predictions against
-ADVAN3 (analytical) predictions.  Results should agree to ODE tolerance 1e-4.
+  TestODEVsAnalytical  — ADVAN6 + DES vs ADVAN3 analytical (2-cmt IV)
+  TestADVAN5vsADVAN6   — ADVAN5 analytical vs ADVAN6 + DES (3-cmt IV)
+
+Results should agree to ODE solver tolerance (~1e-4 relative).
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ import pytest
 from openpkpd.data.event_processor import DoseEvent
 from openpkpd.parser.code_compiler import NMTRANCompiler
 from openpkpd.pk.analytical.advan3 import ADVAN3
+from openpkpd.pk.analytical.advan5 import ADVAN5
 from openpkpd.pk.ode.advan6 import ADVAN6
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -118,3 +121,73 @@ DADT(1) = -K10 * A(1)
         total = sol.amounts.sum(axis=1)
         assert np.all(total <= dose_amt + 1e-6), "Total drug exceeds dose (mass violation)"
         assert np.all(total >= 0.0), "Negative total amount (mass violation)"
+
+
+
+# ── 3-cmt DES code (same system as ADVAN5 reference params) ──────────────────
+
+DES_3CMT = """
+DADT(1) = -(K + K12 + K13)*A(1) + K21*A(2) + K31*A(3)
+DADT(2) = K12*A(1) - K21*A(2)
+DADT(3) = K13*A(1) - K31*A(3)
+"""
+
+_PK_3CMT = {
+    "K":   0.1,
+    "K12": 0.05,
+    "K21": 0.025,
+    "K13": 0.02,
+    "K31": 0.0067,
+    "V1":  10.0,
+    "V":   10.0,   # ADVAN6 volume fallback
+}
+
+
+@pytest.mark.unit
+class TestADVAN5vsADVAN6:
+    """
+    Cross-validate ADVAN5 analytical solution against ADVAN6 numerical ODE
+    for a standard 3-compartment IV bolus system.
+
+    Results are expected to agree to within ODE solver tolerance (~1e-4).
+    """
+
+    def _compile_des(self) -> object:
+        compiler = NMTRANCompiler(use_jax=False)
+        return compiler.compile_des(DES_3CMT, n_compartments=3)
+
+    def test_3cmt_iv_ipred_agrees(self):
+        """ADVAN5 analytical IPRED should match ADVAN6 numerical IPRED to 1e-4."""
+        des_callable = self._compile_des()
+        dose = [DoseEvent(time=0.0, amount=100.0)]
+
+        sol5 = ADVAN5().solve(_PK_3CMT, dose, OBS_TIMES)
+        sol6 = ADVAN6(n_compartments=3).solve(
+            _PK_3CMT, dose, OBS_TIMES, des_callable=des_callable
+        )
+
+        np.testing.assert_allclose(
+            sol5.ipred,
+            sol6.ipred,
+            rtol=1e-4,
+            atol=1e-6,
+            err_msg="ADVAN5 analytical IPRED diverges from ADVAN6 ODE",
+        )
+
+    def test_3cmt_iv_amounts_agree(self):
+        """ADVAN5 compartment amounts should match ADVAN6 to 1e-4."""
+        des_callable = self._compile_des()
+        dose = [DoseEvent(time=0.0, amount=100.0)]
+
+        sol5 = ADVAN5().solve(_PK_3CMT, dose, OBS_TIMES)
+        sol6 = ADVAN6(n_compartments=3).solve(
+            _PK_3CMT, dose, OBS_TIMES, des_callable=des_callable
+        )
+
+        np.testing.assert_allclose(
+            sol5.amounts,
+            sol6.amounts,
+            rtol=1e-4,
+            atol=1e-6,
+            err_msg="ADVAN5 compartment amounts diverge from ADVAN6 ODE",
+        )

@@ -12,6 +12,7 @@ cases, also uses `TRANS` to activate specialized absorption models.
 | `ADVAN2` | analytical | 1-compartment first-order oral |
 | `ADVAN3` | analytical | 2-compartment IV bolus |
 | `ADVAN4` | analytical | 2-compartment first-order oral |
+| `ADVAN5` | analytical | N-compartment general linear (arbitrary Kij rate constants) |
 | `ADVAN6` | numerical | general ODE system |
 | `ADVAN8` | numerical | stiff ODE system |
 | `ADVAN10` | numerical | Michaelis-Menten / nonlinear elimination workflows |
@@ -24,7 +25,7 @@ cases, also uses `TRANS` to activate specialized absorption models.
 
 | TRANS | Meaning |
 |-------|---------|
-| `TRANS1` | micro rate constants directly (`K`, `K12`, `K21`, …) |
+| `TRANS1` | micro rate constants directly (`K`, `K12`, `K21`, …, `Kij`, `Ki0`) — required for ADVAN5 |
 | `TRANS2` | `CL`, `V`-style one-compartment parameterisation |
 | `TRANS3` | `CL`, `VSS`, `Q` |
 | `TRANS4` | `CL`, `V1`, `Q`, `V2` |
@@ -103,9 +104,47 @@ The current router does **not** expose the following as built-in selectors:
 
 | ADVAN | Status |
 |-------|--------|
-| `ADVAN5` | not currently implemented |
 | `ADVAN7` | not currently implemented |
 | `ADVAN9` | not currently implemented |
 
 For many use cases that would otherwise require those selectors, the practical
 alternative today is a custom `$DES` model through `ADVAN6/8/13`.
+
+## ADVAN5 — General N-Compartment Linear Model
+
+ADVAN5 analytically solves an arbitrary N-compartment linear system of ODEs
+via eigendecomposition of the N×N rate matrix. It generalises ADVAN3 (N=2) and
+ADVAN11 (N=3) to any number of compartments without writing a `$DES` block.
+TRANS1 (micro rate constants) is the only supported TRANS code.
+
+### Parameter naming convention
+
+| Key pattern | Meaning |
+|-------------|---------|
+| `K{i}{j}` | Transfer rate FROM compartment *i* TO compartment *j* (i, j ∈ 1–9, i ≠ j) |
+| `K{i}0` | Elimination rate FROM compartment *i* (i ∈ 1–9) |
+| `K` | Alias for `K10` — elimination from compartment 1 |
+
+**N inference rule:** N = max compartment index found across all `Kij` / `Ki0`
+keys. Compartment indices are limited to 1–9; use ADVAN6/8 for N > 9.
+
+### Volume and output compartment
+
+- Default output compartment = 1 (central). Override via
+  `ADVAN5(output_compartment=n)` or the `PCMT` key in `pk_params`.
+- Volume is looked up as `V{output_cmt}` first, then `V` as a fallback.
+
+### Example — 4-compartment linear model
+
+```python
+# Central (1) ↔ three peripherals (2, 3, 4)
+.subroutines(advan=5, trans=1)
+.pk("""
+    K   = CL  / V1   ; elimination from central
+    K12 = Q2  / V1   ; central  → peripheral 1
+    K21 = Q2  / V2   ; peripheral 1 → central
+    K13 = Q3  / V1   ; central  → peripheral 2
+    K31 = Q3  / V3   ; peripheral 2 → central
+    K14 = Q4  / V1   ; central  → peripheral 3
+    K41 = Q4  / V4   ; peripheral 3 → central
+""")

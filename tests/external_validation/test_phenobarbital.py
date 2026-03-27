@@ -16,6 +16,7 @@ should recover the simulation truth within expected variability.
 
 from __future__ import annotations
 
+import json
 import pathlib
 
 import numpy as np
@@ -23,6 +24,7 @@ import pytest
 
 DATA_DIR = pathlib.Path(__file__).parent / "data"
 DATA_FILE = DATA_DIR / "phenobarbital_simulated.csv"
+REFERENCE_FILE = pathlib.Path(__file__).parent / "reference" / "grasela1985_phenobarbital_fo.json"
 
 # Published simulation-truth parameters
 TRUE_CL_PER_KG = 0.0047  # L/h/kg
@@ -30,6 +32,17 @@ TRUE_V_PER_KG = 0.96  # L/kg
 TRUE_OMEGA_CL = 0.0361  # variance (BSV 19%)
 TRUE_OMEGA_V = 0.0256  # variance (BSV 16%)
 TRUE_SIGMA = 0.04  # proportional residual variance
+
+
+def _load_reference() -> dict:
+    return json.loads(REFERENCE_FILE.read_text())
+
+
+@pytest.fixture(scope="module")
+def reference() -> dict:
+    if not REFERENCE_FILE.exists():
+        pytest.skip(f"Phenobarbital reference not found: {REFERENCE_FILE}")
+    return _load_reference()
 
 
 @pytest.fixture(scope="module")
@@ -133,6 +146,20 @@ class TestPhenobarbitalParameterRecovery:
     def test_converged(self, result):
         assert result.converged, f"FO did not converge: {result.message}"
 
+    def test_sigma_tracks_simulation_reference(self, result, reference):
+        sigma_ref = float(reference["openpkpd_simulation_parameters"]["sigma_proportional"])
+        sigma_est = float(result.theta_final[2])
+        ratio = sigma_est / sigma_ref
+        assert 0.25 < ratio < 4.0, (
+            f"Residual SD={sigma_est:.4f} should remain within the same order of magnitude as "
+            f"the simulation reference {sigma_ref:.4f} (ratio={ratio:.2f})"
+        )
+
+    def test_dataset_subject_count_matches_reference(self, result, reference):
+        expected_n = int(reference["openpkpd_simulation_parameters"]["n_subjects"])
+        n_subjects = len(result.post_hoc_etas)
+        assert n_subjects == expected_n, f"Expected {expected_n} subjects, got {n_subjects}"
+
 
 class TestPhenobarbitalHallifeVsLiterature:
     """
@@ -152,3 +179,30 @@ class TestPhenobarbitalHallifeVsLiterature:
             f"Half-life={halflife:.1f} h is {pct:.1f}% from literature {lit_halflife:.1f} h "
             f"(Grasela & Donn 1985)"
         )
+
+    def test_half_life_matches_reference_json(self, result, reference):
+        cl = float(result.theta_final[0])
+        v = float(result.theta_final[1])
+        if cl <= 0 or v <= 0:
+            pytest.skip("Negative parameters — cannot compute half-life")
+        halflife = v * np.log(2) / cl
+        expected = float(reference["derived"]["halflife_h"])
+        assert halflife == pytest.approx(expected, rel=0.35)
+
+
+class TestPhenobarbitalBSVVsLiterature:
+    """Compare recovered log-normal IIV against the published BSV percentages."""
+
+    @staticmethod
+    def _omega_to_cv_pct(omega_var: float) -> float:
+        return float(np.sqrt(np.exp(omega_var) - 1.0) * 100.0)
+
+    def test_cl_bsv_tracks_literature(self, result, reference):
+        observed = self._omega_to_cv_pct(float(result.omega_final[0, 0]))
+        expected = float(reference["bsv_cv_pct"]["CL"])
+        assert observed == pytest.approx(expected, abs=8.0)
+
+    def test_v_bsv_tracks_literature(self, result, reference):
+        observed = self._omega_to_cv_pct(float(result.omega_final[1, 1]))
+        expected = float(reference["bsv_cv_pct"]["V"])
+        assert observed == pytest.approx(expected, abs=8.0)

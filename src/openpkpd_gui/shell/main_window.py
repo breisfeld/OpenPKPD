@@ -1946,12 +1946,10 @@ def create_main_window(
         project.root_path = str(snapshot_path.parent)
         _remember_last_dialog_selection(snapshot_path)
         project_service.remember_recent_file(project, snapshot_path)
-        for (_proj_id, _scen_id), payload_bytes in loaded_snapshot.fit_state_payloads.items():
-            try:
-                payload = json.loads(payload_bytes)
-                fit_service.restore_fit_context(project, payload)
-            except Exception:
-                pass
+        restored_fit_states, restore_warnings = fit_service.restore_fit_context_payloads(
+            project,
+            loaded_snapshot.fit_state_payloads,
+        )
         _rebuild_navigation_tree(
             workflow_id=selected_workflow_id or "dashboard",
             project_id=project.active_project_id,
@@ -1961,7 +1959,20 @@ def create_main_window(
         _reload_workflows_from_project()
         _apply_saved_table_column_widths_to_root(window, qt_widgets, settings_store=settings_store)
         _mark_project_saved()
-        _status_bar().showMessage(f"Opened project snapshot: {snapshot_path.name}")
+        status_message = f"Opened project snapshot: {snapshot_path.name}"
+        if restored_fit_states:
+            suffix = "fit state" if restored_fit_states == 1 else "fit states"
+            status_message += f" • restored {restored_fit_states} {suffix}"
+        if restore_warnings:
+            suffix = "warning" if len(restore_warnings) == 1 else "warnings"
+            status_message += f" • {len(restore_warnings)} restore {suffix}"
+            qt_widgets.QMessageBox.warning(
+                window,
+                "Open Project Snapshot",
+                "Some saved fit state could not be restored:\n\n"
+                + "\n".join(f"- {warning}" for warning in restore_warnings[:5]),
+            )
+        _status_bar().showMessage(status_message)
         return True
 
     def _default_snapshot_path() -> str:

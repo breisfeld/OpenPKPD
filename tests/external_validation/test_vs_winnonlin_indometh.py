@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import statistics
 
 import pandas as pd
 import pytest
@@ -132,3 +133,48 @@ def test_indometh_core_nca_tracks_published_winnonlin_reference(
     for subject_id, expected_metrics in reference.items():
         for metric_name, expected_value in expected_metrics.items():
             assert observed[subject_id][metric_name] == pytest.approx(expected_value, abs=1e-6)
+
+
+@pytest.mark.external_validation
+@pytest.mark.parametrize(
+    ("scenario", "auc_method", "mode", "route", "infusion_duration"),
+    [
+        ("linear_zero_start_core", "linear-trapezoidal", "zero_start", "oral", None),
+        ("log_zero_start_core", "linear-log", "zero_start", "oral", None),
+        ("linear_iv_bolus_core", "linear-trapezoidal", "iv_bolus", "IV", None),
+        ("log_iv_bolus_core", "linear-log", "iv_bolus", "IV", None),
+        ("linear_iv_infusion_supported", "linear-trapezoidal", "zero_start", "infusion", 0.25),
+        ("log_iv_infusion_supported", "linear-log", "zero_start", "infusion", 0.25),
+        ("linear_extravascular_supported", "linear-trapezoidal", "zero_start", "oral", None),
+        ("log_extravascular_supported", "linear-log", "zero_start", "oral", None),
+    ],
+)
+def test_indometh_reference_subject_counts_and_summary_statistics_match(
+    scenario: str,
+    auc_method: str,
+    mode: str,
+    route: str,
+    infusion_duration: float | None,
+) -> None:
+    reference = _load_reference()["scenarios"][scenario]["subjects"]
+    if mode == "zero_start":
+        observed = _compute_zero_start_results(
+            auc_method,
+            route=route,
+            infusion_duration=infusion_duration,
+        )
+    else:
+        observed = _compute_iv_bolus_results(auc_method)
+
+    assert len(observed) == len(reference) == 6
+
+    for metric_name in ("auc_inf", "t_half", "cl_f"):
+        observed_values = [observed[sid][metric_name] for sid in sorted(observed)]
+        reference_values = [reference[sid][metric_name] for sid in sorted(reference)]
+        assert statistics.mean(observed_values) == pytest.approx(
+            statistics.mean(reference_values), abs=1e-6
+        )
+
+    observed_auc_order = sorted(observed, key=lambda sid: observed[sid]["auc_inf"])
+    reference_auc_order = sorted(reference, key=lambda sid: reference[sid]["auc_inf"])
+    assert observed_auc_order == reference_auc_order

@@ -93,3 +93,38 @@ def test_prepare_run_uses_active_dataset_import_metadata(tmp_path: Path) -> None
     assert result.subject_count == 1
     assert result.observation_count == 2
     assert result.row_count == 3
+
+
+def test_apply_job_outcome_logs_nca_plot_warnings(tmp_path: Path, monkeypatch) -> None:
+    dataset_path = tmp_path / "theo.csv"
+    _write_dataset(dataset_path)
+    workspace = Workspace(name="NCA demo", root_path=str(tmp_path))
+    workspace.active_dataset = DatasetAsset(source_path=str(dataset_path), display_name="theo.csv")
+    service = NCAService()
+    preparation = service.prepare_run(workspace)
+
+    monkeypatch.setattr(
+        "openpkpd_gui.services.nca_service.nca_distributions",
+        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("distributions unavailable")),
+    )
+    monkeypatch.setattr(
+        "openpkpd_gui.services.nca_service.nca_boxplot",
+        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("boxplot unavailable")),
+    )
+
+    runner = JobRunner()
+    try:
+        outcome = runner.submit(
+            service.create_job(workspace, config=NCAConfig(route="oral"), preparation=preparation)
+        ).result(timeout=10)
+    finally:
+        runner.shutdown()
+
+    run = RunRecord(workflow="nca")
+    run.mark_running()
+    artifacts = service.apply_job_outcome(run, outcome)
+
+    assert run.status == RunStatus.SUCCEEDED
+    assert len(artifacts) == 1
+    assert any("Could not generate NCA distributions plot" in line for line in run.log_lines)
+    assert any("Could not generate NCA boxplot" in line for line in run.log_lines)

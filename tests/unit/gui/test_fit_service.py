@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from openpkpd_gui.domain.artifact import ArtifactRecord
@@ -445,3 +447,179 @@ def test_generate_output_artifacts_includes_tables_and_additional_plot_types(
     assert captured_provenance["Model source"]["pk_code"] == "CL = THETA(1) * EXP(ETA(1))"
     assert captured_provenance["Estimation settings"]["effective_method"] == "FOCE"
     assert captured_provenance["Environment"]["openpkpd_version"]
+
+
+def test_restore_fit_context_records_error_when_scenario_missing() -> None:
+    service = FitService()
+    workspace = Workspace(name="Demo")
+
+    ok = service.restore_fit_context(
+        workspace,
+        {
+            "project_id": "missing-project",
+            "scenario_id": "missing-scenario",
+            "fit_run_id": "fit-1",
+            "problem_title": "Demo",
+            "estimation_method": "FOCE",
+            "dataset_path": None,
+            "estimation_result": {
+                "theta_final": [1.0],
+                "omega_final": [[1.0]],
+                "sigma_final": [[1.0]],
+                "ofv": 1.0,
+                "converged": True,
+                "condition_number": None,
+                "eta_shrinkage": [],
+                "eps_shrinkage": [],
+                "post_hoc_etas": {},
+                "ofv_history": [],
+                "warnings": [],
+                "n_function_evals": 0,
+                "elapsed_time": 0.0,
+                "method": "FOCE",
+                "message": "ok",
+                "n_observations": 0,
+                "n_subjects": 0,
+            },
+        },
+    )
+
+    assert ok is False
+    assert service.last_context_error is not None
+    assert "was not found" in service.last_context_error
+
+
+def test_rebuild_population_model_records_translation_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = FitService()
+    workspace = Workspace(name="Demo")
+    workspace.active_model_spec = ModelSpec(problem_title="Demo")
+
+    monkeypatch.setattr(
+        service._translation_service,
+        "translate",
+        lambda _spec: type(
+            "Translation",
+            (),
+            {
+                "ok": False,
+                "validation": type(
+                    "Validation",
+                    (),
+                    {"issues": [type("Issue", (), {"message": "translation failed"})()]},
+                )(),
+            },
+        )(),
+    )
+
+    population_model = service._rebuild_population_model(workspace.active_scenario, None)
+
+    assert population_model is None
+    assert service.last_context_error is not None
+    assert "translation failed" in service.last_context_error
+
+
+@pytest.mark.unit
+def test_restore_fit_context_payloads_enables_reuse_after_round_trip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_service = FitService()
+    source_workspace = Workspace(name="Context round trip")
+    fit_run = RunRecord(workflow="fit", run_id="fit-run-1", status=RunStatus.SUCCEEDED)
+    source_workspace.runs = [fit_run]
+
+    class _FakeResult:
+        theta_final = np.array([1.0])
+        omega_final = np.array([[0.2]])
+        sigma_final = np.array([[0.1]])
+        condition_number = None
+        eta_shrinkage = np.array([])
+        eps_shrinkage = np.array([])
+        post_hoc_etas = {}
+        ofv_history = [12.34]
+        warnings: list[str] = []
+        n_function_evals = 1
+        elapsed_time = 0.1
+        n_observations = 1
+        n_subjects = 1
+        converged = True
+        ofv = 12.34
+        method = "FOCE"
+        message = "ok"
+
+    monkeypatch.setattr(source_service, "_generate_output_artifacts", lambda *_a, **_k: [])
+    population_model = object()
+    source_service._fit_run_result_from_estimation(
+        JobContext(lambda *_args: None),
+        source_workspace,
+        "Context demo",
+        _FakeResult(),
+        "FOCE",
+        None,
+        fit_run.run_id,
+        project_id=source_workspace.active_project.project_id,
+        scenario_id=source_workspace.active_scenario.scenario_id,
+        dataset_path="/tmp/theo.csv",
+        population_model=population_model,
+    )
+
+    payloads = source_service.all_fit_context_payloads(source_workspace)
+    target_workspace = source_workspace
+    target_service = FitService()
+    restored_model = object()
+    monkeypatch.setattr(target_service, "_rebuild_population_model", lambda *_a, **_k: restored_model)
+
+    restored_count, warnings = target_service.restore_fit_context_payloads(target_workspace, payloads)
+
+    assert restored_count == 1
+    assert warnings == []
+    restored_context = target_service.latest_fit_context(target_workspace)
+    assert restored_context is not None
+    assert restored_context.fit_run_id == fit_run.run_id
+    assert restored_context.population_model is restored_model
+
+
+@pytest.mark.unit
+def test_restore_fit_context_payloads_collects_decode_and_restore_failures() -> None:
+    service = FitService()
+    workspace = Workspace(name="Restore warnings")
+
+    restored_count, warnings = service.restore_fit_context_payloads(
+        workspace,
+        {
+            ("proj-a", "scen-a"): b"{bad json",
+            ("proj-b", "scen-b"): json.dumps(
+                {
+                    "project_id": "proj-b",
+                    "scenario_id": "scen-b",
+                    "fit_run_id": "fit-1",
+                    "problem_title": "Demo",
+                    "estimation_method": "FOCE",
+                    "dataset_path": None,
+                    "estimation_result": {
+                        "theta_final": [1.0],
+                        "omega_final": [[1.0]],
+                        "sigma_final": [[1.0]],
+                        "ofv": 1.0,
+                        "converged": True,
+                        "condition_number": None,
+                        "eta_shrinkage": [],
+                        "eps_shrinkage": [],
+                        "post_hoc_etas": {},
+                        "ofv_history": [],
+                        "warnings": [],
+                        "n_function_evals": 0,
+                        "elapsed_time": 0.0,
+                        "method": "FOCE",
+                        "message": "ok",
+                        "n_observations": 0,
+                        "n_subjects": 0,
+                    },
+                }
+            ).encode(),
+        },
+    )
+
+    assert restored_count == 0
+    assert len(warnings) == 2
+    assert any("Could not decode saved fit state" in warning for warning in warnings)
+    assert any("was not found" in warning for warning in warnings)

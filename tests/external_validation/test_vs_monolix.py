@@ -80,6 +80,31 @@ class TestTheophyllineVsMonolix:
         np.testing.assert_allclose(cl, expected["Cl_pop"], rtol=0.12)
         np.testing.assert_allclose(v, expected["V_pop"], rtol=0.15)
 
+    def test_theta_log_scale_matches_public_monolix_reference(
+        self, monolix_fit_result, monolix_reference
+    ):
+        expected = monolix_reference["theta_log_scale"]
+        ka, cl, v = monolix_fit_result.theta_final
+        np.testing.assert_allclose(np.log(ka), expected["ka_pop"], atol=0.12)
+        np.testing.assert_allclose(np.log(v), expected["V_pop"], atol=0.15)
+        np.testing.assert_allclose(np.log(cl), expected["Cl_pop"], atol=0.12)
+
+    def test_terminal_half_life_matches_monolix_fixed_effects(
+        self, monolix_fit_result, monolix_reference
+    ):
+        expected = monolix_reference["theta_natural_scale"]
+        open_half_life = float(np.log(2.0) * monolix_fit_result.theta_final[2] / monolix_fit_result.theta_final[1])
+        ref_half_life = float(np.log(2.0) * expected["V_pop"] / expected["Cl_pop"])
+        assert open_half_life == pytest.approx(ref_half_life, rel=0.15)
+
+    def test_elimination_rate_matches_monolix_fixed_effects(
+        self, monolix_fit_result, monolix_reference
+    ):
+        expected = monolix_reference["theta_natural_scale"]
+        open_k = float(monolix_fit_result.theta_final[1] / monolix_fit_result.theta_final[2])
+        ref_k = float(expected["Cl_pop"] / expected["V_pop"])
+        assert open_k == pytest.approx(ref_k, rel=0.15)
+
     def test_fit_result_is_numerically_well_behaved(self, monolix_fit_result):
         assert np.isfinite(monolix_fit_result.ofv)
         assert monolix_fit_result.ofv > 0.0

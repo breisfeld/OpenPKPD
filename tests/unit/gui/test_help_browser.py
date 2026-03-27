@@ -66,6 +66,28 @@ class TestGetAppMetadata:
         meta = get_app_metadata()
         assert meta["version"] == expected
 
+    def test_logs_warning_when_all_metadata_sources_fail(self, monkeypatch, caplog) -> None:
+        import builtins
+
+        real_import = builtins.__import__
+
+        def _raising_import(name, *args, **kwargs):
+            if name == "importlib.metadata":
+                raise ImportError("metadata unavailable")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr("builtins.__import__", _raising_import)
+        monkeypatch.setattr(
+            "pathlib.Path.read_text",
+            lambda *_a, **_k: (_ for _ in ()).throw(OSError("pyproject missing")),
+        )
+
+        with caplog.at_level("WARNING"):
+            meta = get_app_metadata()
+
+        assert meta["version"] == "dev"
+        assert any("Could not load OpenPKPD GUI metadata" in rec.message for rec in caplog.records)
+
 
 # ---------------------------------------------------------------------------
 # _find_guide_path

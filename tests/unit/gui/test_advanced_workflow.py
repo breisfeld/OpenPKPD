@@ -39,7 +39,7 @@ from openpkpd_gui.workflows.advanced_workflow import (
 
 def test_vpc_generation_status_reports_fit_requirement_and_ready_state() -> None:
     workspace = Workspace(name="Advanced demo")
-    assert "latest successful fit" in format_vpc_generation_status(
+    assert "reusable successful fit" in format_vpc_generation_status(
         workspace,
         fit_context_available=False,
         vpc_available=False,
@@ -87,7 +87,7 @@ def test_vpc_artifact_helpers_filter_and_latest_run() -> None:
 
 def test_bootstrap_generation_status_reports_fit_requirement_and_ready_state() -> None:
     workspace = Workspace(name="Advanced demo")
-    assert "latest successful fit" in format_bootstrap_generation_status(
+    assert "reusable successful fit" in format_bootstrap_generation_status(
         workspace,
         fit_context_available=False,
         bootstrap_available=False,
@@ -130,7 +130,7 @@ def test_bootstrap_artifact_helpers_filter_and_latest_run() -> None:
 
 def test_design_generation_status_reports_fit_requirement_and_ready_state() -> None:
     workspace = Workspace(name="Advanced demo")
-    assert "latest successful fit" in format_design_generation_status(
+    assert "reusable successful fit" in format_design_generation_status(
         workspace,
         fit_context_available=False,
         design_available=False,
@@ -233,21 +233,21 @@ def test_recommend_advanced_next_actions_cover_blocked_ready_and_available_state
     ) == (
         "Open Fit",
         "fit",
-        "Complete a successful fit in this GUI session before generating VPC outputs here.",
+        "Complete a successful fit for this scenario before generating VPC outputs here.",
     )
     assert recommend_bootstrap_next_action(
         fit_context_available=False, latest_run=None, artifacts=[]
     ) == (
         "Open Fit",
         "fit",
-        "Complete a successful fit in this GUI session before generating bootstrap outputs here.",
+        "Complete a successful fit for this scenario before generating bootstrap outputs here.",
     )
     assert recommend_design_next_action(
         fit_context_available=False, latest_run=None, artifacts=[]
     ) == (
         "Open Fit",
         "fit",
-        "Complete a successful fit in this GUI session before generating design outputs here.",
+        "Complete a successful fit for this scenario before generating design outputs here.",
     )
 
     assert (

@@ -232,6 +232,32 @@ def _build_warfarin_fo_model(maxeval: int = 80):
     )
 
 
+def _build_warfarin_focei_model(maxeval: int = 40):
+    """Return a BuiltModel using FOCE-I estimation on the PK-only warfarin subset."""
+    from openpkpd import ModelBuilder
+    from openpkpd.data.dataset import NONMEMDataset
+
+    data_path = os.path.join(DATA_DIR, "warfarin_pk.csv")
+    if not os.path.exists(data_path):
+        pytest.skip(f"Data file not found: {data_path}")
+
+    ds = NONMEMDataset.from_csv(data_path)
+
+    return (
+        ModelBuilder()
+        .problem("Warfarin PK-only 1-cmt oral — FOCEI validation")
+        .dataset(ds)
+        .subroutines(advan=2, trans=2)
+        .pk("KA = THETA(1)*EXP(ETA(1))\nCL = THETA(2)*EXP(ETA(2))\nV  = THETA(3)*EXP(ETA(3))")
+        .error("Y = F*(1 + EPS(1))")
+        .theta([(0.01, 0.9, 20), (0.001, 0.13, 5), (0.1, 8.7, 200)])
+        .omega([0.4, 0.3, 0.3])
+        .sigma(0.05)
+        .estimation(method="FOCEI", maxeval=maxeval)
+        .build()
+    )
+
+
 def _build_warfarin_pkpd_reduced_fo_model(
     data_filename: str,
     ref_filename: str,
@@ -606,6 +632,75 @@ class TestWarfarinFOvsNlmixr2:
         assert 0.5 * ka_ref_fo <= omega_ka <= 2.5 * ka_ref_fo, (
             f"FO Ω_KA={omega_ka:.4f} vs nlmixr2 FO={ka_ref_fo:.4f}"
         )
+
+
+@pytest.mark.external_validation
+@pytest.mark.slow
+class TestWarfarinFOCEIvsNlmixr2:
+    """Empirical FOCE-I validation on PK-only warfarin against bundled nlmixr2 output.
+
+    This is intentionally more conservative than the FO benchmark: nlmixr2's
+    FOCE-I reference is used to gate THETA recovery, residual variance scale,
+    and broad objective improvement without over-claiming parity on the less
+    stable IIV terms.
+    """
+
+    @pytest.fixture(scope="class")
+    def focei_result(self):
+        return _build_warfarin_focei_model(maxeval=40).fit()
+
+    @pytest.fixture(scope="class")
+    def ref_foce(self):
+        return _load_ref("warfarin_pk_foce.json")
+
+    @pytest.fixture(scope="class")
+    def ref_fo(self):
+        return _load_ref("warfarin_pk_fo.json")
+
+    def test_ofv_decreases(self, focei_result):
+        history = focei_result.ofv_history
+        assert len(history) >= 2
+        assert history[-1] < history[0], (
+            f"Warfarin FOCE-I OFV did not decrease: {history[0]:.2f} → {history[-1]:.2f}"
+        )
+
+    def test_ofv_below_conservative_ceiling(self, focei_result, ref_foce):
+        ceiling = 1.60 * float(ref_foce["ofv"])
+        assert focei_result.ofv < ceiling, (
+            f"FOCE-I OFV={focei_result.ofv:.2f} exceeds conservative ceiling {ceiling:.2f}"
+        )
+
+    def test_theta_tracks_focei_reference(self, focei_result, ref_foce):
+        theta = ref_foce["theta"]
+        observed = [float(x) for x in focei_result.theta_final]
+        expected = [theta["KA"], theta["CL"], theta["V"]]
+        tolerances = [0.10, 0.06, 0.25]
+        for name, obs, exp, tol in zip(("KA", "CL", "V"), observed, expected, tolerances, strict=True):
+            rel_err = abs(obs - exp) / exp
+            assert rel_err < tol, (
+                f"FOCE-I {name}={obs:.4f} vs nlmixr2={exp:.4f} (rel_err={rel_err:.1%})"
+            )
+
+    def test_sigma_tracks_focei_reference(self, focei_result, ref_foce):
+        sigma_openpkpd = float(focei_result.sigma_final[0, 0])
+        sigma_ref = float(ref_foce["sigma_prop_err_variance"])
+        rel_err = abs(sigma_openpkpd - sigma_ref) / sigma_ref
+        assert rel_err < 0.45, (
+            f"FOCE-I sigma={sigma_openpkpd:.5f} vs nlmixr2={sigma_ref:.5f} (rel_err={rel_err:.1%})"
+        )
+
+    def test_focei_moves_toward_focei_reference_from_fo_reference(
+        self, focei_result, ref_fo, ref_foce
+    ):
+        theta = [float(x) for x in focei_result.theta_final]
+        ka_dist_to_foce = abs(theta[0] - float(ref_foce["theta"]["KA"]))
+        ka_dist_to_fo = abs(theta[0] - float(ref_fo["theta"]["KA"]))
+        assert ka_dist_to_foce < ka_dist_to_fo, "FOCE-I KA should land closer to the FOCE-I reference than the FO reference"
+
+    def test_omega_remains_positive_semidefinite(self, focei_result):
+        omega = focei_result.omega_final
+        eigvals = np.linalg.eigvalsh(omega)
+        assert np.all(eigvals >= -1e-8), f"FOCE-I OMEGA not PSD: min eig={eigvals.min():.2e}"
 
 
 @pytest.mark.external_validation

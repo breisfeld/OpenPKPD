@@ -215,3 +215,50 @@ def test_run_simulation_record_writes_csv_for_existing_parameter_state(tmp_path)
     assert sim_result.seed == 13579
     assert sim_result.n_replicates == 2
     assert (tmp_path / "postfit_sim.sim.csv").exists()
+
+
+@pytest.mark.integration
+def test_run_model_onlysimulation_rejects_method_override(tmp_path):
+    data_path = tmp_path / "pk.csv"
+    ctl_path = tmp_path / "sim_only.ctl"
+
+    _write_dataset(data_path)
+    ctl_path.write_text(_simulation_only_control_stream())
+
+    with pytest.raises(
+        ValueError,
+        match=r"--method override is not supported for \$SIMULATION ONLYSIMULATION runs\.",
+    ):
+        run_model(
+            ctl_path=str(ctl_path),
+            dataset_path=str(data_path),
+            method_override="FOCE",
+        )
+
+
+@pytest.mark.integration
+def test_run_simulation_record_rejects_subproblems_less_than_one(tmp_path):
+    data_path = tmp_path / "pk.csv"
+    ctl_path = tmp_path / "bad_sim.ctl"
+
+    _write_dataset(data_path)
+    ctl_path.write_text(
+        _simulation_only_control_stream().replace("SUBPROBLEMS=3", "SUBPROBLEMS=0")
+    )
+
+    cs = ControlStream.from_file(str(ctl_path))
+    problem = Problem.from_control_stream(cs, dataset_path=str(data_path))
+    pop_model = problem.population_model
+    params = pop_model.params
+
+    with pytest.raises(
+        ValueError,
+        match=r"\$SIMULATION SUBPROBLEMS must be >= 1 for runtime execution\.",
+    ):
+        _run_simulation_record(
+            pop_model,
+            params,
+            cs.simulation,
+            str(tmp_path / "bad_sim"),
+            result=None,
+        )

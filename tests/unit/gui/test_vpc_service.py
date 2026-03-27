@@ -145,3 +145,76 @@ def test_create_job_and_apply_outcome_write_fit_linked_vpc_artifacts(
     assert workspace.workspace_id in Path(summary.path or "").parts
     assert workspace.active_project.project_id in Path(summary.path or "").parts
     assert workspace.active_scenario.scenario_id in Path(summary.path or "").parts
+
+
+@pytest.mark.unit
+def test_apply_job_outcome_logs_plot_generation_warnings(tmp_path: Path, monkeypatch) -> None:
+    workspace = Workspace(name="VPC demo", root_path=str(tmp_path), workspace_id="vpc-demo")
+    fit_service = FitService()
+    vpc_service = VPCService()
+    _cache_fit_context(fit_service, workspace, monkeypatch, fit_run_id="fit-run-123")
+
+    class _FakeSimulationEngine:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+    class _FakeVPCEngine:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def compute(self, **_kwargs):
+            class _Result:
+                observed_df = pd.DataFrame({"ID": [1], "TIME": [1.0], "DV": [2.0], "REP": [0]})
+                simulated_df = pd.DataFrame({"ID": [1], "TIME": [1.0], "DV": [2.1], "REP": [1]})
+                obs_percentiles = pd.DataFrame(
+                    {"bin_mid": [1.0], "p5": [1.0], "p50": [2.0], "p95": [3.0]}
+                )
+                sim_percentiles = pd.DataFrame(
+                    {
+                        "bin_mid": [1.0],
+                        "p5_lo": [0.5],
+                        "p5_mid": [1.0],
+                        "p5_hi": [1.5],
+                        "p50_lo": [1.5],
+                        "p50_mid": [2.0],
+                        "p50_hi": [2.5],
+                        "p95_lo": [2.5],
+                        "p95_mid": [3.0],
+                        "p95_hi": [3.5],
+                    }
+                )
+
+            return _Result()
+
+    monkeypatch.setattr("openpkpd_gui.services.vpc_service.SimulationEngine", _FakeSimulationEngine)
+    monkeypatch.setattr("openpkpd_gui.services.vpc_service.VPCEngine", _FakeVPCEngine)
+    monkeypatch.setattr(
+        "openpkpd_gui.services.vpc_service.vpc_plot",
+        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("plot backend unavailable")),
+    )
+    monkeypatch.setattr(
+        "openpkpd_gui.services.vpc_service.simulation_panel",
+        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("panel backend unavailable")),
+    )
+    monkeypatch.setattr(
+        "openpkpd_gui.services.vpc_service.prediction_interval_plot",
+        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("interval backend unavailable")),
+    )
+
+    runner = JobRunner()
+    try:
+        outcome = runner.submit(
+            vpc_service.create_job(workspace, fit_service=fit_service, run_id="vpc-run-456")
+        ).result(timeout=5)
+    finally:
+        runner.shutdown()
+
+    run = RunRecord(workflow="vpc", run_id="vpc-run-456")
+    run.mark_running()
+    artifacts = vpc_service.apply_job_outcome(run, outcome)
+
+    assert run.status == RunStatus.SUCCEEDED
+    assert len(artifacts) == 1
+    assert any("Could not generate VPC plot" in line for line in run.log_lines)
+    assert any("Could not generate simulation panel plot" in line for line in run.log_lines)
+    assert any("Could not generate prediction interval plot" in line for line in run.log_lines)

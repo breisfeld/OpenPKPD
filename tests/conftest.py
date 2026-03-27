@@ -5,6 +5,8 @@ Shared pytest fixtures for openpkpd test suite.
 from __future__ import annotations
 
 import io
+import os
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -13,6 +15,17 @@ import pytest
 from openpkpd.data.dataset import NONMEMDataset
 from openpkpd.data.event_processor import DoseEvent
 from openpkpd.model.parameters import OmegaSpec, ParameterSet, SigmaSpec, ThetaSpec
+
+ROOT = Path(__file__).resolve().parent.parent
+R_LIB_DIR = ROOT / ".r-lib"
+
+# Make the project-local R library visible to tests that spawn Rscript.
+if R_LIB_DIR.exists():
+    existing_r_libs = os.environ.get("R_LIBS_USER", "").strip()
+    if existing_r_libs:
+        os.environ["R_LIBS_USER"] = f"{R_LIB_DIR}{os.pathsep}{existing_r_libs}"
+    else:
+        os.environ["R_LIBS_USER"] = str(R_LIB_DIR)
 
 # ── Theophylline dataset (12 subjects, 1-cmt oral, classic NONMEM example) ───
 

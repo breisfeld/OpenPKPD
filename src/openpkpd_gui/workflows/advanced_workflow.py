@@ -228,7 +228,7 @@ def format_vpc_generation_status(
     if generation_running:
         return "A VPC run is currently running in the background. Wait for it to finish or refresh this page."
     if fit_run is None or fit_run.status != RunStatus.SUCCEEDED or not fit_context_available:
-        return "Generate VPC from the latest successful fit after completing a fit in the current GUI session."
+        return "Generate VPC from the latest reusable successful fit for this scenario."
     if vpc_available:
         return "VPC artifacts are already available. Adjust the controls below to generate an updated VPC run."
     return "Generate VPC on demand from the latest successful fit using the controls below."
@@ -247,7 +247,7 @@ def format_bootstrap_generation_status(
     if generation_running:
         return "A bootstrap run is currently running in the background. Wait for it to finish or refresh this page."
     if fit_run is None or fit_run.status != RunStatus.SUCCEEDED or not fit_context_available:
-        return "Generate bootstrap summaries from the latest successful fit after completing a fit in the current GUI session."
+        return "Generate bootstrap summaries from the latest reusable successful fit for this scenario."
     if bootstrap_available:
         return "Bootstrap artifacts are already available. Adjust the controls below to generate an updated bootstrap run."
     return "Generate bootstrap summaries on demand from the latest successful fit using the controls below."
@@ -266,7 +266,7 @@ def format_design_generation_status(
     if generation_running:
         return "A design optimization is currently running in the background. Wait for it to finish or refresh this page."
     if fit_run is None or fit_run.status != RunStatus.SUCCEEDED or not fit_context_available:
-        return "Generate optimal design summaries from the latest successful fit after completing a fit in the current GUI session."
+        return "Generate optimal design summaries from the latest reusable successful fit for this scenario."
     if design_available:
         return "Design artifacts are already available. Adjust the controls below to generate an updated design run."
     return "Generate optimal design summaries on demand from the latest successful fit using the controls below."
@@ -303,7 +303,7 @@ def recommend_vpc_next_action(
         return (
             "Open Fit",
             "fit",
-            "Complete a successful fit in this GUI session before generating VPC outputs here.",
+            "Complete a successful fit for this scenario before generating VPC outputs here.",
         )
     return None
 
@@ -351,7 +351,7 @@ def recommend_bootstrap_next_action(
         return (
             "Open Fit",
             "fit",
-            "Complete a successful fit in this GUI session before generating bootstrap outputs here.",
+            "Complete a successful fit for this scenario before generating bootstrap outputs here.",
         )
     return None
 
@@ -391,7 +391,7 @@ def recommend_design_next_action(
         return (
             "Open Fit",
             "fit",
-            "Complete a successful fit in this GUI session before generating design outputs here.",
+            "Complete a successful fit for this scenario before generating design outputs here.",
         )
     return None
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import contextlib
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -18,6 +18,8 @@ from openpkpd_gui.domain.workspace import Workspace
 from openpkpd_gui.jobs.base import BackgroundJob, JobOutcome, JobStatus
 from openpkpd_gui.services.data_service import DatasetService
 from openpkpd_gui.services.validation_service import ValidationResult
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -52,6 +54,7 @@ class NCARunResult:
     summary_text: str
     subject_count: int
     artifacts: list[ArtifactRecord] = field(default_factory=list)
+    warning_messages: list[str] = field(default_factory=list)
 
 
 class NCAService:
@@ -113,7 +116,7 @@ class NCAService:
             )
             results_df = engine.compute_dataset(dataset.df, route=config.route)
             ctx.emit("Writing NCA artifacts", progress=0.70)
-            artifacts = self._write_artifacts(
+            artifacts, warnings = self._write_artifacts(
                 workspace,
                 title,
                 results_df,
@@ -131,6 +134,7 @@ class NCAService:
                 summary_text=summary_text,
                 subject_count=len(results_df),
                 artifacts=artifacts,
+                warning_messages=warnings,
             )
 
         return BackgroundJob(name=f"nca:{title}", func=_run)
@@ -139,6 +143,8 @@ class NCAService:
         for event in outcome.events:
             run.add_log(f"[{event.kind}] {event.message}")
         if outcome.status == JobStatus.SUCCEEDED and isinstance(outcome.value, NCARunResult):
+            for warning in outcome.value.warning_messages:
+                run.add_log(f"[warning] {warning}")
             artifacts: list[ArtifactRecord] = []
             for artifact in outcome.value.artifacts:
                 if artifact.source_run_id is None:
@@ -212,7 +218,7 @@ class NCAService:
         project_id: str,
         scenario_id: str,
         dataset_path: str | None,
-    ) -> list[ArtifactRecord]:
+    ) -> tuple[list[ArtifactRecord], list[str]]:
         artifact_dir = self._artifact_directory(
             workspace,
             project_id=project_id,
@@ -240,6 +246,7 @@ class NCAService:
                 metadata={**metadata, "media_type": "text/csv", "artifact_role": "nca_summary"},
             )
         ]
+        warnings: list[str] = []
 
         # Plots — skip silently if matplotlib is unavailable or data is insufficient
         def _save_plot(fig, suffix: str, label: str, plot_type: str) -> None:
@@ -252,7 +259,7 @@ class NCAService:
 
                     plt.close(fig)
                 except Exception:
-                    pass
+                    logger.debug("Failed to close NCA figure %s", plot_type, exc_info=True)
             artifacts.append(
                 ArtifactRecord(
                     kind="plot",
@@ -269,20 +276,30 @@ class NCAService:
             )
 
         if len(results_df) >= 2:
-            with contextlib.suppress(Exception):
+            try:
                 _save_plot(
                     nca_distributions(results_df, title=f"{title} — NCA parameter distributions"),
                     suffix="distributions",
                     label=f"{title} NCA distributions",
                     plot_type="nca_distributions",
                 )
+            except Exception as exc:
+                warning = f"Could not generate NCA distributions plot: {exc}"
+                warnings.append(warning)
+                logger.warning("%s", warning, exc_info=True)
 
-            with contextlib.suppress(Exception):
+            try:
                 _save_plot(
                     nca_boxplot(results_df, title=f"{title} — NCA parameters"),
                     suffix="boxplot",
                     label=f"{title} NCA boxplot",
                     plot_type="nca_boxplot",
                 )
+            except Exception as exc:
+                warning = f"Could not generate NCA boxplot: {exc}"
+                warnings.append(warning)
+                logger.warning("%s", warning, exc_info=True)
 
-        return artifacts
+        if warnings:
+            artifacts[0].metadata = {**artifacts[0].metadata, "warnings": list(warnings)}
+        return artifacts, warnings

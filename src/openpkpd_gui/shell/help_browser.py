@@ -10,12 +10,14 @@ Provides:
 
 from __future__ import annotations
 
+import logging
 import re
 import sys
 from pathlib import Path
 from typing import Any
 
 _SECTION_HEADING_RE = re.compile(r"^(#{2,3})\s+(.+?)\s*$", re.MULTILINE)
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -39,7 +41,7 @@ def get_app_metadata() -> dict[str, str]:
             "license": meta["License"] or "",
         }
     except Exception:
-        pass
+        logger.debug("Falling back to pyproject.toml for app metadata", exc_info=True)
 
     # Fallback: parse pyproject.toml directly
     result: dict[str, str] = {"version": "dev", "description": "", "license": ""}
@@ -54,7 +56,10 @@ def get_app_metadata() -> dict[str, str]:
             if m:
                 result[key] = m.group(1)
     except Exception:
-        pass
+        logger.warning(
+            "Could not load OpenPKPD GUI metadata from pyproject.toml; using built-in defaults.",
+            exc_info=True,
+        )
 
     return result
 
@@ -154,7 +159,7 @@ def open_about_dialog(parent: Any, qt_widgets: Any, qt_core: Any) -> None:
 
         pyside_ver = f"PySide6 {PySide6.__version__}  ·  "
     except Exception:
-        pass
+        logger.debug("PySide6 version metadata unavailable for About dialog", exc_info=True)
     qt_ver = qt_core.qVersion()
     py_ver = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
 

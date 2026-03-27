@@ -74,26 +74,41 @@ print(result.summary())
 
 ## Supported records
 
-The parser recognizes more record types than the current runner executes.
+The parser recognizes more record types than the current runner executes. Treat
+the table below as the executable support contract for the native runner.
 
-| Record | Current status | Notes |
-|--------|----------------|-------|
-| `$PROBLEM` | runtime | parsed and used |
-| `$DATA` | runtime | `IGNORE=` supported |
-| `$INPUT` | runtime | includes `DROP` / `SKIP` handling |
-| `$SUBROUTINES` | runtime | `ADVAN1–4/6/8/10/11/12/13/16`; `TRANS1–6`, plus OpenPKPD `TRANS7/8` |
-| `$PK` | runtime | compiled by the NM-TRAN compiler |
-| `$ERROR` | runtime | compiled by the NM-TRAN compiler |
-| `$DES` | runtime | used by ODE/DDE workflows |
-| `$THETA` | runtime | bounds and `FIXED` supported |
-| `$OMEGA` | runtime | diagonal, `BLOCK`, `SAME`, `FIXED` |
-| `$SIGMA` | runtime | diagonal, `BLOCK`, `FIXED` |
-| `$ESTIMATION` | runtime | FO/FOCE/FOCEI/Laplacian/SAEM/IMP/IMPMAP/BAYES keywords parsed |
-| `$COVARIANCE` | runtime | covariance step available |
-| `$TABLE` | runtime | column selection and export |
-| `$SIMULATION` | runtime/partial | runner supports a first subset: first seed, `ONLYSIMULATION`, `SUBPROBLEMS=n`, and a default `.sim.csv` output artifact |
-| `$MIXTURE` | runtime/partial | runner supports an `NSPOP=n` subset via dedicated `.mix.json` and `.mix_assignments.csv` artifacts |
-| `$PRIOR` and prior blocks | runtime/partial | `$THETAP`/`$THETAPV` and `$OMEGAP`/`$OMEGAPD` are wired into a supported Gaussian-prior subset; `$SIGMAP*` remains parse-only |
+Status meanings:
+
+- `runtime` = parsed and executed by the runner
+- `runtime/partial` = parsed and executed only for a documented subset
+- `parse-only` = parsed into typed records but not executed by the runner
+
+| Record | Status | Runner contract |
+|--------|--------|-----------------|
+| `$PROBLEM` | `runtime` | parsed and used |
+| `$DATA` | `runtime` | `IGNORE=` supported |
+| `$INPUT` | `runtime` | includes `DROP` / `SKIP` handling |
+| `$SUBROUTINES` | `runtime` | `ADVAN1–4/6/8/10/11/12/13/16`; `TRANS1–6`, plus OpenPKPD `TRANS7/8` |
+| `$PK` | `runtime` | compiled by the NM-TRAN compiler |
+| `$ERROR` | `runtime` | compiled by the NM-TRAN compiler |
+| `$DES` | `runtime` | used by ODE/DDE workflows |
+| `$THETA` | `runtime` | bounds and `FIXED` supported |
+| `$OMEGA` | `runtime` | diagonal, `BLOCK`, `SAME`, `FIXED` |
+| `$SIGMA` | `runtime` | diagonal, `BLOCK`, `FIXED` |
+| `$ESTIMATION` | `runtime` | FO/FOCE/FOCEI/Laplacian/SAEM/IMP/IMPMAP/BAYES keywords parsed |
+| `$COVARIANCE` | `runtime` | covariance step available in the standard estimation path |
+| `$TABLE` | `runtime` | column selection and export in the standard estimation path |
+| `$SIMULATION` | `runtime/partial` | supports first seed, `ONLYSIMULATION`, `SUBPROBLEMS=n`, and `.sim.csv` output |
+| `$MIXTURE` | `runtime/partial` | supports `NSPOP=n` with dedicated `.mix.json` and `.mix_assignments.csv` artifacts |
+| `$PRIOR` | `runtime/partial` | NWPRI-oriented Gaussian-prior subset only |
+| `$THETAP` / `$THETAPV` | `runtime/partial` | supported together as THETA prior mean/variance |
+| `$OMEGAP` / `$OMEGAPD` | `runtime/partial` | supported as Gaussian penalty subset, not full Wishart semantics |
+| `$SIGMAP` / `$SIGMAPD` | `parse-only` | parsed but not executed by the native runner |
+| `$ABBREVIATED` | `parse-only` | parsed but not executed by the native runner |
+| `$NONPARAMETRIC` | `parse-only` | parsed but not yet exposed as a dedicated control-stream runtime path |
+| `$SIZES` | `parse-only` | parsed but not executed by the native runner |
+| `$DESIGN` | `parse-only` | parsed but not executed by the native runner |
+| `$CONTR` | `parse-only` | parsed but not executed by the native runner |
 
 Current prior-runtime subset notes:
 
@@ -117,6 +132,24 @@ Current mixture-runtime subset notes:
 - outputs are written as dedicated `<run>.mix.json` and `<run>.mix_assignments.csv` artifacts rather than standard NONMEM-style `.ext/.phi/.tab` files
 - `PMIX=THETA(n)` is parsed but not yet given runtime semantics in this subset
 - `$MIXTURE` cannot currently be combined with `$SIMULATION`, `$COVARIANCE`, or `$TABLE` in the runner subset
+
+## Unsupported runtime combinations
+
+The current native runner rejects the following combinations explicitly:
+
+| Combination | Current behavior |
+|------------|------------------|
+| `$SIMULATION ONLYSIMULATION` with CLI `--method` override | rejected |
+| `$SIMULATION SUBPROBLEMS < 1` | rejected |
+| `$MIXTURE` + `$SIMULATION` | rejected |
+| `$MIXTURE` + `$COVARIANCE` | rejected |
+| `$MIXTURE` + `$TABLE` | rejected |
+| `$MIXTURE` + more than one `$ESTIMATION` record | rejected |
+| `$MIXTURE` with inner method outside `FO`, `FOCE`, `FOCEI`, `LAPLACIAN` | rejected |
+
+These are intentional contract failures, not undefined behavior. The integration
+tests pin these cases so that unsupported workflows fail clearly rather than
+silently drifting.
 
 ## NM-TRAN code blocks
 

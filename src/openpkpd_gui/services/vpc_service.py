@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -16,6 +17,8 @@ from openpkpd_gui.domain.run_record import RunRecord
 from openpkpd_gui.domain.workspace import Workspace
 from openpkpd_gui.jobs.base import BackgroundJob, JobOutcome, JobStatus
 from openpkpd_gui.services.fit_service import FitService
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -35,6 +38,7 @@ class VPCRunResult:
 
     summary_text: str
     artifacts: list[ArtifactRecord] = field(default_factory=list)
+    warning_messages: list[str] = field(default_factory=list)
 
 
 class VPCService:
@@ -53,7 +57,7 @@ class VPCService:
         context = fit_service.latest_fit_context(workspace)
         if context is None:
             raise ValueError(
-                "VPC generation requires a successful fit from the current session for this scenario."
+                "VPC generation requires a reusable successful fit for this scenario."
             )
         config = config or VPCConfig()
         title = context.problem_title or workspace.name or "VPC"
@@ -81,7 +85,7 @@ class VPCService:
                 prediction_corrected=config.prediction_corrected,
             )
             ctx.emit("Writing VPC artifacts", progress=0.8)
-            artifacts = self._write_artifacts(
+            artifacts, warnings = self._write_artifacts(
                 workspace,
                 title,
                 vpc_result,
@@ -95,7 +99,11 @@ class VPCService:
             )
             kind = "pcVPC" if config.prediction_corrected else "VPC"
             summary = f"{title} • {kind} • {config.n_replicates} sims • {config.n_bins} bins • seed={config.seed}"
-            return VPCRunResult(summary_text=summary, artifacts=artifacts)
+            return VPCRunResult(
+                summary_text=summary,
+                artifacts=artifacts,
+                warning_messages=warnings,
+            )
 
         return BackgroundJob(name=f"vpc:{title}", func=_run)
 
@@ -103,6 +111,8 @@ class VPCService:
         for event in outcome.events:
             run.add_log(f"[{event.kind}] {event.message}")
         if outcome.status == JobStatus.SUCCEEDED and isinstance(outcome.value, VPCRunResult):
+            for warning in outcome.value.warning_messages:
+                run.add_log(f"[warning] {warning}")
             artifacts: list[ArtifactRecord] = []
             for artifact in outcome.value.artifacts:
                 if artifact.source_run_id is None:
@@ -163,7 +173,7 @@ class VPCService:
         project_id: str,
         scenario_id: str,
         dataset_path: str | None,
-    ) -> list[ArtifactRecord]:
+    ) -> tuple[list[ArtifactRecord], list[str]]:
         artifact_dir = self._artifact_directory(
             workspace,
             project_id=project_id,
@@ -202,6 +212,7 @@ class VPCService:
                 },
             )
         ]
+        warnings: list[str] = []
 
         def _append_plot(figure, *, suffix: str, label: str, plot_type: str) -> None:
             plot_path = artifact_dir / f"{stem}-{suffix}.png"
@@ -213,7 +224,7 @@ class VPCService:
 
                     plt.close(figure)
                 except Exception:
-                    pass
+                    logger.debug("Failed to close VPC figure %s", plot_type, exc_info=True)
             artifacts.append(
                 ArtifactRecord(
                     kind="plot",
@@ -241,8 +252,10 @@ class VPCService:
                 label=f"{title} VPC plot",
                 plot_type="vpc",
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            warning = f"Could not generate VPC plot: {exc}"
+            warnings.append(warning)
+            logger.warning("%s", warning, exc_info=True)
 
         try:
             figure = simulation_panel(
@@ -256,8 +269,10 @@ class VPCService:
                 label=f"{title} simulation panel",
                 plot_type="simulation_panel",
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            warning = f"Could not generate simulation panel plot: {exc}"
+            warnings.append(warning)
+            logger.warning("%s", warning, exc_info=True)
 
         required_columns = {"bin_mid", "p50", "p5_mid", "p50_mid", "p95_mid"}
         if required_columns.issubset(summary_df.columns):
@@ -280,7 +295,11 @@ class VPCService:
                         label=f"{title} prediction interval plot",
                         plot_type="prediction_interval_plot",
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    warning = f"Could not generate prediction interval plot: {exc}"
+                    warnings.append(warning)
+                    logger.warning("%s", warning, exc_info=True)
 
-        return artifacts
+        if warnings:
+            artifacts[0].metadata = {**artifacts[0].metadata, "warnings": list(warnings)}
+        return artifacts, warnings

@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import logging
 import platform
 import subprocess
 import sys
@@ -50,6 +51,8 @@ from openpkpd_gui.services.model_translation_service import (
     ModelTranslationService,
 )
 from openpkpd_gui.services.validation_service import ValidationResult
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -107,6 +110,8 @@ class FitService:
     def __init__(self, translation_service: ModelTranslationService | None = None) -> None:
         self._translation_service = translation_service or ModelTranslationService()
         self._fit_contexts: dict[tuple[str, str, str], FitContext] = {}
+        self._last_context_error: str | None = None
+        self._last_restore_warnings: list[str] = []
 
     def prepare_run(self, workspace: Workspace) -> FitPreparationResult:
         result = FitPreparationResult()
@@ -270,6 +275,14 @@ class FitService:
             return None
         return context
 
+    @property
+    def last_context_error(self) -> str | None:
+        return self._last_context_error
+
+    @property
+    def last_restore_warnings(self) -> list[str]:
+        return list(self._last_restore_warnings)
+
     @staticmethod
     def _context_key(workspace: Workspace) -> tuple[str, str, str]:
         return (
@@ -312,6 +325,7 @@ class FitService:
         payload: Mapping[str, object],
     ) -> bool:
         """Restore a fit context from a deserialized JSON payload. Returns True on success."""
+        self._last_context_error = None
         try:
             er_data = payload["estimation_result"]
             estimation_result = EstimationResult(
@@ -340,10 +354,16 @@ class FitService:
             scen_id = str(payload["scenario_id"])
             match = workspace.find_scenario(scen_id, project_id=proj_id)
             if match is None:
+                self._last_context_error = (
+                    f"Could not restore fit context: scenario {scen_id!r} in project {proj_id!r} "
+                    "was not found."
+                )
                 return False
             _project, scenario = match
             population_model = self._rebuild_population_model(scenario, payload.get("dataset_path"))
             if population_model is None:
+                if self._last_context_error is None:
+                    self._last_context_error = "Could not restore fit context: model rebuild failed."
                 return False
             self._fit_contexts[(workspace.workspace_id, proj_id, scen_id)] = FitContext(
                 workspace_id=workspace.workspace_id,
@@ -358,8 +378,40 @@ class FitService:
                 population_model=population_model,
             )
             return True
-        except Exception:
+        except Exception as exc:
+            self._last_context_error = f"Could not restore fit context: {exc}"
+            logger.warning("%s", self._last_context_error, exc_info=True)
             return False
+
+    def restore_fit_context_payloads(
+        self,
+        workspace: Workspace,
+        payloads: Mapping[tuple[str, str], bytes],
+    ) -> tuple[int, list[str]]:
+        """Restore multiple serialized fit contexts and return (restored_count, warnings)."""
+        restored = 0
+        warnings: list[str] = []
+        self._last_restore_warnings = []
+        for (proj_id, scen_id), payload_bytes in payloads.items():
+            try:
+                payload = json.loads(payload_bytes)
+            except Exception as exc:
+                warning = (
+                    f"Could not decode saved fit state for project {proj_id!r}, "
+                    f"scenario {scen_id!r}: {exc}"
+                )
+                warnings.append(warning)
+                logger.warning("%s", warning, exc_info=True)
+                continue
+            if self.restore_fit_context(workspace, payload):
+                restored += 1
+                continue
+            warning = self._last_context_error or (
+                f"Could not restore fit state for project {proj_id!r}, scenario {scen_id!r}."
+            )
+            warnings.append(warning)
+        self._last_restore_warnings = list(warnings)
+        return restored, warnings
 
     def _rebuild_population_model(
         self,
@@ -369,10 +421,14 @@ class FitService:
         """Rebuild a PopulationModel from the saved model spec (no estimation)."""
         model_spec = getattr(scenario, "active_model_spec", None)
         if model_spec is None:
+            self._last_context_error = "Could not rebuild fit context: scenario has no active model."
             return None
         try:
             translation = self._translation_service.translate(model_spec)
             if not translation.ok:
+                messages = [issue.message for issue in translation.validation.issues]
+                detail = "; ".join(messages) if messages else "model translation failed"
+                self._last_context_error = f"Could not rebuild fit context: {detail}"
                 return None
             if translation.mode == ModelSpecMode.BUILDER and translation.builder is not None:
                 self._apply_dataset_asset_to_builder(
@@ -387,8 +443,9 @@ class FitService:
                     translation.control_stream, dataset_path=effective_path
                 )
                 return problem.population_model
-        except Exception:
-            pass
+        except Exception as exc:
+            self._last_context_error = f"Could not rebuild fit context: {exc}"
+            logger.warning("%s", self._last_context_error, exc_info=True)
         return None
 
     @staticmethod

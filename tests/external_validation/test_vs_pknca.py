@@ -73,6 +73,10 @@ def theophylline_nca_results() -> pd.DataFrame:
 
 @pytest.mark.external_validation
 class TestTheophyllineVsPKNCA:
+    def test_subject_count_matches_pknca_summary(self, theophylline_nca_results, pknca_reference):
+        assert len(theophylline_nca_results) == int(pknca_reference["summary_0_inf"]["n_subjects"])
+        assert len(theophylline_nca_results) == int(pknca_reference["summary_0_24"]["n_subjects"])
+
     def test_auclast_0_24_summary_tracks_pknca(self, theophylline_nca_results, pknca_reference):
         ref = pknca_reference["summary_0_24"]["auclast"]
         values = theophylline_nca_results["auclast_0_24"].to_numpy(float)
@@ -103,3 +107,13 @@ class TestTheophyllineVsPKNCA:
         assert float(np.std(half_life, ddof=1)) == pytest.approx(
             ref["half_life"]["dispersion"], abs=0.05
         )
+
+    def test_auc_ratio_summary_tracks_pknca_reference(self, theophylline_nca_results, pknca_reference):
+        auclast_geom = _geometric_mean(theophylline_nca_results["auclast_0_24"].to_numpy(float))
+        aucinf_geom = _geometric_mean(theophylline_nca_results["aucinf_obs"].to_numpy(float))
+        observed_ratio = aucinf_geom / auclast_geom
+        ref_ratio = (
+            float(pknca_reference["summary_0_inf"]["aucinf_obs"]["center"])
+            / float(pknca_reference["summary_0_24"]["auclast"]["center"])
+        )
+        assert observed_ratio == pytest.approx(ref_ratio, rel=0.02)

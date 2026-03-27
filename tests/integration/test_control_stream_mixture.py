@@ -119,6 +119,29 @@ $MIXTURE NSPOP=2 PMIX=THETA(4)
 """
 
 
+def _mixture_control_stream_with_covariance() -> str:
+    return _mixture_control_stream() + "$COVARIANCE\n"
+
+
+def _mixture_control_stream_with_table() -> str:
+    return _mixture_control_stream() + "$TABLE ID TIME DV FILE=sdtab001\n"
+
+
+def _mixture_control_stream_with_simulation() -> str:
+    return _mixture_control_stream() + "$SIMULATION (12345) SUBPROBLEMS=2\n"
+
+
+def _mixture_control_stream_with_two_estimations() -> str:
+    return _mixture_control_stream() + "$ESTIMATION METHOD=FO MAXEVAL=5\n"
+
+
+def _mixture_control_stream_with_unsupported_method() -> str:
+    return _mixture_control_stream().replace(
+        "$ESTIMATION METHOD=COND MAXEVAL=25 PRINT=7",
+        "$ESTIMATION METHOD=SAEM MAXEVAL=25 PRINT=7",
+    )
+
+
 def _dummy_subpop_result(theta: list[float], ofv: float) -> EstimationResult:
     return EstimationResult(
         theta_final=np.asarray(theta, dtype=float),
@@ -198,3 +221,47 @@ def test_run_model_mixture_returns_result_and_writes_artifacts(
     assignments = pd.read_csv(assignments_path)
     assert list(assignments["assigned_subpop"]) == [1, 2]
     assert list(assignments["P_SUBPOP1"]) == pytest.approx([0.8, 0.3])
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("control_stream_text", "error_pattern"),
+    [
+        (
+            _mixture_control_stream_with_simulation(),
+            r"\$MIXTURE and \$SIMULATION cannot be combined in the current runtime subset\.",
+        ),
+        (
+            _mixture_control_stream_with_covariance(),
+            r"\$COVARIANCE is not supported for \$MIXTURE runtime runs yet\.",
+        ),
+        (
+            _mixture_control_stream_with_table(),
+            r"\$TABLE output is not supported for \$MIXTURE runtime runs yet; use the generated \.mix artifacts instead\.",
+        ),
+        (
+            _mixture_control_stream_with_two_estimations(),
+            r"\$MIXTURE runtime currently supports at most one \$ESTIMATION record\.",
+        ),
+        (
+            _mixture_control_stream_with_unsupported_method(),
+            r"\$MIXTURE runtime currently supports only FO / FOCE / FOCEI / LAPLACIAN as the inner estimation method\.",
+        ),
+    ],
+)
+def test_run_model_mixture_rejects_unsupported_runtime_combinations(
+    tmp_path,
+    control_stream_text: str,
+    error_pattern: str,
+):
+    data_path = tmp_path / "pk.csv"
+    ctl_path = tmp_path / "mix_invalid.ctl"
+
+    _write_dataset(data_path)
+    ctl_path.write_text(control_stream_text)
+
+    with pytest.raises(ValueError, match=error_pattern):
+        run_model(
+            ctl_path=str(ctl_path),
+            dataset_path=str(data_path),
+        )

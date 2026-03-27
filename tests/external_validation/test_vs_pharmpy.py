@@ -187,9 +187,21 @@ class TestShrinkageFormula:
 
 _PHARMPY_INSTALLED = importlib.util.find_spec("pharmpy") is not None
 
+
+def _pharmpy_example_api_available() -> bool:
+    if not _PHARMPY_INSTALLED:
+        return False
+    return (
+        importlib.util.find_spec("pharmpy.modeling") is not None
+        or importlib.util.find_spec("pharmpy.tools") is not None
+    )
+
 _pharmpy_required = pytest.mark.skipif(
-    not _PHARMPY_INSTALLED,
-    reason="pharmpy not installed — run: uv add pharmpy --dev",
+    not _pharmpy_example_api_available(),
+    reason=(
+        "Pharmpy example APIs not available; need a Pharmpy build exposing "
+        "pharmpy.modeling or pharmpy.tools"
+    ),
 )
 
 
@@ -322,6 +334,17 @@ class TestVsPharmpy:
         n_subjects = results.individual_estimates.shape[0]
         assert n_subjects == 59, f"Expected 59 subjects, got {n_subjects}"
 
+    def test_openpkpd_shrinkage_is_bounded(self, openpkpd_shrinkage):
+        """Shrinkage must remain in a plausible bounded range on the pheno reference."""
+        assert np.all(np.isfinite(openpkpd_shrinkage))
+        assert np.all(openpkpd_shrinkage > -0.5)
+        assert np.all(openpkpd_shrinkage < 1.0)
+
+    def test_pharmpy_shrinkage_eta_order_is_preserved(self, pharmpy_shrinkage, openpkpd_shrinkage):
+        """Relative shrinkage ordering across ETAs should match the Pharmpy reference."""
+        pharmpy_values = np.asarray(pharmpy_shrinkage, dtype=float)
+        assert np.array_equal(np.argsort(pharmpy_values), np.argsort(openpkpd_shrinkage))
+
 
 @_pharmpy_required
 @pytest.mark.external_validation
@@ -416,3 +439,8 @@ class TestEstimatorVsPharmpyPheno:
         assert openpkpd_result.theta_final[2] > 0.0
         assert ref["COVAPGR"] > 0.0
         assert openpkpd_result.theta_final[2] / ref["COVAPGR"] > 0.4
+
+    def test_pheno_ofv_is_finite_and_reasonable(self, openpkpd_result):
+        assert np.isfinite(openpkpd_result.ofv)
+        assert openpkpd_result.ofv > 0.0
+        assert openpkpd_result.ofv < 5000.0

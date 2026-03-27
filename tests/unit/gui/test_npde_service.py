@@ -106,3 +106,36 @@ def test_create_job_and_apply_outcome_write_fit_linked_npde_artifact(
     assert workspace.workspace_id in Path(table.path or "").parts
     assert workspace.active_project.project_id in Path(table.path or "").parts
     assert workspace.active_scenario.scenario_id in Path(table.path or "").parts
+
+
+@pytest.mark.unit
+def test_apply_job_outcome_logs_npde_plot_warning(tmp_path: Path, monkeypatch) -> None:
+    workspace = Workspace(name="NPDE demo", root_path=str(tmp_path), workspace_id="npde-demo")
+    fit_service = FitService()
+    npde_service = NPDEService()
+    _cache_fit_context(fit_service, workspace, monkeypatch, fit_run_id="fit-run-123")
+
+    monkeypatch.setattr(
+        "openpkpd_gui.services.npde_service.compute_npde",
+        lambda *_a, **_k: pd.DataFrame({"ID": [1], "TIME": [1.0], "PDE": [0.25], "NPDE": [-0.1]}),
+    )
+    monkeypatch.setattr(
+        "openpkpd_gui.services.npde_service.npde_plot",
+        lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("plot backend unavailable")),
+    )
+
+    runner = JobRunner()
+    try:
+        outcome = runner.submit(
+            npde_service.create_job(workspace, fit_service=fit_service, run_id="npde-run-456")
+        ).result(timeout=5)
+    finally:
+        runner.shutdown()
+
+    run = RunRecord(workflow="npde", run_id="npde-run-456")
+    run.mark_running()
+    artifacts = npde_service.apply_job_outcome(run, outcome)
+
+    assert run.status == RunStatus.SUCCEEDED
+    assert len(artifacts) == 1
+    assert any("Could not generate NPDE plot" in line for line in run.log_lines)

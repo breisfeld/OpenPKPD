@@ -42,6 +42,7 @@ def run_one(num: int, output_dir: str | None = None, capture: bool = False) -> i
     path = example_path(num)
     env = os.environ.copy()
     if output_dir:
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
         env["OPENPKPD_EXAMPLE_OUTPUT"] = output_dir
     if capture:
         env["MPLBACKEND"] = "Agg"

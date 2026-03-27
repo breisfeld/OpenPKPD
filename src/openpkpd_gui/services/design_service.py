@@ -53,7 +53,7 @@ class DesignService:
         context = fit_service.latest_fit_context(workspace)
         if context is None:
             raise ValueError(
-                "Design generation requires a successful fit from the current session for this scenario."
+                "Design generation requires a reusable successful fit for this scenario."
             )
         config = config or DesignConfig()
         title = context.problem_title or workspace.name or "Design"

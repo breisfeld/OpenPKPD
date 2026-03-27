@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -14,6 +15,8 @@ from openpkpd_gui.domain.workspace import Workspace
 from openpkpd_gui.jobs.base import BackgroundJob, JobOutcome, JobStatus
 from openpkpd_gui.services.fit_service import FitService
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass(slots=True)
 class NPDERunResult:
@@ -21,6 +24,7 @@ class NPDERunResult:
 
     summary_text: str
     artifacts: list[ArtifactRecord] = field(default_factory=list)
+    warning_messages: list[str] = field(default_factory=list)
 
 
 class NPDEService:
@@ -39,7 +43,7 @@ class NPDEService:
         context = fit_service.latest_fit_context(workspace)
         if context is None:
             raise ValueError(
-                "NPDE generation requires a successful fit from the current session for this scenario."
+                "NPDE generation requires a reusable successful fit for this scenario."
             )
 
         def _run(ctx) -> NPDERunResult:
@@ -51,7 +55,7 @@ class NPDEService:
                 seed=seed,
                 decorrelate=decorrelate,
             )
-            artifacts = self._write_results_artifacts(
+            artifacts, warnings = self._write_results_artifacts(
                 workspace,
                 context.problem_title,
                 npde_df,
@@ -68,7 +72,11 @@ class NPDEService:
             summary_text = (
                 f"{context.problem_title} • NPDE rows {len(npde_df)} • {context.estimation_method}"
             )
-            return NPDERunResult(summary_text=summary_text, artifacts=artifacts)
+            return NPDERunResult(
+                summary_text=summary_text,
+                artifacts=artifacts,
+                warning_messages=warnings,
+            )
 
         return BackgroundJob(name=f"npde:{context.problem_title}", func=_run)
 
@@ -76,6 +84,8 @@ class NPDEService:
         for event in outcome.events:
             run.add_log(f"[{event.kind}] {event.message}")
         if outcome.status == JobStatus.SUCCEEDED and isinstance(outcome.value, NPDERunResult):
+            for warning in outcome.value.warning_messages:
+                run.add_log(f"[warning] {warning}")
             artifacts: list[ArtifactRecord] = []
             for artifact in outcome.value.artifacts:
                 if artifact.source_run_id is None:
@@ -138,7 +148,7 @@ class NPDEService:
         n_simulations: int,
         seed: int,
         decorrelate: bool,
-    ) -> list[ArtifactRecord]:
+    ) -> tuple[list[ArtifactRecord], list[str]]:
         artifact_dir = self._artifact_directory(
             workspace,
             project_id=project_id,
@@ -170,6 +180,7 @@ class NPDEService:
                 },
             )
         ]
+        warnings: list[str] = []
 
         try:
             figure = npde_plot(npde_df, title=f"{title} — NPDE diagnostics")
@@ -182,7 +193,7 @@ class NPDEService:
 
                     plt.close(figure)
                 except Exception:
-                    pass
+                    logger.debug("Failed to close NPDE figure", exc_info=True)
             artifacts.append(
                 ArtifactRecord(
                     kind="plot",
@@ -197,7 +208,11 @@ class NPDEService:
                     },
                 )
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            warning = f"Could not generate NPDE plot: {exc}"
+            warnings.append(warning)
+            logger.warning("%s", warning, exc_info=True)
 
-        return artifacts
+        if warnings:
+            artifacts[0].metadata = {**artifacts[0].metadata, "warnings": list(warnings)}
+        return artifacts, warnings

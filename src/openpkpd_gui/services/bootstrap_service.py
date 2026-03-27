@@ -51,7 +51,7 @@ class BootstrapService:
         context = fit_service.latest_fit_context(workspace)
         if context is None:
             raise ValueError(
-                "Bootstrap generation requires a successful fit from the current session for this scenario."
+                "Bootstrap generation requires a reusable successful fit for this scenario."
             )
         config = config or BootstrapConfig()
         title = context.problem_title or workspace.name or "Bootstrap"

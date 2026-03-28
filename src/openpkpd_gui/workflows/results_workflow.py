@@ -220,6 +220,72 @@ def format_results_comparison_summary(workspace: Workspace) -> str:
     return "Comparison snapshot: " + " | ".join(summaries)
 
 
+def results_comparison_rows(workspace: Workspace) -> list[dict[str, str]]:
+    """Return structured comparison rows for sibling scenarios in the active project."""
+    project = workspace.active_project
+    current = project.active_scenario
+    peers = [scenario for scenario in project.scenarios if scenario.scenario_id != current.scenario_id]
+    rows: list[dict[str, str]] = []
+    for scenario in peers:
+        fit_runs = [run for run in scenario.runs if run.workflow == "fit"]
+        latest_fit = fit_runs[-1] if fit_runs else None
+        latest_status = latest_fit.status.value if latest_fit is not None else "no fit"
+        successful_runs = sum(1 for run in scenario.runs if run.status == RunStatus.SUCCEEDED)
+        fit_successes = sum(
+            1 for run in fit_runs if run.status == RunStatus.SUCCEEDED
+        )
+        relation = "sibling"
+        if scenario.parent_scenario_id == current.scenario_id:
+            relation = "child"
+        elif current.parent_scenario_id == scenario.scenario_id:
+            relation = "parent"
+        elif scenario.parent_scenario_id:
+            relation = "branched"
+        rows.append(
+            {
+                "scenario_id": scenario.scenario_id,
+                "name": scenario.name,
+                "relation": relation,
+                "latest_fit": latest_status,
+                "successful_runs": str(successful_runs),
+                "fit_successes": str(fit_successes),
+                "artifacts": str(len(scenario.artifacts)),
+            }
+        )
+    rows.sort(
+        key=lambda row: (
+            int(row["successful_runs"]),
+            int(row["fit_successes"]),
+            int(row["artifacts"]),
+            row["name"],
+        ),
+        reverse=True,
+    )
+    return rows
+
+
+def format_results_comparison_panel(workspace: Workspace) -> str:
+    """Render a richer multi-line comparison panel for sibling scenarios."""
+    rows = results_comparison_rows(workspace)
+    if not rows:
+        return (
+            "Comparison panel:\n"
+            "No sibling scenarios yet. Duplicate or branch this scenario to compare "
+            "fit status, run success, and saved outputs."
+        )
+
+    lines = ["Comparison panel:"]
+    for row in rows[:5]:
+        lines.append(
+            f"{row['name']} [{row['relation']}] — latest fit {row['latest_fit']} • "
+            f"{row['successful_runs']} successful runs • {row['fit_successes']} successful fits • "
+            f"{row['artifacts']} outputs"
+        )
+    if len(rows) > 5:
+        lines.append(f"+{len(rows) - 5} more scenarios")
+    return "\n".join(lines)
+
+
 def format_results_comparison_action(workspace: Workspace) -> str:
     """Recommend the next most useful sibling scenario to inspect."""
     project = workspace.active_project
@@ -257,18 +323,10 @@ def format_results_comparison_action(workspace: Workspace) -> str:
 
 def select_results_comparison_target(workspace: Workspace) -> str | None:
     """Return the most review-worthy sibling scenario id, if any."""
-    project = workspace.active_project
-    current = project.active_scenario
-    peers = [scenario for scenario in project.scenarios if scenario.scenario_id != current.scenario_id]
-    if not peers:
+    rows = results_comparison_rows(workspace)
+    if not rows:
         return None
-
-    def _peer_score(scenario) -> tuple[int, int, int]:
-        successful_runs = sum(1 for run in scenario.runs if run.status == RunStatus.SUCCEEDED)
-        fit_runs = sum(1 for run in scenario.runs if run.workflow == "fit")
-        return successful_runs, fit_runs, len(scenario.artifacts)
-
-    return max(peers, key=_peer_score).scenario_id
+    return rows[0]["scenario_id"]
 
 
 def format_results_stale_warning(workspace: Workspace) -> str:
@@ -660,6 +718,10 @@ def build_results_workflow(
     comparison_action_label.setObjectName("results-comparison-action-label")
     comparison_action_label.setWordWrap(True)
 
+    comparison_panel_label = qt_widgets.QLabel(format_results_comparison_panel(project))
+    comparison_panel_label.setObjectName("results-comparison-panel-label")
+    comparison_panel_label.setWordWrap(True)
+
     comparison_action_button = qt_widgets.QPushButton("Open comparison scenario")
     comparison_action_button.setObjectName("results-comparison-action-button")
     comparison_action_button.setMinimumHeight(32)
@@ -912,6 +974,7 @@ def build_results_workflow(
     layout.addWidget(hint_widget)
     layout.addWidget(overview_label)
     layout.addWidget(comparison_label)
+    layout.addWidget(comparison_panel_label)
     layout.addWidget(comparison_action_label)
     layout.addWidget(comparison_action_button)
     layout.addWidget(stale_warning_label)
@@ -1276,6 +1339,7 @@ def build_results_workflow(
         current_runs = review_runs(project, _analysis_filter_text())
         overview_label.setText(format_results_overview(project))
         comparison_label.setText(format_results_comparison_summary(project))
+        comparison_panel_label.setText(format_results_comparison_panel(project))
         comparison_action_label.setText(format_results_comparison_action(project))
         comparison_action_button.setEnabled(select_results_comparison_target(project) is not None)
         stale_warning_label.setText(format_results_stale_warning(project))

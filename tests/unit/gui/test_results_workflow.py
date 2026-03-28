@@ -21,6 +21,7 @@ from openpkpd_gui.workflows.results_workflow import (
     filter_artifacts,
     format_artifact_metadata,
     format_results_comparison_action,
+    format_results_comparison_panel,
     format_fit_review_summary,
     format_results_comparison_summary,
     format_results_stale_warning,
@@ -221,6 +222,41 @@ def test_format_results_comparison_action_handles_unfit_peer() -> None:
 
     assert "Variant A" in action
     assert "no successful runs yet" in action
+
+
+def test_format_results_comparison_panel_lists_peer_metrics() -> None:
+    workspace = Workspace(name="Review helpers")
+    peer_a = workspace.active_scenario.snapshot_clone(name="Variant A")
+    peer_a.runs = [
+        RunRecord(workflow="fit", status=RunStatus.SUCCEEDED),
+        RunRecord(workflow="nca", status=RunStatus.SUCCEEDED),
+    ]
+    peer_a.artifacts = [
+        ArtifactRecord(kind="report", label="Report", path="/tmp/a-report.html"),
+        ArtifactRecord(kind="plot", label="Plot", path="/tmp/a-plot.png"),
+    ]
+    peer_b = workspace.active_scenario.snapshot_clone(name="Variant B")
+    peer_b.runs = [RunRecord(workflow="fit", status=RunStatus.FAILED)]
+    workspace.active_project.add_scenario(peer_a, make_active=False)
+    workspace.active_project.add_scenario(peer_b, make_active=False)
+
+    panel = format_results_comparison_panel(workspace)
+
+    assert panel.startswith("Comparison panel:")
+    assert "Variant A [child]" in panel
+    assert "2 successful runs" in panel
+    assert "1 successful fits" in panel
+    assert "2 outputs" in panel
+    assert "Variant B [child] — latest fit failed" in panel
+
+
+def test_format_results_comparison_panel_handles_empty_peer_set() -> None:
+    workspace = Workspace(name="Review helpers")
+
+    panel = format_results_comparison_panel(workspace)
+
+    assert "Comparison panel:" in panel
+    assert "No sibling scenarios yet" in panel
 
 
 def test_select_results_comparison_target_returns_richest_peer() -> None:

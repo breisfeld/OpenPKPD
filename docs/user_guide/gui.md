@@ -592,9 +592,11 @@ using FOCE estimation.
 1. Open `Baseline` → **Results** to inspect the fit, report artifacts, and plot outputs.
 2. Use the comparison snapshot and comparison focus text at the top of the page
    to decide which sibling scenario should be reviewed next.
-3. Click **Open comparison scenario** to switch the Results page directly to the
+3. Review the **Comparison panel** for per-scenario fit status, successful-run
+   count, and output count without leaving the current Results page.
+4. Click **Open comparison scenario** to switch the Results page directly to the
    recommended sibling scenario.
-4. Open `Baseline` → **Diagnostics** for CWRES and other diagnostics outputs.
+5. Open `Baseline` → **Diagnostics** for CWRES and other diagnostics outputs.
 
 #### Step 6 — Save the snapshot
 

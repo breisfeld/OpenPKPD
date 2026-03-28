@@ -104,12 +104,65 @@ _COV_HELP_TEXT = (
     "S: Cross-product approximation (fast but can be unstable)."
 )
 _EST_OPTIONS_HELP_TEXT = (
+    "Max eval sets the outer optimizer budget for the selected estimation method.\n\n"
     "Multi-start runs the optimizer N times from randomly perturbed initial values and "
     "keeps the best result. Useful for models with local minima (e.g. 2-compartment IV).\n\n"
     "Tight gradient (gtol=1e-6) forces more optimizer iterations in flat likelihood "
-    "regions. Recommended for covariate-rich models (power-law WT/AGE exponents)."
+    "regions. Recommended for covariate-rich models (power-law WT/AGE exponents).\n\n"
+    "Advanced FOCE/FOCEI outer-optimizer controls such as OUTEROPT/FALLBACKOPT, "
+    "best-iterate retention, and retry-on-abnormal are available through control "
+    "streams and the Python API, and are available here for gradient-based methods."
 )
 _GRADIENT_METHODS = {"FOCE", "FOCEI", "LAPLACIAN"}
+_INTERACTION_METHODS = {"FOCEI", "LAPLACIAN"}
+_OUTER_OPTIMIZERS: tuple[str, ...] = ("L-BFGS-B", "Powell")
+_FALLBACK_OPTIMIZER_CHOICES: tuple[tuple[str, str | None], ...] = (
+    ("Engine default", None),
+    ("Powell", "Powell"),
+    ("L-BFGS-B", "L-BFGS-B"),
+)
+
+
+def _default_maxeval(method: str) -> int:
+    return 9999
+
+
+def _default_outer_optimizer(method: str) -> str:
+    return "L-BFGS-B"
+
+
+def _default_fallback_optimizer(method: str) -> str | None:
+    if method in _INTERACTION_METHODS:
+        return None
+    return None
+
+
+def _default_fallback_maxeval(method: str) -> int:
+    return 40
+
+
+def _default_retain_best_iterate(method: str) -> bool:
+    return True
+
+
+def _default_retry_on_abnormal(method: str) -> bool:
+    return method in _INTERACTION_METHODS
+
+
+def _default_retry_omega_scales(method: str) -> str:
+    if method in _INTERACTION_METHODS:
+        return "0.5, 0.25, 0.1"
+    return ""
+
+
+def _parse_retry_omega_scales(text: str) -> tuple[float, ...]:
+    values: list[float] = []
+    for chunk in text.split(","):
+        piece = chunk.strip()
+        if not piece:
+            continue
+        values.append(float(piece))
+    return tuple(values)
 
 
 def _advan_trans_to_named_model_index(advan: int, trans: int) -> int:
@@ -696,8 +749,21 @@ def build_model_workflow(
     estimation_row.addWidget(_make_help_button("Covariance Step", _COV_HELP_TEXT))
     estimation_row.addStretch(1)
 
-    # --- Estimation options row (multi-start + gtol; gradient methods only) ---
-    est_options_row = qt_widgets.QHBoxLayout()
+    # --- Estimation options grid (advanced controls for gradient methods) ---
+    est_options_row = qt_widgets.QGridLayout()
+    est_options_row.setContentsMargins(0, 0, 0, 0)
+    est_options_row.setHorizontalSpacing(12)
+    est_options_row.setVerticalSpacing(8)
+
+    maxeval_label = qt_widgets.QLabel("Max eval:")
+    maxeval_spin = qt_widgets.QSpinBox()
+    maxeval_spin.setObjectName("model-maxeval-spin")
+    maxeval_spin.setRange(1, 100000)
+    maxeval_spin.setValue(
+        int(model_spec.estimation.options.get("maxeval", _default_maxeval(model_spec.estimation.method)))
+    )
+    maxeval_spin.setToolTip("Outer optimizer evaluation budget for the selected method.")
+
     nstarts_label = qt_widgets.QLabel("Multi-start runs:")
     nstarts_spin = qt_widgets.QSpinBox()
     nstarts_spin.setObjectName("model-nstarts-spin")
@@ -712,15 +778,144 @@ def build_model_workflow(
     tight_gtol_checkbox.setToolTip(
         "Tighten outer convergence criterion — recommended for covariate power-law models."
     )
-    est_options_row.addWidget(nstarts_label)
-    est_options_row.addWidget(nstarts_spin)
-    est_options_row.addWidget(tight_gtol_checkbox)
-    est_options_row.addWidget(_make_help_button("Estimation Options", _EST_OPTIONS_HELP_TEXT))
-    est_options_row.addStretch(1)
+
+    outer_optimizer_label = qt_widgets.QLabel("Outer optimizer:")
+    outer_optimizer_combo = qt_widgets.QComboBox()
+    outer_optimizer_combo.setObjectName("model-outer-optimizer-combo")
+    for optimizer in _OUTER_OPTIMIZERS:
+        outer_optimizer_combo.addItem(optimizer, userData=optimizer)
+
+    fallback_optimizer_label = qt_widgets.QLabel("Fallback optimizer:")
+    fallback_optimizer_combo = qt_widgets.QComboBox()
+    fallback_optimizer_combo.setObjectName("model-fallback-optimizer-combo")
+    for label, value in _FALLBACK_OPTIMIZER_CHOICES:
+        fallback_optimizer_combo.addItem(label, userData=value)
+
+    fallback_maxeval_label = qt_widgets.QLabel("Fallback max eval:")
+    fallback_maxeval_spin = qt_widgets.QSpinBox()
+    fallback_maxeval_spin.setObjectName("model-fallback-maxeval-spin")
+    fallback_maxeval_spin.setRange(1, 10000)
+
+    retain_best_checkbox = qt_widgets.QCheckBox("Retain best iterate")
+    retain_best_checkbox.setObjectName("model-retain-best-checkbox")
+    retain_best_checkbox.setToolTip(
+        "Keep the best OFV point visited even if the terminal optimizer iterate is worse."
+    )
+
+    retry_on_abnormal_checkbox = qt_widgets.QCheckBox("Retry on abnormal termination")
+    retry_on_abnormal_checkbox.setObjectName("model-retry-on-abnormal-checkbox")
+    retry_on_abnormal_checkbox.setToolTip(
+        "Rerun FOCEI/Laplacian from structured alternate starts if the main run terminates abnormally."
+    )
+
+    retry_omega_scales_label = qt_widgets.QLabel("Retry OMEGA scales:")
+    retry_omega_scales_input = qt_widgets.QLineEdit()
+    retry_omega_scales_input.setObjectName("model-retry-omega-scales-input")
+    retry_omega_scales_input.setPlaceholderText("0.5, 0.25, 0.1")
+    retry_omega_scales_input.setToolTip(
+        "Comma-separated OMEGA scaling factors used for structured retries."
+    )
+
+    help_button = _make_help_button("Estimation Options", _EST_OPTIONS_HELP_TEXT)
+    est_options_row.addWidget(maxeval_label, 0, 0)
+    est_options_row.addWidget(maxeval_spin, 0, 1)
+    est_options_row.addWidget(nstarts_label, 0, 2)
+    est_options_row.addWidget(nstarts_spin, 0, 3)
+    est_options_row.addWidget(tight_gtol_checkbox, 0, 4)
+    est_options_row.addWidget(help_button, 0, 5)
+    est_options_row.addWidget(outer_optimizer_label, 1, 0)
+    est_options_row.addWidget(outer_optimizer_combo, 1, 1)
+    est_options_row.addWidget(fallback_optimizer_label, 1, 2)
+    est_options_row.addWidget(fallback_optimizer_combo, 1, 3)
+    est_options_row.addWidget(fallback_maxeval_label, 1, 4)
+    est_options_row.addWidget(fallback_maxeval_spin, 1, 5)
+    est_options_row.addWidget(retain_best_checkbox, 2, 0, 1, 2)
+    est_options_row.addWidget(retry_on_abnormal_checkbox, 2, 2, 1, 2)
+    est_options_row.addWidget(retry_omega_scales_label, 2, 4)
+    est_options_row.addWidget(retry_omega_scales_input, 2, 5)
     est_options_widget = qt_widgets.QWidget()
     est_options_widget.setObjectName("model-est-options-widget")
     est_options_widget.setLayout(est_options_row)
     est_options_widget.setVisible(estimation_combo.currentData() in _GRADIENT_METHODS)
+
+    def _apply_estimation_option_defaults_for_method(method: str) -> None:
+        outer_index = max(0, outer_optimizer_combo.findData(_default_outer_optimizer(method)))
+        outer_optimizer_combo.setCurrentIndex(outer_index)
+        fallback_index = max(
+            0,
+            fallback_optimizer_combo.findData(_default_fallback_optimizer(method)),
+        )
+        fallback_optimizer_combo.setCurrentIndex(fallback_index)
+        fallback_maxeval_spin.setValue(_default_fallback_maxeval(method))
+        retain_best_checkbox.setChecked(_default_retain_best_iterate(method))
+        retry_on_abnormal_checkbox.setChecked(_default_retry_on_abnormal(method))
+        retry_omega_scales_input.setText(_default_retry_omega_scales(method))
+        maxeval_spin.setValue(_default_maxeval(method))
+
+    def _load_estimation_option_values_from_spec() -> None:
+        method = model_spec.estimation.method
+        options = dict(model_spec.estimation.options)
+        maxeval_spin.setValue(int(options.get("maxeval", _default_maxeval(method))))
+        outer_index = max(
+            0,
+            outer_optimizer_combo.findData(options.get("outer_optimizer", _default_outer_optimizer(method))),
+        )
+        outer_optimizer_combo.setCurrentIndex(outer_index)
+        fallback_index = max(
+            0,
+            fallback_optimizer_combo.findData(
+                options.get("outer_fallback_optimizer", _default_fallback_optimizer(method))
+            ),
+        )
+        fallback_optimizer_combo.setCurrentIndex(fallback_index)
+        fallback_maxeval_spin.setValue(
+            int(options.get("outer_fallback_maxeval", _default_fallback_maxeval(method)))
+        )
+        retain_best_checkbox.setChecked(
+            bool(options.get("retain_best_iterate", _default_retain_best_iterate(method)))
+        )
+        retry_on_abnormal_checkbox.setChecked(
+            bool(options.get("retry_on_abnormal", _default_retry_on_abnormal(method)))
+        )
+        retry_omega_scales = options.get("retry_omega_scales", _default_retry_omega_scales(method))
+        if isinstance(retry_omega_scales, (list, tuple)):
+            retry_omega_scales_text = ", ".join(str(value) for value in retry_omega_scales)
+        else:
+            retry_omega_scales_text = str(retry_omega_scales)
+        retry_omega_scales_input.setText(retry_omega_scales_text)
+
+    def _refresh_estimation_option_affordances() -> None:
+        method = str(estimation_combo.currentData())
+        advanced_enabled = method in _GRADIENT_METHODS
+        interaction_enabled = method in _INTERACTION_METHODS
+        est_options_widget.setVisible(advanced_enabled)
+        for widget in (
+            maxeval_label,
+            nstarts_label,
+            outer_optimizer_label,
+            fallback_optimizer_label,
+            fallback_maxeval_label,
+        ):
+            widget.setEnabled(advanced_enabled)
+        for widget in (
+            maxeval_spin,
+            nstarts_spin,
+            tight_gtol_checkbox,
+            outer_optimizer_combo,
+            fallback_optimizer_combo,
+            fallback_maxeval_spin,
+            retain_best_checkbox,
+        ):
+            widget.setEnabled(advanced_enabled)
+        for widget in (
+            retry_on_abnormal_checkbox,
+            retry_omega_scales_input,
+        ):
+            widget.setEnabled(interaction_enabled)
+        retry_omega_scales_label.setEnabled(interaction_enabled)
+
+    _load_estimation_option_values_from_spec()
+    _refresh_estimation_option_affordances()
 
     subroutine_container = qt_widgets.QWidget()
     subroutine_container.setLayout(subroutine_row)
@@ -1045,12 +1240,22 @@ def build_model_workflow(
             "theta_rows": _read_theta_rows(),
             "omega_values": _read_matrix_table(omega_table),
             "sigma_values": _read_matrix_table(sigma_table),
+            "maxeval": maxeval_spin.value(),
+            "n_starts": nstarts_spin.value(),
+            "gtol_tight": tight_gtol_checkbox.isChecked(),
+            "outer_optimizer": outer_optimizer_combo.currentData(),
+            "outer_fallback_optimizer": fallback_optimizer_combo.currentData(),
+            "outer_fallback_maxeval": fallback_maxeval_spin.value(),
+            "retain_best_iterate": retain_best_checkbox.isChecked(),
+            "retry_on_abnormal": retry_on_abnormal_checkbox.isChecked(),
+            "retry_omega_scales": retry_omega_scales_input.text(),
         }
 
     def _project_model_payload() -> dict[str, object]:
         return default_model_spec(project).to_dict()
 
     def _collect_model_spec() -> ModelSpec:
+        retry_omega_scales = _parse_retry_omega_scales(retry_omega_scales_input.text())
         return ModelSpec(
             mode=_current_mode(),
             problem_title=problem_title_input.text().strip(),
@@ -1067,8 +1272,15 @@ def build_model_workflow(
             estimation=EstimationConfig(
                 method=estimation_combo.currentData(),
                 options={
+                    "maxeval": maxeval_spin.value(),
                     "n_starts": nstarts_spin.value(),
                     "gtol": 1e-6 if tight_gtol_checkbox.isChecked() else 1e-5,
+                    "outer_optimizer": outer_optimizer_combo.currentData(),
+                    "outer_fallback_optimizer": fallback_optimizer_combo.currentData(),
+                    "outer_fallback_maxeval": fallback_maxeval_spin.value(),
+                    "retain_best_iterate": retain_best_checkbox.isChecked(),
+                    "retry_on_abnormal": retry_on_abnormal_checkbox.isChecked(),
+                    "retry_omega_scales": retry_omega_scales,
                 },
             ),
             covariance=CovarianceConfig(
@@ -1108,11 +1320,8 @@ def build_model_workflow(
             0,
         )
         estimation_combo.setCurrentIndex(_est_idx)
-        nstarts_spin.setValue(int(model_spec.estimation.options.get("n_starts", 1)))
-        tight_gtol_checkbox.setChecked(
-            float(model_spec.estimation.options.get("gtol", 1e-5)) < 1e-5
-        )
-        est_options_widget.setVisible(model_spec.estimation.method in _GRADIENT_METHODS)
+        _load_estimation_option_values_from_spec()
+        _refresh_estimation_option_affordances()
         covariance_checkbox.setChecked(model_spec.covariance.enabled)
         covariance_matrix_combo.setCurrentText(model_spec.covariance.matrix)
         pk_edit.setPlainText(model_spec.pk_code)
@@ -1506,18 +1715,27 @@ def build_model_workflow(
     )
     advan_spin.valueChanged.connect(lambda _: _sync_model_combo_from_spins())
     trans_spin.valueChanged.connect(lambda _: _sync_model_combo_from_spins())
-    estimation_combo.currentIndexChanged.connect(
-        lambda _: (
-            est_options_widget.setVisible(estimation_combo.currentData() in _GRADIENT_METHODS),
-            _update_unsaved_indicator(),
-        )
-    )
+    def _on_estimation_method_changed() -> None:
+        _apply_estimation_option_defaults_for_method(str(estimation_combo.currentData()))
+        _refresh_estimation_option_affordances()
+        _update_unsaved_indicator()
+
+    estimation_combo.currentIndexChanged.connect(lambda _: _on_estimation_method_changed())
     covariance_checkbox.toggled.connect(lambda _: _update_unsaved_indicator())
     covariance_matrix_combo.currentIndexChanged.connect(lambda _: _update_unsaved_indicator())
     pk_edit.textChanged.connect(_update_unsaved_indicator)
     error_edit.textChanged.connect(_update_unsaved_indicator)
     des_edit.textChanged.connect(_update_unsaved_indicator)
     control_stream_edit.textChanged.connect(_update_unsaved_indicator)
+    maxeval_spin.valueChanged.connect(lambda _: _update_unsaved_indicator())
+    nstarts_spin.valueChanged.connect(lambda _: _update_unsaved_indicator())
+    tight_gtol_checkbox.toggled.connect(lambda _: _update_unsaved_indicator())
+    outer_optimizer_combo.currentIndexChanged.connect(lambda _: _update_unsaved_indicator())
+    fallback_optimizer_combo.currentIndexChanged.connect(lambda _: _update_unsaved_indicator())
+    fallback_maxeval_spin.valueChanged.connect(lambda _: _update_unsaved_indicator())
+    retain_best_checkbox.toggled.connect(lambda _: _update_unsaved_indicator())
+    retry_on_abnormal_checkbox.toggled.connect(lambda _: _update_unsaved_indicator())
+    retry_omega_scales_input.textChanged.connect(lambda _: _update_unsaved_indicator())
     theta_table.itemChanged.connect(lambda _: _update_unsaved_indicator())
     omega_table.itemChanged.connect(
         lambda item: (_set_diagonal_tooltips(omega_table), _update_unsaved_indicator())

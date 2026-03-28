@@ -54,6 +54,18 @@ cs.estimation_records[0].interaction  # True
 cs.estimation_records[0].maxeval      # 9999
 ```
 
+Additional OpenPKPD-native estimation extensions are also parsed from
+`$ESTIMATION` when present:
+
+```text
+$ESTIMATION METHOD=COND INTER MAXEVAL=200 OUTEROPT=L-BFGS-B \
+  FALLBACKOPT=POWELL FALLBACKMAXEVAL=40 RETAINBEST \
+  RETRYONABNORMAL RETRYOMEGASCALE=0.5,0.25,0.1
+```
+
+These extensions control FOCE/FOCEI outer optimization and retry behavior.
+They are OpenPKPD additions rather than standard NONMEM keywords.
+
 ## Running from the CLI
 
 ```bash
@@ -132,6 +144,16 @@ Current mixture-runtime subset notes:
 - outputs are written as dedicated `<run>.mix.json` and `<run>.mix_assignments.csv` artifacts rather than standard NONMEM-style `.ext/.phi/.tab` files
 - `PMIX=THETA(n)` is parsed but not yet given runtime semantics in this subset
 - `$MIXTURE` cannot currently be combined with `$SIMULATION`, `$COVARIANCE`, or `$TABLE` in the runner subset
+
+Current FOCE/FOCEI `$ESTIMATION` extension notes:
+
+- `OUTEROPT=` selects the primary outer optimizer
+- `FALLBACKOPT=` selects an optional follow-up polish optimizer
+- `FALLBACKMAXEVAL=` limits that fallback budget
+- `RETAINBEST` / `NORETAINBEST` toggle best-iterate retention
+- `RETRYONABNORMAL` / `NORETRYONABNORMAL` toggle structured retry after abnormal termination
+- `RETRYOMEGASCALE=a,b,c` supplies OMEGA scaling factors for those retries
+- the GUI model builder does not currently expose these advanced controls; use control streams or the Python API when needed
 
 ## Unsupported runtime combinations
 

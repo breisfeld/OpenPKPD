@@ -139,6 +139,43 @@ class EstimationRecord(BaseRecord):
             with contextlib.suppress(ValueError):
                 self.perturbation_scale = float(m.group(1))
 
+        self.outer_optimizer: str | None = None
+        m = re.search(r"\bOUTEROPT\s*=\s*(\S+)", flat, re.IGNORECASE)
+        if m:
+            self.outer_optimizer = m.group(1).rstrip(",")
+
+        self.outer_fallback_optimizer: str | None = None
+        m = re.search(r"\bFALLBACKOPT\s*=\s*(\S+)", flat, re.IGNORECASE)
+        if m:
+            self.outer_fallback_optimizer = m.group(1).rstrip(",")
+
+        self.outer_fallback_maxeval: int | None = None
+        m = re.search(r"\bFALLBACKMAXEVAL\s*=\s*(\d+)", flat, re.IGNORECASE)
+        if m:
+            self.outer_fallback_maxeval = int(m.group(1))
+
+        self.retain_best_iterate: bool | None = None
+        if re.search(r"\bRETAINBEST\b", flat, re.IGNORECASE):
+            self.retain_best_iterate = True
+        elif re.search(r"\bNORETAINBEST\b", flat, re.IGNORECASE):
+            self.retain_best_iterate = False
+
+        self.retry_on_abnormal: bool | None = None
+        if re.search(r"\bRETRYONABNORMAL\b", flat, re.IGNORECASE):
+            self.retry_on_abnormal = True
+        elif re.search(r"\bNORETRYONABNORMAL\b", flat, re.IGNORECASE):
+            self.retry_on_abnormal = False
+
+        self.retry_omega_scales: tuple[float, ...] = ()
+        m = re.search(r"\bRETRYOMEGASCALE\s*=\s*([^\s]+)", flat, re.IGNORECASE)
+        if m:
+            parts = [p for p in m.group(1).split(",") if p]
+            vals: list[float] = []
+            for part in parts:
+                with contextlib.suppress(ValueError):
+                    vals.append(float(part))
+            self.retry_omega_scales = tuple(vals)
+
     def to_dict(self) -> dict[str, Any]:
         d = super().to_dict()
         d.update(

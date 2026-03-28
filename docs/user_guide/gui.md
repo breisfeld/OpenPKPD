@@ -167,6 +167,20 @@ unaffected by this setting.
 The preference is saved across sessions. It takes effect the next time a fit or
 VPC job is started — no restart required.
 
+#### Estimation controls currently exposed in the GUI
+
+The model builder currently exposes the following estimation controls directly:
+
+- estimation method selection (`FO`, `FOCE`, `FOCEI`, `LAPLACIAN`, `SAEM`, `IMP`)
+- `maxeval`
+- `n_starts` (multi-start)
+- tight `gtol` for gradient-based methods
+
+More advanced FOCE/FOCEI optimizer controls such as outer-optimizer selection,
+fallback/polish optimizers, best-iterate retention, and structured retry
+settings are currently available through control streams and the Python API,
+not as dedicated GUI fields.
+
 ### Snapshots and recent files
 
 The GUI snapshot format is `.opkpd`.

@@ -143,6 +143,18 @@ def run_model(
                 est_kwargs["perturbation_scale"] = est_rec.perturbation_scale
             if getattr(est_rec, "seed", None) is not None:
                 est_kwargs["seed"] = est_rec.seed
+            if getattr(est_rec, "outer_optimizer", None):
+                est_kwargs["outer_optimizer"] = est_rec.outer_optimizer
+            if getattr(est_rec, "outer_fallback_optimizer", None):
+                est_kwargs["outer_fallback_optimizer"] = est_rec.outer_fallback_optimizer
+            if getattr(est_rec, "outer_fallback_maxeval", None) is not None:
+                est_kwargs["outer_fallback_maxeval"] = est_rec.outer_fallback_maxeval
+            if getattr(est_rec, "retain_best_iterate", None) is not None:
+                est_kwargs["retain_best_iterate"] = est_rec.retain_best_iterate
+            if getattr(est_rec, "retry_on_abnormal", None) is not None:
+                est_kwargs["retry_on_abnormal"] = est_rec.retry_on_abnormal
+            if getattr(est_rec, "retry_omega_scales", ()):
+                est_kwargs["retry_omega_scales"] = est_rec.retry_omega_scales
         est = get_estimation_method(method_name, **est_kwargs)
 
         try:

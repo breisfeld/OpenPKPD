@@ -27,6 +27,7 @@ HERE = Path(__file__).parent
 ROOT = HERE.parent.parent
 PKNCA_REF = HERE / "reference" / "pknca_theophylline_summary.json"
 NLMIXR2_DIR = HERE / "nlmixr2"
+LOCAL_R_LIB = ROOT / ".r-lib"
 
 
 def _r_package_available(name: str) -> bool:
@@ -46,12 +47,67 @@ def _r_package_available(name: str) -> bool:
 
 
 def _run_rscript_inline(script: str, *, cwd: Path) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    existing = env.get("R_LIBS_USER", "")
+    libs = [str(LOCAL_R_LIB)]
+    if existing:
+        libs.append(existing)
+    env["R_LIBS_USER"] = os.pathsep.join(libs)
     return subprocess.run(
         ["Rscript", "-e", script],
         capture_output=True,
         text=True,
         cwd=cwd,
+        env=env,
     )
+
+
+def _run_nlmixr2_reference_script(
+    script_name: str,
+    *,
+    tmp_path: Path,
+) -> tuple[dict, dict]:
+    temp_dir = tmp_path / "nlmixr2"
+    shutil.copytree(NLMIXR2_DIR, temp_dir)
+    shutil.copytree(HERE / "data", tmp_path / "data")
+    script_path = temp_dir / script_name
+
+    env = os.environ.copy()
+    existing = env.get("R_LIBS_USER", "")
+    libs = [str(LOCAL_R_LIB)]
+    if existing:
+        libs.append(existing)
+    env["R_LIBS_USER"] = os.pathsep.join(libs)
+
+    result = subprocess.run(
+        ["Rscript", str(script_path)],
+        cwd=temp_dir,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr[-4000:]
+
+    return (
+        json.loads((temp_dir / "reference" / script_name_to_fo_ref(script_name)).read_text()),
+        json.loads((temp_dir / "reference" / script_name_to_focei_ref(script_name)).read_text()),
+    )
+
+
+def script_name_to_fo_ref(script_name: str) -> str:
+    if script_name == "run_theophylline.R":
+        return "theophylline_fo.json"
+    if script_name == "run_warfarin.R":
+        return "warfarin_pk_fo.json"
+    raise ValueError(f"Unsupported nlmixr2 script: {script_name}")
+
+
+def script_name_to_focei_ref(script_name: str) -> str:
+    if script_name == "run_theophylline.R":
+        return "theophylline_foce.json"
+    if script_name == "run_warfarin.R":
+        return "warfarin_pk_foce.json"
+    raise ValueError(f"Unsupported nlmixr2 script: {script_name}")
 
 
 @pytest.mark.external_validation
@@ -148,21 +204,9 @@ class TestLiveNlmixr2ReferenceGeneration:
     @pytest.mark.skipif(not _r_package_available("nlmixr2data"), reason="R package nlmixr2data not installed")
     @pytest.mark.slow
     def test_theophylline_reference_script_reproduces_expected_json_shape(self, tmp_path: Path) -> None:
-        temp_dir = tmp_path / "nlmixr2"
-        shutil.copytree(NLMIXR2_DIR, temp_dir)
-        shutil.copytree(HERE / "data", tmp_path / "data")
-        script_path = temp_dir / "run_theophylline.R"
-
-        result = subprocess.run(
-            ["Rscript", str(script_path)],
-            cwd=temp_dir,
-            capture_output=True,
-            text=True,
+        generated_fo, generated_foce = _run_nlmixr2_reference_script(
+            "run_theophylline.R", tmp_path=tmp_path
         )
-        assert result.returncode == 0, result.stderr[-4000:]
-
-        generated_fo = json.loads((temp_dir / "reference" / "theophylline_fo.json").read_text())
-        generated_foce = json.loads((temp_dir / "reference" / "theophylline_foce.json").read_text())
         frozen_fo = json.loads((NLMIXR2_DIR / "reference" / "theophylline_fo.json").read_text())
         frozen_foce = json.loads((NLMIXR2_DIR / "reference" / "theophylline_foce.json").read_text())
 
@@ -173,7 +217,47 @@ class TestLiveNlmixr2ReferenceGeneration:
             assert generated["n_subjects"] == frozen["n_subjects"]
             assert generated["n_obs_in_likelihood"] == frozen["n_obs_in_likelihood"]
             for name in frozen["theta"]:
-                assert math.isfinite(float(generated["theta"][name]))
+                observed = float(generated["theta"][name])
+                reference = float(frozen["theta"][name])
+                assert math.isfinite(observed)
+                assert observed == pytest.approx(reference, rel=0.05)
             for name in frozen["omega_diag"]:
-                assert math.isfinite(float(generated["omega_diag"][name]))
-            assert math.isfinite(float(generated["sigma_prop_err_variance"]))
+                observed = float(generated["omega_diag"][name])
+                reference = float(frozen["omega_diag"][name])
+                assert math.isfinite(observed)
+                assert observed == pytest.approx(reference, rel=0.35)
+            assert float(generated["sigma_prop_err_variance"]) == pytest.approx(
+                float(frozen["sigma_prop_err_variance"]), rel=0.10
+            )
+
+    @pytest.mark.skipif(not is_r_available(), reason="R / rpy2 not available")
+    @pytest.mark.skipif(not _r_package_available("nlmixr2"), reason="R package nlmixr2 not installed")
+    @pytest.mark.skipif(not _r_package_available("nlmixr2data"), reason="R package nlmixr2data not installed")
+    @pytest.mark.slow
+    def test_warfarin_reference_script_reproduces_expected_json_shape(self, tmp_path: Path) -> None:
+        generated_fo, generated_foce = _run_nlmixr2_reference_script(
+            "run_warfarin.R", tmp_path=tmp_path
+        )
+        frozen_fo = json.loads((NLMIXR2_DIR / "reference" / "warfarin_pk_fo.json").read_text())
+        frozen_foce = json.loads((NLMIXR2_DIR / "reference" / "warfarin_pk_foce.json").read_text())
+
+        for generated, frozen in ((generated_fo, frozen_fo), (generated_foce, frozen_foce)):
+            assert generated["method"] == frozen["method"]
+            assert generated["software"] == "nlmixr2"
+            assert generated["dataset"] == frozen["dataset"]
+            assert generated["n_subjects"] == frozen["n_subjects"]
+            assert generated["n_obs_in_likelihood"] == frozen["n_obs_in_likelihood"]
+            for name in frozen["theta"]:
+                observed = float(generated["theta"][name])
+                reference = float(frozen["theta"][name])
+                assert math.isfinite(observed)
+                assert observed == pytest.approx(reference, rel=0.03)
+            for name in frozen["omega_diag"]:
+                observed = float(generated["omega_diag"][name])
+                reference = float(frozen["omega_diag"][name])
+                assert math.isfinite(observed)
+                assert observed == pytest.approx(reference, rel=0.35)
+            assert float(generated["sigma_prop_err_variance"]) == pytest.approx(
+                float(frozen["sigma_prop_err_variance"]), rel=0.10
+            )
+            assert float(generated["ofv"]) == pytest.approx(float(frozen["ofv"]), rel=0.02)

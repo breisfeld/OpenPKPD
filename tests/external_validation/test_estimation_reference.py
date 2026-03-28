@@ -107,15 +107,14 @@ class _GaussianParams:
 
 def _analytic_log_marginal(dv: float, omega_var: float, sigma_var: float) -> float:
     """
-    IMP-implemented log marginal for y ~ N(0, ω + σ²).
+    Full log marginal for y ~ N(0, ω + σ²).
 
-    The IMP code omits the −½·log(2π) prior normalization constant (it uses
-    log_prior = −½·ηᵀΩ⁻¹η − ½·log|Ω|, without the −½·n_eta·log(2π) term).
-    So the returned log-marginal equals the true one plus ½·log(2π) per eta,
-    i.e. −½·(log(ω+σ) + y²/(ω+σ)), matching the unit tests in test_imp.py.
+    The IMP implementation uses the full Gaussian prior normalization,
+    so the analytic marginal is the standard normal density:
+        log p(y) = -0.5 * [log(2π(ω+σ)) + y²/(ω+σ)]
     """
     total_var = omega_var + sigma_var
-    return -0.5 * (math.log(total_var) + dv**2 / total_var)
+    return -0.5 * (math.log(2.0 * math.pi * total_var) + dv**2 / total_var)
 
 
 def _foce_base_at_map(dv: float, omega_var: float, sigma_var: float) -> float:
@@ -224,11 +223,11 @@ class TestLaplacianOFVFormula:
 @pytest.mark.external_validation
 class TestFOCEOFVFormula:
     """
-    Verify FOCE OFV = FOCE_base + prior_const at MAP eta.
+    Verify FOCE OFV = FOCE_base + log|Ω| at MAP eta.
 
-    The prior_const term (n_eta·log(2π) + log|Ω|) was added to prevent
-    OMEGA explosion and recover the correct ML estimate ω = (1/N)Ση̂².
-    These tests verify that prior_const is correctly included.
+    The inner objective omits the prior normalization constant, so the
+    outer objective contributes log|Ω| but not an extra n_eta·log(2π)
+    term after Laplace cancellation.
     """
 
     @pytest.mark.parametrize(
@@ -242,11 +241,11 @@ class TestFOCEOFVFormula:
     )
     def test_foce_ofv_includes_prior_const_at_map(self, dv, omega_v, sigma_v):
         """
-        FOCE OFV = FOCE_base + n_eta·log(2π) + log|Ω| at MAP eta.
-        The prior_const ensures large Ω is correctly penalised.
+        FOCE OFV = FOCE_base + log|Ω| at MAP eta.
+        The log|Ω| term ensures large Ω is correctly penalised.
         """
         foce_base = _foce_base_at_map(dv, omega_v, sigma_v)
-        prior_const = math.log(2 * math.pi) + math.log(omega_v)  # n_eta=1
+        prior_const = math.log(omega_v)
         expected = foce_base + prior_const
 
         pop = _GaussianPopulation([dv], sigma_v)

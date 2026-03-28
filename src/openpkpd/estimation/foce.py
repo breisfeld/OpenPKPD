@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -266,6 +267,12 @@ class FOCEMethod(EstimationMethod):
         n_starts: int = 1,
         perturbation_scale: float = 1.0,
         seed: int | None = None,
+        outer_optimizer: str = "L-BFGS-B",
+        outer_fallback_optimizer: str | None = None,
+        outer_fallback_maxeval: int = 40,
+        retain_best_iterate: bool = True,
+        retry_on_abnormal: bool | None = None,
+        retry_omega_scales: tuple[float, ...] = (),
     ) -> None:
         self.interaction = interaction
         self.maxeval = maxeval
@@ -278,12 +285,30 @@ class FOCEMethod(EstimationMethod):
         self.n_starts = n_starts
         self.perturbation_scale = perturbation_scale
         self.seed = seed
+        self.outer_optimizer = outer_optimizer
+        self.outer_fallback_optimizer = outer_fallback_optimizer
+        self.outer_fallback_maxeval = outer_fallback_maxeval
+        self.retain_best_iterate = retain_best_iterate
+        self.retry_on_abnormal = retry_on_abnormal
+        self.retry_omega_scales = retry_omega_scales
         if interaction:
             self.method_name = Method.FOCEI
+            if self.outer_fallback_optimizer is None:
+                # FOCEI objectives can be locally rough even when L-BFGS-B reports
+                # convergence. A short derivative-free polish can recover a better basin.
+                self.outer_fallback_optimizer = "Powell"
+            if self.retry_on_abnormal is None:
+                self.retry_on_abnormal = True
+            if not self.retry_omega_scales:
+                self.retry_omega_scales = (0.5, 0.25, 0.1)
+        elif self.retry_on_abnormal is None:
+            self.retry_on_abnormal = False
         self._iter = 0
         self._ofv_history: list[float] = []
         self._current_eta_hat: dict[int, np.ndarray] = {}
         self._inner_loop_pool: ProcessPoolExecutor | None = None
+        self._best_outer_x: np.ndarray | None = None
+        self._best_outer_ofv: float = np.inf
 
     def estimate(
         self,
@@ -396,12 +421,16 @@ class FOCEMethod(EstimationMethod):
         self._current_eta_hat = {
             sid: np.zeros(init_params.n_eta()) for sid in population_model.subject_ids()
         }
+        self._best_outer_x = None
+        self._best_outer_ofv = np.inf
 
     def _run_single(
         self,
         x0: np.ndarray,
         init_params: ParameterSet,
         population_model: Any,
+        *,
+        allow_structured_retries: bool = True,
     ) -> tuple[Any, ParameterSet, dict, float]:
         """
         Run one L-BFGS-B optimization from starting point x0.
@@ -417,23 +446,167 @@ class FOCEMethod(EstimationMethod):
             ofv = self._outer_ofv(population_model, p, eta_hat)
             self._iter += 1
             self._ofv_history.append(ofv)
+            if ofv < self._best_outer_ofv:
+                self._best_outer_ofv = ofv
+                self._best_outer_x = np.asarray(x, dtype=float).copy()
             if self._iter % self.print_interval == 0:
                 logger.info(f"  Iter {self._iter:5d}  OFV={ofv:.4f}")
             return ofv
 
         params = init_params.apply_bounds()
-        result = minimize(
+        result = self._run_outer_optimizer(
             objective,
             x0,
-            method="L-BFGS-B",
-            bounds=params.get_optimizer_bounds(),
-            options={"maxiter": self.maxeval, "ftol": 1e-9, "gtol": self.gtol},
+            params.get_optimizer_bounds(),
+            optimizer=self.outer_optimizer,
+            maxeval=self.maxeval,
         )
-
         final_params = ParameterSet.from_vector(result.x, init_params).apply_bounds()
         final_eta_hat = self._inner_loop(population_model, final_params)
         final_ofv = self._outer_ofv(population_model, final_params, final_eta_hat)
+        result, final_params, final_eta_hat, final_ofv = self._maybe_promote_best_iterate(
+            result, init_params, population_model, final_params, final_eta_hat, final_ofv
+        )
+
+        fallback_optimizer = self.outer_fallback_optimizer
+        if fallback_optimizer is not None and fallback_optimizer != self.outer_optimizer:
+            fallback_result = self._run_outer_optimizer(
+                objective,
+                result.x,
+                params.get_optimizer_bounds(),
+                optimizer=fallback_optimizer,
+                maxeval=self.outer_fallback_maxeval,
+            )
+            fallback_params = ParameterSet.from_vector(fallback_result.x, init_params).apply_bounds()
+            fallback_eta_hat = self._inner_loop(population_model, fallback_params)
+            fallback_ofv = self._outer_ofv(population_model, fallback_params, fallback_eta_hat)
+            if fallback_ofv < final_ofv:
+                logger.info(
+                    "  Fallback outer optimizer %s improved OFV %.4f -> %.4f",
+                    fallback_optimizer,
+                    final_ofv,
+                    fallback_ofv,
+                )
+                result = fallback_result
+                final_params = fallback_params
+                final_eta_hat = fallback_eta_hat
+                final_ofv = fallback_ofv
+                result, final_params, final_eta_hat, final_ofv = self._maybe_promote_best_iterate(
+                    result,
+                    init_params,
+                    population_model,
+                    final_params,
+                    final_eta_hat,
+                    final_ofv,
+                )
+
+        if allow_structured_retries and self._should_run_structured_retries(result):
+            for retry_idx, retry_x0 in enumerate(
+                self._structured_retry_vectors(init_params, final_params),
+                start=1,
+            ):
+                logger.info("  Structured retry %d/%d", retry_idx, len(self.retry_omega_scales))
+                self._reset_state(init_params, population_model)
+                retry_result, retry_params, retry_eta_hat, retry_ofv = self._run_single(
+                    retry_x0,
+                    init_params,
+                    population_model,
+                    allow_structured_retries=False,
+                )
+                if retry_ofv < final_ofv:
+                    logger.info(
+                        "  Structured retry improved OFV %.4f -> %.4f",
+                        final_ofv,
+                        retry_ofv,
+                    )
+                    result = retry_result
+                    final_params = retry_params
+                    final_eta_hat = retry_eta_hat
+                    final_ofv = retry_ofv
         return result, final_params, final_eta_hat, final_ofv
+
+    def _maybe_promote_best_iterate(
+        self,
+        result: Any,
+        init_params: ParameterSet,
+        population_model: Any,
+        final_params: ParameterSet,
+        final_eta_hat: dict[int, np.ndarray],
+        final_ofv: float,
+    ) -> tuple[Any, ParameterSet, dict[int, np.ndarray], float]:
+        if not self.retain_best_iterate or self._best_outer_x is None:
+            return result, final_params, final_eta_hat, final_ofv
+        if self._best_outer_ofv >= final_ofv:
+            return result, final_params, final_eta_hat, final_ofv
+        best_params = ParameterSet.from_vector(self._best_outer_x, init_params).apply_bounds()
+        best_eta_hat = self._inner_loop(population_model, best_params)
+        best_ofv = self._outer_ofv(population_model, best_params, best_eta_hat)
+        if best_ofv < final_ofv:
+            logger.info("  Retaining best iterate OFV %.4f -> %.4f", final_ofv, best_ofv)
+            result = SimpleNamespace(
+                x=self._best_outer_x.copy(),
+                success=getattr(result, "success", False),
+                message=f"{getattr(result, 'message', '')} [best-iterate]".strip(),
+            )
+            return result, best_params, best_eta_hat, best_ofv
+        return result, final_params, final_eta_hat, final_ofv
+
+    def _should_run_structured_retries(self, result: Any) -> bool:
+        if not self.interaction or not self.retry_on_abnormal or not self.retry_omega_scales:
+            return False
+        message = str(getattr(result, "message", "") or "").upper()
+        return (not bool(getattr(result, "success", False))) or ("ABNORMAL" in message)
+
+    def _structured_retry_vectors(
+        self,
+        init_params: ParameterSet,
+        final_params: ParameterSet,
+    ) -> list[np.ndarray]:
+        base_theta = np.asarray(final_params.theta, dtype=float)
+        base_sigma = np.asarray(final_params.sigma, dtype=float)
+        omega_diag = np.diag(final_params.omega).astype(float, copy=True)
+        retry_vectors: list[np.ndarray] = []
+        for scale in self.retry_omega_scales:
+            scaled_diag = np.maximum(omega_diag * float(scale), 1e-8)
+            retry_params = ParameterSet(
+                theta=base_theta.copy(),
+                omega=np.diag(scaled_diag),
+                sigma=base_sigma.copy(),
+                theta_specs=init_params.theta_specs,
+                omega_specs=init_params.omega_specs,
+                sigma_specs=init_params.sigma_specs,
+            ).apply_bounds()
+            retry_vectors.append(retry_params.to_vector())
+        return retry_vectors
+
+    def _run_outer_optimizer(
+        self,
+        objective: Any,
+        x0: np.ndarray,
+        bounds: list[tuple[float | None, float | None]],
+        *,
+        optimizer: str,
+        maxeval: int,
+    ) -> Any:
+        method_key = str(optimizer).strip().upper()
+        if method_key == "L-BFGS-B":
+            method = "L-BFGS-B"
+        elif method_key == "POWELL":
+            method = "Powell"
+        else:
+            raise ValueError(f"Unsupported FOCE outer optimizer: {optimizer}")
+        options: dict[str, Any]
+        if method == "L-BFGS-B":
+            options = {"maxiter": maxeval, "ftol": 1e-9, "gtol": self.gtol}
+        elif method == "Powell":
+            options = {"maxiter": maxeval, "xtol": 1e-3, "ftol": 1e-3}
+        return minimize(
+            objective,
+            x0,
+            method=method,
+            bounds=bounds,
+            options=options,
+        )
 
     def _inner_loop(
         self,
@@ -600,11 +773,9 @@ class FOCEMethod(EstimationMethod):
                     G_T_Rinv = G.T / var_obs  # (n_eta, n_obs): G^T R^{-1} (R diagonal)
                     M = omega_inv + G_T_Rinv @ G
                     try:
-                        M_inv = np.linalg.inv(M)
                         _sm, log_det_M = np.linalg.slogdet(M)
                         log_det_M = float(log_det_M) if _sm > 0 else 0.0
-                        v = G_T_Rinv @ residuals  # (n_eta,)
-                        quad = float(residuals @ (residuals / var_obs) - v @ M_inv @ v)
+                        quad = float(np.sum(residuals**2 / var_obs))
                         log_det_R = float(np.sum(np.log(var_obs)))
                         # log|C_i| = log|R| + log|Ω| + log|M|
                         log_det_ci = log_det_R + log_det_omega + log_det_M
@@ -618,7 +789,14 @@ class FOCEMethod(EstimationMethod):
                     log_det_ci = float(np.sum(np.log(var_obs)))
 
                 eta_penalty = float(eta_i @ omega_inv @ eta_i)
-                ofv_i = n_obs * LOG2PI + log_det_ci + quad + eta_penalty + log_det_omega
+                ofv_i = n_obs * LOG2PI + log_det_ci + quad + eta_penalty
+                if self.interaction:
+                    # FOCEI is a conditional Laplace approximation over eta.
+                    # The reported marginal objective removes the integrated
+                    # Gaussian constant per eta dimension.
+                    ofv_i -= n_eta * LOG2PI
+                else:
+                    ofv_i += log_det_omega
                 ofv += ofv_i
             except Exception:
                 ofv += 1e10

@@ -96,6 +96,18 @@ class TestEstimationRecord:
         rec = EstimationRecord("METHOD=SAEM NITER=300")
         assert rec.method == "SAEM"
 
+    def test_openpkpd_optimizer_extensions(self):
+        rec = EstimationRecord(
+            "METHOD=COND INTER OUTEROPT=Powell FALLBACKOPT=L-BFGS-B "
+            "FALLBACKMAXEVAL=25 RETAINBEST RETRYONABNORMAL RETRYOMEGASCALE=0.5,0.25"
+        )
+        assert rec.outer_optimizer == "Powell"
+        assert rec.outer_fallback_optimizer == "L-BFGS-B"
+        assert rec.outer_fallback_maxeval == 25
+        assert rec.retain_best_iterate is True
+        assert rec.retry_on_abnormal is True
+        assert rec.retry_omega_scales == pytest.approx((0.5, 0.25))
+
 
 @pytest.mark.unit
 class TestDataRecord:

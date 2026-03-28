@@ -35,6 +35,7 @@ Internal curated exemplars:
 - `09_three_compartment_iv_advan11_focei.ctl` — 3-compartment IV ADVAN11 example
 - `20_theophylline_oral_saem.ctl` — SAEM estimation example derived from the SAEM script
 - `23_same_omega_showcase.ctl` — compact syntax showcase for repeated `$OMEGA ... SAME`
+- `37_focei_optimizer_controls.ctl` — FOCEI optimizer-control syntax showcase with `OUTEROPT`, `FALLBACKOPT`, `RETAINBEST`, and retry extensions; intended mainly for parsing/inspection workflows
 
 Imported upstream exemplars:
 

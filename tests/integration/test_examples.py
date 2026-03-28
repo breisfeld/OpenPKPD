@@ -21,7 +21,7 @@ import pytest
 
 ROOT = Path(__file__).parents[2]
 EXAMPLES_DIR = ROOT / "examples"
-ALL_EXAMPLES = tuple(range(1, 25))
+ALL_EXAMPLES = tuple(range(1, 29))
 PLOT_EXAMPLES = {1, 2, 3, 4, 5, 7, 9, 11, 12, 14, 16, 17, 20, 21, 22, 23, 24}
 
 SMOKE_TIMEOUTS = {
@@ -36,6 +36,10 @@ CONTRACT_TIMEOUTS = {
     12: 120,
     14: 180,
     20: 180,
+    25: 120,
+    26: 120,
+    27: 120,
+    28: 120,
 }
 
 
@@ -185,3 +189,60 @@ def test_example_20_contract(tmp_path: Path) -> None:
     assert "OFV  FOCE =" in stdout
     assert "OFV  SAEM =" in stdout
     assert (output_dir / "20_saem_convergence.png").exists()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_example_25_contract(tmp_path: Path) -> None:
+    result = _run_example(25, tmp_path, timeout=CONTRACT_TIMEOUTS[25])
+    _assert_example_passed(25, result)
+
+    stdout = result.stdout
+    assert "Method: FOCEI" in stdout
+    assert "Converged: True" in stdout
+    assert "OFV:" in stdout
+    assert "OMEGA (diagonal):" in stdout
+    assert "SIGMA (diagonal):" in stdout
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_example_26_contract(tmp_path: Path) -> None:
+    result = _run_example(26, tmp_path, timeout=CONTRACT_TIMEOUTS[26])
+    _assert_example_passed(26, result)
+
+    stdout = result.stdout
+    assert "Problem: Warfarin PK — FOCEI optimizer controls demo" in stdout
+    assert "Method: FOCE, interaction=True" in stdout
+    assert "Outer optimizer: L-BFGS-B" in stdout
+    assert "Fallback optimizer: POWELL" in stdout
+    assert "Retry OMEGA scales: (0.5, 0.25, 0.1)" in stdout
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_example_27_contract(tmp_path: Path) -> None:
+    result = _run_example(27, tmp_path, timeout=CONTRACT_TIMEOUTS[27])
+    _assert_example_passed(27, result)
+
+    stdout = result.stdout
+    assert "Running phenobarbital FO estimation..." in stdout
+    assert "Method: FO" in stdout
+    assert "Converged: True" in stdout
+    assert "CL/kg =" in stdout
+    assert "V/kg  =" in stdout
+    assert "t1/2  =" in stdout
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_example_28_contract(tmp_path: Path) -> None:
+    result = _run_example(28, tmp_path, timeout=CONTRACT_TIMEOUTS[28])
+    _assert_example_passed(28, result)
+
+    stdout = result.stdout
+    assert "Example 28: Indometh NCA" in stdout
+    assert "Subject" in stdout
+    assert "AUCinf" in stdout
+    assert "Mean AUCinf:" in stdout
+    assert "Mean t_half:" in stdout

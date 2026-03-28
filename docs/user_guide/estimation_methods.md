@@ -43,6 +43,36 @@ proportional or combined error models.
 .estimation(method="FOCE", interaction=True, maxeval=9999)
 ```
 
+FOCE/FOCEI also accept optimizer controls that are useful on hard likelihood
+surfaces:
+
+| Argument | Meaning |
+|----------|---------|
+| `n_starts` | number of perturbed restarts; best OFV retained |
+| `gtol` | outer optimizer gradient tolerance |
+| `outer_optimizer` | primary outer optimizer, e.g. `"L-BFGS-B"` |
+| `outer_fallback_optimizer` | optional follow-up polish optimizer, e.g. `"Powell"` |
+| `outer_fallback_maxeval` | evaluation budget for the fallback optimizer |
+| `retain_best_iterate` | keep the best point visited even if the terminal iterate is worse |
+| `retry_on_abnormal` | rerun FOCEI from structured alternate starts after abnormal termination |
+| `retry_omega_scales` | OMEGA scaling factors used for structured retries |
+
+Example:
+
+```python
+.estimation(
+    method="FOCEI",
+    maxeval=200,
+    n_starts=3,
+    outer_optimizer="L-BFGS-B",
+    outer_fallback_optimizer="Powell",
+    outer_fallback_maxeval=40,
+    retain_best_iterate=True,
+    retry_on_abnormal=True,
+    retry_omega_scales=(0.5, 0.25, 0.1),
+)
+```
+
 ## Laplacian
 
 Laplacian extends FOCE with a Hessian correction term and is the main native
@@ -130,6 +160,9 @@ Common arguments are passed through to the selected estimator:
 |----------|-------------|
 | `maxeval` | optimizer / outer-loop budget |
 | `interaction` | FOCEI-style ETA–EPS interaction |
+| `n_starts`, `gtol` | FOCE/FOCEI multi-start and gradient controls |
+| `outer_optimizer`, `outer_fallback_optimizer`, `outer_fallback_maxeval` | FOCE/FOCEI outer-optimizer selection and polish |
+| `retain_best_iterate`, `retry_on_abnormal`, `retry_omega_scales` | FOCEI robustness controls for unstable/non-convex fits |
 | `n_samples`, `n_chains`, `tune`, `backend` | Bayesian configuration |
 | `base_method`, `n_support_points`, `max_iter` | nonparametric configuration |
 

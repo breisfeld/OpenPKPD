@@ -20,6 +20,11 @@ This page maps familiar NONMEM control stream concepts to their OpenPKPD equival
 | `$ESTIMATION METHOD=SAEM` | `.estimation(method="SAEM")` |
 | `$COVARIANCE` | `.covariance()` |
 
+OpenPKPD also supports non-NONMEM FOCE/FOCEI robustness options in the Python
+API and control-stream parser, including outer-optimizer selection, fallback
+polish optimizers, best-iterate retention, and structured retry controls.
+These are OpenPKPD extensions rather than direct NONMEM mappings.
+
 ## Estimation method names
 
 | NONMEM `METHOD=` | OpenPKPD `method=` |

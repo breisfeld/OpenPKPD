@@ -18,10 +18,10 @@ tests/external_validation/reference/nonmem_504f_focei.json
 
 Known limitations
 -----------------
-Run 402: OpenPKPD currently gets stuck at a local minimum (OFV~1497) because
-L-BFGS-B lands in the V2/Q label-swap basin with default initialization.
-The tests below verify convergence direction and flag the gap, without
-failing CI on the known-hard case.
+Run 402: OpenPKPD now reaches the same basin as the NONMEM reference, but the
+reported OFV remains offset because the tools use different objective
+conventions/constants on this benchmark. The tests therefore gate parameter and
+variance parity directly rather than asserting raw OFV equality.
 
 Run 504/504f: OpenPKPD converges but ~8-11% above NONMEM, reflecting
 differences in how the block-OMEGA + covariate interaction likelihood
@@ -77,8 +77,7 @@ class TestRun402TwoCompartmentIV:
     """
     NONMEM Run 402: 2-compartment IV bolus, 30 subjects.
     NONMEM 7.4.3 FOCEI OFV = 196.008.
-    OpenPKPD known issue: gets stuck at local minimum OFV~1497.
-    Tests verify basic convergence signal and flag the performance gap.
+    OpenPKPD now lands in the NONMEM-like basin; tests gate parity directly.
     """
 
     @pytest.fixture(scope="class")
@@ -101,13 +100,14 @@ class TestRun402TwoCompartmentIV:
         )
 
     def test_ofv_gap_documented(self, result, ref):
-        """Document the current OFV gap vs NONMEM — not a pass/fail gate."""
+        """Document the current OFV convention gap vs NONMEM — not a pass/fail gate."""
         nm_ofv = ref["ofv"]
         pct_diff = 100.0 * (result.ofv - nm_ofv) / abs(nm_ofv)
-        # Record the gap for the benchmark report; warn but don't fail.
+        # Record the gap for the benchmark report; the current difference is
+        # expected because raw OFV conventions/constants differ on this case.
         if pct_diff > 10:
             pytest.xfail(
-                f"OFV gap {pct_diff:+.1f}% vs NONMEM (expected: local minimum issue). "
+                f"OFV gap {pct_diff:+.1f}% vs NONMEM (expected: objective convention mismatch). "
                 f"openpkpd={result.ofv:.1f}, NONMEM={nm_ofv:.1f}"
             )
 
@@ -131,12 +131,30 @@ class TestRun402TwoCompartmentIV:
     def test_sigma_positive(self, result):
         assert result.sigma_final[0, 0] > 0, "Residual variance must be positive"
 
-    def test_local_minimum_signature_matches_documented_failure_mode(self, result, ref):
-        """The known 402 failure mode should preserve the documented V2/Q label-swap pattern."""
-        documented = ref["openpkpd_comparison"]["theta"]
-        est_v2 = float(result.theta_final[2])
-        est_q = float(result.theta_final[3])
-        assert est_v2 < 0.5 * documented["V2"] or est_q > 0.5 * documented["Q"]
+    def test_theta_tracks_nonmem_reference(self, result, ref):
+        observed = [float(x) for x in result.theta_final]
+        expected = [
+            float(ref["theta"]["V1"]),
+            float(ref["theta"]["CL"]),
+            float(ref["theta"]["V2"]),
+            float(ref["theta"]["Q"]),
+        ]
+        tolerances = [0.10, 0.10, 0.10, 0.10]
+
+        for name, obs, exp, tol in zip(("V1", "CL", "V2", "Q"), observed, expected, tolerances):
+            rel_err = abs(obs - exp) / exp
+            assert rel_err < tol, (
+                f"{name}={obs:.4f} differs from NONMEM {exp:.4f} by {rel_err:.1%} "
+                f"(tolerance {tol:.0%})"
+            )
+
+    def test_sigma_tracks_nonmem_reference(self, result, ref):
+        observed = float(result.sigma_final[0, 0])
+        expected = float(ref["sigma_diag"]["eps1"])
+        rel_err = abs(observed - expected) / expected
+        assert rel_err < 0.20, (
+            f"SIGMA={observed:.6f} differs from NONMEM {expected:.6f} by {rel_err:.1%}"
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -117,6 +117,78 @@ $ESTIMATION METHOD=FOCE
     assert result.estimation_method == "FOCE"
 
 
+def test_estimate_control_stream_forwards_advanced_estimation_options(
+    tmp_path: Path, monkeypatch
+) -> None:
+    dataset_path = tmp_path / "theo.csv"
+    _write_dataset(dataset_path)
+    workspace = Workspace(name="Advanced ctl demo")
+    workspace.active_model_spec = ModelSpec(
+        mode=ModelSpecMode.CONTROL_STREAM,
+        dataset_path=str(dataset_path),
+        control_stream_text="""$PROBLEM Demo
+$DATA theo.csv
+$INPUT ID TIME AMT DV EVID
+$SUBROUTINES ADVAN2 TRANS2
+$PK
+CL = THETA(1) * EXP(ETA(1))
+$ERROR
+Y = F * (1 + EPS(1))
+$THETA (0, 1.0, 10)
+$OMEGA 0.3
+$SIGMA 0.1
+$ESTIMATION METHOD=COND INTER MAXEVAL=123 OUTEROPT=POWELL FALLBACKOPT=L-BFGS-B FALLBACKMAXEVAL=17 RETAINBEST RETRYONABNORMAL RETRYOMEGASCALE=0.6,0.3
+""",
+    )
+    control_stream = FitService().prepare_run(workspace).translation.control_stream
+    assert control_stream is not None
+
+    captured: dict[str, object] = {}
+
+    class _FakeEstimation:
+        def estimate(self, population_model, params):
+            return type(
+                "FakeEstimationResult",
+                (),
+                {
+                    "theta_final": np.asarray(params.theta, dtype=float),
+                    "omega_final": np.asarray(params.omega, dtype=float),
+                    "sigma_final": np.asarray(params.sigma, dtype=float),
+                    "post_hoc_etas": {},
+                    "warnings": [],
+                    "method": "FOCEI",
+                },
+            )()
+
+    def _fake_get_estimation_method(method, **kwargs):
+        captured["method"] = method
+        captured["kwargs"] = kwargs
+        return _FakeEstimation()
+
+    monkeypatch.setattr("openpkpd_gui.services.fit_service.get_estimation_method", _fake_get_estimation_method)
+
+    service = FitService()
+    service._estimate_control_stream(
+        JobContext(lambda *_args, **_kwargs: None),
+        control_stream,
+        str(dataset_path),
+        n_parallel=2,
+    )
+
+    assert captured["method"] == "FOCE"
+    assert captured["kwargs"] == {
+        "interaction": True,
+        "maxeval": 123,
+        "n_parallel": 2,
+        "outer_optimizer": "POWELL",
+        "outer_fallback_optimizer": "L-BFGS-B",
+        "outer_fallback_maxeval": 17,
+        "retain_best_iterate": True,
+        "retry_on_abnormal": True,
+        "retry_omega_scales": (0.6, 0.3),
+    }
+
+
 def test_create_job_builder_mode_and_apply_outcome(tmp_path: Path) -> None:
     dataset_path = tmp_path / "theo.csv"
     _write_dataset(dataset_path)

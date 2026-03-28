@@ -392,6 +392,130 @@ def test_model_workflow_tracks_dirty_and_clean_transitions() -> None:
 
 
 @pytest.mark.unit
+def test_model_workflow_round_trips_advanced_estimation_options() -> None:
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+
+    _, _, qt_widgets = load_qt_modules()
+    app = qt_widgets.QApplication.instance() or qt_widgets.QApplication(
+        ["test", "-platform", "offscreen"]
+    )
+    project = Workspace(name="Advanced estimation options")
+    widget = build_model_workflow(project)
+
+    try:
+        widget.show()
+        app.processEvents()
+
+        estimation_combo = widget.findChild(qt_widgets.QComboBox, "model-estimation-combo")
+        maxeval_spin = widget.findChild(qt_widgets.QSpinBox, "model-maxeval-spin")
+        nstarts_spin = widget.findChild(qt_widgets.QSpinBox, "model-nstarts-spin")
+        outer_combo = widget.findChild(qt_widgets.QComboBox, "model-outer-optimizer-combo")
+        fallback_combo = widget.findChild(
+            qt_widgets.QComboBox, "model-fallback-optimizer-combo"
+        )
+        fallback_maxeval_spin = widget.findChild(
+            qt_widgets.QSpinBox, "model-fallback-maxeval-spin"
+        )
+        retain_best_checkbox = widget.findChild(
+            qt_widgets.QCheckBox, "model-retain-best-checkbox"
+        )
+        retry_checkbox = widget.findChild(
+            qt_widgets.QCheckBox, "model-retry-on-abnormal-checkbox"
+        )
+        retry_scales_input = widget.findChild(
+            qt_widgets.QLineEdit, "model-retry-omega-scales-input"
+        )
+
+        assert estimation_combo is not None
+        assert maxeval_spin is not None
+        assert nstarts_spin is not None
+        assert outer_combo is not None
+        assert fallback_combo is not None
+        assert fallback_maxeval_spin is not None
+        assert retain_best_checkbox is not None
+        assert retry_checkbox is not None
+        assert retry_scales_input is not None
+
+        estimation_combo.setCurrentIndex(estimation_combo.findData("FOCEI"))
+        app.processEvents()
+
+        maxeval_spin.setValue(321)
+        nstarts_spin.setValue(4)
+        outer_combo.setCurrentIndex(outer_combo.findData("Powell"))
+        fallback_combo.setCurrentIndex(fallback_combo.findData("L-BFGS-B"))
+        fallback_maxeval_spin.setValue(17)
+        retain_best_checkbox.setChecked(False)
+        retry_checkbox.setChecked(True)
+        retry_scales_input.setText("0.6, 0.3")
+        app.processEvents()
+
+        widget._on_leave()  # type: ignore[attr-defined]
+        app.processEvents()
+
+        saved = project.active_model_spec
+        assert saved is not None
+        assert saved.estimation.method == "FOCEI"
+        assert saved.estimation.options["maxeval"] == 321
+        assert saved.estimation.options["n_starts"] == 4
+        assert saved.estimation.options["outer_optimizer"] == "Powell"
+        assert saved.estimation.options["outer_fallback_optimizer"] == "L-BFGS-B"
+        assert saved.estimation.options["outer_fallback_maxeval"] == 17
+        assert saved.estimation.options["retain_best_iterate"] is False
+        assert saved.estimation.options["retry_on_abnormal"] is True
+        assert saved.estimation.options["retry_omega_scales"] == (0.6, 0.3)
+
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()
+
+        widget = build_model_workflow(project)
+        widget.show()
+        app.processEvents()
+
+        estimation_combo = widget.findChild(qt_widgets.QComboBox, "model-estimation-combo")
+        maxeval_spin = widget.findChild(qt_widgets.QSpinBox, "model-maxeval-spin")
+        outer_combo = widget.findChild(qt_widgets.QComboBox, "model-outer-optimizer-combo")
+        fallback_combo = widget.findChild(
+            qt_widgets.QComboBox, "model-fallback-optimizer-combo"
+        )
+        fallback_maxeval_spin = widget.findChild(
+            qt_widgets.QSpinBox, "model-fallback-maxeval-spin"
+        )
+        retain_best_checkbox = widget.findChild(
+            qt_widgets.QCheckBox, "model-retain-best-checkbox"
+        )
+        retry_checkbox = widget.findChild(
+            qt_widgets.QCheckBox, "model-retry-on-abnormal-checkbox"
+        )
+        retry_scales_input = widget.findChild(
+            qt_widgets.QLineEdit, "model-retry-omega-scales-input"
+        )
+
+        assert estimation_combo is not None
+        assert maxeval_spin is not None
+        assert outer_combo is not None
+        assert fallback_combo is not None
+        assert fallback_maxeval_spin is not None
+        assert retain_best_checkbox is not None
+        assert retry_checkbox is not None
+        assert retry_scales_input is not None
+
+        assert estimation_combo.currentData() == "FOCEI"
+        assert maxeval_spin.value() == 321
+        assert outer_combo.currentData() == "Powell"
+        assert fallback_combo.currentData() == "L-BFGS-B"
+        assert fallback_maxeval_spin.value() == 17
+        assert retain_best_checkbox.isChecked() is False
+        assert retry_checkbox.isChecked() is True
+        assert retry_scales_input.text() == "0.6, 0.3"
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()
+
+
+@pytest.mark.unit
 def test_model_tables_are_user_resizable() -> None:
     if not qt_widgets_available():
         pytest.skip("Qt GUI modules are unavailable in this environment")

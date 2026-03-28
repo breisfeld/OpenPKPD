@@ -664,9 +664,74 @@ class FitService:
             )
             estimation = get_estimation_method(
                 method_name,
-                interaction=interaction,
-                maxeval=maxeval,
-                n_parallel=n_parallel,
+                **{
+                    "interaction": interaction,
+                    "maxeval": maxeval,
+                    "n_parallel": n_parallel,
+                    **(
+                        {}
+                        if estimation_record is None
+                        else {
+                            **(
+                                {"n_starts": estimation_record.n_starts}
+                                if getattr(estimation_record, "n_starts", 1) > 1
+                                else {}
+                            ),
+                            **(
+                                {"gtol": estimation_record.gtol}
+                                if getattr(estimation_record, "gtol", 1e-5) != 1e-5
+                                else {}
+                            ),
+                            **(
+                                {"perturbation_scale": estimation_record.perturbation_scale}
+                                if getattr(estimation_record, "perturbation_scale", 1.0) != 1.0
+                                else {}
+                            ),
+                            **(
+                                {"seed": estimation_record.seed}
+                                if getattr(estimation_record, "seed", None) is not None
+                                else {}
+                            ),
+                            **(
+                                {"outer_optimizer": estimation_record.outer_optimizer}
+                                if getattr(estimation_record, "outer_optimizer", None)
+                                else {}
+                            ),
+                            **(
+                                {
+                                    "outer_fallback_optimizer": estimation_record.outer_fallback_optimizer
+                                }
+                                if getattr(estimation_record, "outer_fallback_optimizer", None)
+                                else {}
+                            ),
+                            **(
+                                {
+                                    "outer_fallback_maxeval": estimation_record.outer_fallback_maxeval
+                                }
+                                if getattr(estimation_record, "outer_fallback_maxeval", None)
+                                is not None
+                                else {}
+                            ),
+                            **(
+                                {"retain_best_iterate": estimation_record.retain_best_iterate}
+                                if getattr(estimation_record, "retain_best_iterate", None)
+                                is not None
+                                else {}
+                            ),
+                            **(
+                                {"retry_on_abnormal": estimation_record.retry_on_abnormal}
+                                if getattr(estimation_record, "retry_on_abnormal", None)
+                                is not None
+                                else {}
+                            ),
+                            **(
+                                {"retry_omega_scales": estimation_record.retry_omega_scales}
+                                if getattr(estimation_record, "retry_omega_scales", ())
+                                else {}
+                            ),
+                        }
+                    ),
+                },
             )
             final_result = estimation.estimate(pop_model, params)
             ctx.check_cancelled()

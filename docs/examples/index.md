@@ -1,7 +1,7 @@
 # Examples
 
 Selected documentation pages for the example suite. The repository currently
-ships 24 self-contained example scripts covering common population PK/PD
+ships 28 self-contained example scripts covering common population PK/PD
 workflows. All scripts can
 be run directly:
 
@@ -42,6 +42,10 @@ of displaying them interactively.
 | `17_sbml_import.py` | SBML/QSP model import |
 | `22_pbpk_model.py` | 5-organ physiologically-based PK (PBPK) model |
 | `23_iov_model.py` | Inter-occasion variability (IOV) modelling |
+| `25_focei_optimizer_controls.py` | FOCEI optimizer robustness controls from the Python API |
+| `26_control_stream_optimizer_extensions.py` | Inspect FOCEI optimizer extensions from a control stream |
+| `27_phenobarbital_population_pk.py` | Neonatal phenobarbital population PK with weight scaling |
+| `28_indometh_nca.py` | NCA on the public Indometh WinNonlin-backed dataset |
 
 ## Estimation methods
 
@@ -73,5 +77,7 @@ of displaying them interactively.
 05_indirect_response
 06_from_control_stream
 07_diagnostic_plots
+08_focei_optimizer_controls
+09_focei_control_stream_extensions
 16_dde_model
 ```

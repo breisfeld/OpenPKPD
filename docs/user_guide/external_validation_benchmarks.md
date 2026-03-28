@@ -13,6 +13,11 @@ with the repository and exercised by `tests/external_validation/`.
   `ADVAN2` + SAEM after converting dose to the Monolix project convention
   (`AMT / WT`, i.e. mg/kg).
 
+The dose normalization step is now tested explicitly: using the raw NONMEM-style
+`AMT` values without conversion produces materially worse agreement with the
+public Monolix fixed effects, so the benchmark guards both the estimator and the
+benchmark setup itself.
+
 Reference values on the natural scale are approximately:
 
 | Parameter | Monolix reference |

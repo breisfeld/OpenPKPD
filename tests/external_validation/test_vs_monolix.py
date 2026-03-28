@@ -32,6 +32,10 @@ def _load_monolix_scaled_dataset() -> NONMEMDataset:
     return NONMEMDataset.from_dataframe(df)
 
 
+def _load_monolix_unscaled_dataset() -> NONMEMDataset:
+    return NONMEMDataset.from_csv(DATA_PATH)
+
+
 def _build_monolix_like_model(dataset: NONMEMDataset) -> tuple[PopulationModel, ParameterSet]:
     params = ParameterSet.from_specs(
         theta_specs=[
@@ -66,6 +70,15 @@ def monolix_fit_result():
     dataset = _load_monolix_scaled_dataset()
     pop, params = _build_monolix_like_model(dataset)
     return SAEMMethod(n_iter_phase1=200, n_iter_phase2=100, n_chains=2, seed=42).estimate(
+        pop, params
+    )
+
+
+@pytest.fixture(scope="module")
+def monolix_unscaled_fit_result():
+    dataset = _load_monolix_unscaled_dataset()
+    pop, params = _build_monolix_like_model(dataset)
+    return SAEMMethod(n_iter_phase1=120, n_iter_phase2=60, n_chains=2, seed=42).estimate(
         pop, params
     )
 
@@ -109,3 +122,16 @@ class TestTheophyllineVsMonolix:
         assert np.isfinite(monolix_fit_result.ofv)
         assert monolix_fit_result.ofv > 0.0
         assert monolix_fit_result.ofv < 1000.0
+
+    def test_monolix_dose_normalization_is_required_for_public_parity(
+        self, monolix_fit_result, monolix_unscaled_fit_result, monolix_reference
+    ):
+        expected = monolix_reference["theta_natural_scale"]
+        ref = np.array([expected["ka_pop"], expected["Cl_pop"], expected["V_pop"]], dtype=float)
+        scaled_error = float(np.linalg.norm(np.log(np.asarray(monolix_fit_result.theta_final)) - np.log(ref)))
+        raw_error = float(
+            np.linalg.norm(np.log(np.asarray(monolix_unscaled_fit_result.theta_final)) - np.log(ref))
+        )
+
+        assert scaled_error < 0.20
+        assert raw_error > scaled_error * 5.0

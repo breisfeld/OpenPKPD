@@ -20,13 +20,16 @@ from openpkpd_gui.workflows.results_workflow import (
     build_results_workflow,
     filter_artifacts,
     format_artifact_metadata,
+    format_results_comparison_action,
     format_fit_review_summary,
+    format_results_comparison_summary,
     format_results_stale_warning,
     latest_artifact,
     latest_artifact_for_plot_group,
     recommend_results_next_action,
     review_analysis_type_options,
     review_runs,
+    select_results_comparison_target,
     scenario_runs_by_id,
 )
 
@@ -157,6 +160,84 @@ def test_recommend_results_next_action_prioritizes_prerequisites_and_fit() -> No
 
     workspace.active_scenario.runs = [RunRecord(workflow="fit", status=RunStatus.SUCCEEDED)]
     assert recommend_results_next_action(workspace) is None
+
+
+def test_format_results_comparison_summary_reports_peer_scenarios() -> None:
+    workspace = Workspace(name="Review helpers")
+    peer = workspace.active_scenario.snapshot_clone(name="Variant A")
+    peer.runs = [RunRecord(workflow="fit", status=RunStatus.SUCCEEDED)]
+    peer.artifacts = [ArtifactRecord(kind="report", label="Report", path="/tmp/report.html")]
+    workspace.active_project.add_scenario(peer, make_active=False)
+
+    summary = format_results_comparison_summary(workspace)
+
+    assert "Comparison snapshot:" in summary
+    assert "Variant A: latest fit succeeded" in summary
+    assert "1 runs" in summary
+    assert "1 outputs" in summary
+
+
+def test_format_results_comparison_summary_mentions_parent_relation() -> None:
+    workspace = Workspace(name="Review helpers")
+    parent = workspace.active_scenario
+    child = parent.snapshot_clone(name="Child scenario")
+    workspace.active_project.add_scenario(child)
+
+    summary = format_results_comparison_summary(workspace)
+
+    assert "Baseline: no fit yet" in summary
+    assert "parent of current" in summary
+
+
+def test_format_results_comparison_action_recommends_richest_peer() -> None:
+    workspace = Workspace(name="Review helpers")
+    peer_a = workspace.active_scenario.snapshot_clone(name="Variant A")
+    peer_a.runs = [
+        RunRecord(workflow="fit", status=RunStatus.SUCCEEDED),
+        RunRecord(workflow="nca", status=RunStatus.SUCCEEDED),
+    ]
+    peer_a.artifacts = [
+        ArtifactRecord(kind="report", label="Report", path="/tmp/a-report.html"),
+        ArtifactRecord(kind="plot", label="Plot", path="/tmp/a-plot.png"),
+    ]
+    peer_b = workspace.active_scenario.snapshot_clone(name="Variant B")
+    peer_b.runs = [RunRecord(workflow="fit", status=RunStatus.SUCCEEDED)]
+    workspace.active_project.add_scenario(peer_a, make_active=False)
+    workspace.active_project.add_scenario(peer_b, make_active=False)
+
+    action = format_results_comparison_action(workspace)
+
+    assert "inspect Variant A next" in action
+    assert "2 successful runs" in action
+    assert "2 outputs" in action
+
+
+def test_format_results_comparison_action_handles_unfit_peer() -> None:
+    workspace = Workspace(name="Review helpers")
+    peer = workspace.active_scenario.snapshot_clone(name="Variant A")
+    workspace.active_project.add_scenario(peer, make_active=False)
+
+    action = format_results_comparison_action(workspace)
+
+    assert "Variant A" in action
+    assert "no successful runs yet" in action
+
+
+def test_select_results_comparison_target_returns_richest_peer() -> None:
+    workspace = Workspace(name="Review helpers")
+    peer_a = workspace.active_scenario.snapshot_clone(name="Variant A")
+    peer_a.runs = [
+        RunRecord(workflow="fit", status=RunStatus.SUCCEEDED),
+        RunRecord(workflow="nca", status=RunStatus.SUCCEEDED),
+    ]
+    peer_b = workspace.active_scenario.snapshot_clone(name="Variant B")
+    peer_b.runs = [RunRecord(workflow="fit", status=RunStatus.SUCCEEDED)]
+    workspace.active_project.add_scenario(peer_a, make_active=False)
+    workspace.active_project.add_scenario(peer_b, make_active=False)
+
+    target = select_results_comparison_target(workspace)
+
+    assert target == peer_a.scenario_id
 
 
 def test_format_results_stale_warning_mentions_changed_inputs() -> None:
@@ -300,14 +381,27 @@ def test_results_workflow_empty_state_button_navigates_to_fit_and_clears_after_r
 
         next_action_label = widget.findChild(qt_widgets.QLabel, "results-next-action-label")
         next_action_button = widget.findChild(qt_widgets.QPushButton, "results-next-action-button")
+        comparison_label = widget.findChild(qt_widgets.QLabel, "results-comparison-label")
+        comparison_action_label = widget.findChild(
+            qt_widgets.QLabel, "results-comparison-action-label"
+        )
+        comparison_action_button = widget.findChild(
+            qt_widgets.QPushButton, "results-comparison-action-button"
+        )
 
         assert next_action_label is not None
         assert next_action_button is not None
+        assert comparison_label is not None
+        assert comparison_action_label is not None
+        assert comparison_action_button is not None
         assert next_action_button.text() == "Open Fit"
         assert (
             next_action_label.text()
             == "Run a fit to populate Results with run logs, reports, and saved outputs."
         )
+        assert "No sibling scenarios yet" in comparison_label.text()
+        assert "create a sibling scenario" in comparison_action_label.text()
+        assert comparison_action_button.isEnabled() is False
 
         next_action_button.click()
         app.processEvents()
@@ -320,6 +414,46 @@ def test_results_workflow_empty_state_button_navigates_to_fit_and_clears_after_r
 
         assert next_action_label.isHidden() is True
         assert next_action_button.isHidden() is True
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()
+
+
+@pytest.mark.unit
+def test_results_workflow_comparison_button_switches_to_target_scenario() -> None:
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+
+    _, _, qt_widgets = load_qt_modules()
+    app = qt_widgets.QApplication.instance() or qt_widgets.QApplication(
+        ["test", "-platform", "offscreen"]
+    )
+    workspace = Workspace(name="Results workflow")
+    peer = workspace.active_scenario.snapshot_clone(name="Variant A")
+    peer.runs = [RunRecord(workflow="fit", status=RunStatus.SUCCEEDED)]
+    peer.artifacts = [ArtifactRecord(kind="report", label="Report", path="/tmp/report.html")]
+    workspace.active_project.add_scenario(peer, make_active=False)
+    widget = build_results_workflow(workspace)
+
+    try:
+        widget.show()
+        app.processEvents()
+
+        comparison_action_button = widget.findChild(
+            qt_widgets.QPushButton, "results-comparison-action-button"
+        )
+        comparison_label = widget.findChild(qt_widgets.QLabel, "results-comparison-label")
+
+        assert comparison_action_button is not None
+        assert comparison_label is not None
+        assert comparison_action_button.isEnabled() is True
+
+        comparison_action_button.click()
+        app.processEvents()
+
+        assert workspace.active_scenario.scenario_id == peer.scenario_id
+        assert "No sibling scenarios yet" not in comparison_label.text()
     finally:
         widget.close()
         widget.deleteLater()

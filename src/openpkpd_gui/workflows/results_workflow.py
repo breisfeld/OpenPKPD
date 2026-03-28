@@ -188,6 +188,89 @@ def format_results_overview(workspace: Workspace) -> str:
     )
 
 
+def format_results_comparison_summary(workspace: Workspace) -> str:
+    """Summarize sibling scenarios in the active project for quick review/comparison."""
+    project = workspace.active_project
+    current = project.active_scenario
+    peers = [scenario for scenario in project.scenarios if scenario.scenario_id != current.scenario_id]
+    if not peers:
+        return "No sibling scenarios yet. Duplicate or branch this scenario to compare runs, outputs, and decisions."
+
+    summaries: list[str] = []
+    for scenario in peers[:3]:
+        fit_runs = [run for run in scenario.runs if run.workflow == "fit"]
+        latest_fit = fit_runs[-1] if fit_runs else None
+        if latest_fit is None:
+            fit_text = "no fit yet"
+        else:
+            fit_text = f"latest fit {latest_fit.status.value}"
+        relation = ""
+        if scenario.parent_scenario_id == current.scenario_id:
+            relation = "derived from current"
+        elif current.parent_scenario_id == scenario.scenario_id:
+            relation = "parent of current"
+        elif scenario.parent_scenario_id:
+            relation = "branched"
+        relation_text = f" • {relation}" if relation else ""
+        summaries.append(
+            f"{scenario.name}: {fit_text} • {len(scenario.runs)} runs • {len(scenario.artifacts)} outputs{relation_text}"
+        )
+    if len(peers) > 3:
+        summaries.append(f"+{len(peers) - 3} more scenarios")
+    return "Comparison snapshot: " + " | ".join(summaries)
+
+
+def format_results_comparison_action(workspace: Workspace) -> str:
+    """Recommend the next most useful sibling scenario to inspect."""
+    project = workspace.active_project
+    current = project.active_scenario
+    peers = [scenario for scenario in project.scenarios if scenario.scenario_id != current.scenario_id]
+    if not peers:
+        return (
+            "Comparison focus: create a sibling scenario after major fit or covariate changes "
+            "to compare outputs, diagnostics, and conclusions."
+        )
+
+    def _peer_score(scenario) -> tuple[int, int, int]:
+        successful_runs = sum(1 for run in scenario.runs if run.status == RunStatus.SUCCEEDED)
+        fit_runs = sum(1 for run in scenario.runs if run.workflow == "fit")
+        return successful_runs, fit_runs, len(scenario.artifacts)
+
+    best = max(peers, key=_peer_score)
+    successful_runs, fit_runs, output_count = _peer_score(best)
+    relation = "sibling"
+    if best.parent_scenario_id == current.scenario_id:
+        relation = "child scenario"
+    elif current.parent_scenario_id == best.scenario_id:
+        relation = "parent scenario"
+
+    if successful_runs == 0:
+        return (
+            f"Comparison focus: {best.name} is the busiest {relation} so far, but it has no "
+            "successful runs yet. Fit it before using it as a review baseline."
+        )
+    return (
+        f"Comparison focus: inspect {best.name} next. It is the richest {relation} for review "
+        f"with {successful_runs} successful runs, {fit_runs} fit runs, and {output_count} outputs."
+    )
+
+
+def select_results_comparison_target(workspace: Workspace) -> str | None:
+    """Return the most review-worthy sibling scenario id, if any."""
+    project = workspace.active_project
+    current = project.active_scenario
+    peers = [scenario for scenario in project.scenarios if scenario.scenario_id != current.scenario_id]
+    if not peers:
+        return None
+
+    def _peer_score(scenario) -> tuple[int, int, int]:
+        successful_runs = sum(1 for run in scenario.runs if run.status == RunStatus.SUCCEEDED)
+        fit_runs = sum(1 for run in scenario.runs if run.workflow == "fit")
+        return successful_runs, fit_runs, len(scenario.artifacts)
+
+    return max(peers, key=_peer_score).scenario_id
+
+
 def format_results_stale_warning(workspace: Workspace) -> str:
     """Return a stale-results warning when saved inputs outpace the latest successful fit."""
     subject = describe_fit_input_changes(workspace.active_scenario)
@@ -569,6 +652,18 @@ def build_results_workflow(
     overview_label.setObjectName("results-overview-label")
     overview_label.setWordWrap(True)
 
+    comparison_label = qt_widgets.QLabel(format_results_comparison_summary(project))
+    comparison_label.setObjectName("results-comparison-label")
+    comparison_label.setWordWrap(True)
+
+    comparison_action_label = qt_widgets.QLabel(format_results_comparison_action(project))
+    comparison_action_label.setObjectName("results-comparison-action-label")
+    comparison_action_label.setWordWrap(True)
+
+    comparison_action_button = qt_widgets.QPushButton("Open comparison scenario")
+    comparison_action_button.setObjectName("results-comparison-action-button")
+    comparison_action_button.setMinimumHeight(32)
+
     stale_warning_label = qt_widgets.QLabel(format_results_stale_warning(project))
     stale_warning_label.setObjectName("results-stale-warning-label")
     stale_warning_label.setWordWrap(True)
@@ -816,6 +911,9 @@ def build_results_workflow(
     layout.addWidget(title_label)
     layout.addWidget(hint_widget)
     layout.addWidget(overview_label)
+    layout.addWidget(comparison_label)
+    layout.addWidget(comparison_action_label)
+    layout.addWidget(comparison_action_button)
     layout.addWidget(stale_warning_label)
     layout.addWidget(next_action_label)
     layout.addWidget(next_action_button)
@@ -875,6 +973,13 @@ def build_results_workflow(
         next_action_button.setText(button_text)
         next_action_button.setToolTip(summary)
         next_action_button.setVisible(True)
+
+    def _activate_comparison_target() -> None:
+        target = select_results_comparison_target(project)
+        if target is None:
+            return
+        project.set_active_scenario(target)
+        _refresh()
 
     def _navigate_to_next_action() -> None:
         workflow_id = next_action_target[0]
@@ -1170,6 +1275,9 @@ def build_results_workflow(
         _refresh_analysis_filter_options()
         current_runs = review_runs(project, _analysis_filter_text())
         overview_label.setText(format_results_overview(project))
+        comparison_label.setText(format_results_comparison_summary(project))
+        comparison_action_label.setText(format_results_comparison_action(project))
+        comparison_action_button.setEnabled(select_results_comparison_target(project) is not None)
         stale_warning_label.setText(format_results_stale_warning(project))
         stale_warning_label.setVisible(bool(stale_warning_label.text()))
         _refresh_next_action()
@@ -1223,6 +1331,7 @@ def build_results_workflow(
         lambda: _call_root_callback("_project_export_latest_report_pdf")
     )
     open_artifact_folder_action.triggered.connect(_open_selected_artifact_folder)
+    comparison_action_button.clicked.connect(_activate_comparison_target)
     next_action_button.clicked.connect(_navigate_to_next_action)
     root._open_latest_report = _open_latest_report  # type: ignore[attr-defined]
     root._open_latest_plot = _open_latest_plot  # type: ignore[attr-defined]

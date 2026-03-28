@@ -352,6 +352,13 @@ The **NCA** page supports standalone non-compartmental analysis.
 The **Results** page focuses on fit runs, saved artifacts, and common follow-up
 actions.
 
+#### Top summary
+
+- **Overview label** — run/output count and latest analysis status for the current scenario
+- **Comparison snapshot** — sibling-scenario summary for quick side-by-side review context
+- **Stale warning** — warns when saved inputs changed after the latest successful fit
+- **Next action** — points back to the blocking workflow when Results is still empty
+
 #### Runs list
 
 Lists all fit runs for the selected scenario in reverse chronological order.
@@ -583,7 +590,11 @@ using FOCE estimation.
 #### Step 5 — Review results
 
 1. Open `Baseline` → **Results** to inspect the fit, report artifacts, and plot outputs.
-2. Open `Baseline` → **Diagnostics** for CWRES and other diagnostics outputs.
+2. Use the comparison snapshot and comparison focus text at the top of the page
+   to decide which sibling scenario should be reviewed next.
+3. Click **Open comparison scenario** to switch the Results page directly to the
+   recommended sibling scenario.
+4. Open `Baseline` → **Diagnostics** for CWRES and other diagnostics outputs.
 
 #### Step 6 — Save the snapshot
 

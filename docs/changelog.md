@@ -5,6 +5,28 @@ This project follows [Semantic Versioning](https://semver.org).
 
 ---
 
+## 0.2.4 — 2026-03-28
+
+### Changed
+
+**Notebooks and documentation**
+- Refreshed the full marimo notebook suite for the current APIs, added solver
+  and FOCEI advanced-option examples, and strengthened notebook integration
+  tests so they check both successful execution and expected outputs.
+- Updated the README and user-facing docs to reflect the current example suite,
+  notebook extra, GUI review flow, and validation coverage.
+
+**GUI and examples**
+- Added results-page comparison navigation so the GUI can jump directly to a
+  strong sibling scenario for side-by-side review.
+- Added a PFIM-backed optimal-design example and refreshed the advanced example
+  inventory, including the renumbered four-compartment ADVAN5 workflow.
+
+**Validation**
+- Expanded external validation with additional advanced-estimator checks,
+  PFIM/design reference tests, Monolix benchmark safeguards, and a warfarin
+  FOCEI diagnostic harness to document near-parity behavior.
+
 ## 0.2.3 — 2026-03-28
 
 ### Changed

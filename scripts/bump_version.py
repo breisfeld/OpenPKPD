@@ -9,12 +9,14 @@ Files updated:
     pyproject.toml                                  (version = "...")
     src/openpkpd/__init__.py                        (__version__ = "...")
     docs/conf.py                                    (release = "..." / version = "...")
-    ../openpkpd_manuscript/manuscript/jss/openpkpd_manuscript.tex  (version~X.Y.Z / vX.Y.Z)
+    docs/changelog.md                               (promotes matching "Planned" heading)
+    rust/Cargo.toml                                 (version = "...")
     scripts/packaging/macos/dmgbuild_settings.py    (fallback default version)
 """
 
 from __future__ import annotations
 
+from datetime import date
 import re
 import sys
 from pathlib import Path
@@ -46,19 +48,36 @@ RULES: list[tuple[str, list[tuple[str, str]]]] = [
         ],
     ),
     (
-        "../openpkpd_manuscript/manuscript/jss/openpkpd_manuscript.tex",
-        [
-            # Abstract / conclusion: (version~X.Y.Z)
-            (r'(\\pkg\{OpenPKPD\}\s*\(version~)[^\)]+(\))', r'\g<1>{new}\2'),
-            # SAEM table caption: OpenPKPD vX.Y.Z
-            (r'(\\pkg\{OpenPKPD\}\s+v)\d+\.\d+\.\d+', r'\g<1>{new}'),
-        ],
+        "rust/Cargo.toml",
+        [(r'^(version\s*=\s*")[^"]+(")', r'\g<1>{new}\2')],
     ),
     (
         "scripts/packaging/macos/dmgbuild_settings.py",
         [(r'(os\.environ\.get\("OPENPKPD_VERSION",\s*")[^"]+(")', r'\g<1>{new}\2')],
     ),
 ]
+
+
+def update_changelog_for_release(path: Path, new: str) -> bool:
+    text = path.read_text(encoding="utf-8")
+    original = text
+    today = date.today().isoformat()
+
+    planned_heading = f"## Planned — {new}"
+    release_heading = f"## {new} — {today}"
+
+    if planned_heading in text:
+        text = text.replace(planned_heading, release_heading, 1)
+
+        # Clean up a duplicated adjacent planned heading if one exists.
+        duplicate_block = f"{release_heading}\n\n## Planned — {new}\n"
+        if duplicate_block in text:
+            text = text.replace(duplicate_block, f"{release_heading}\n", 1)
+
+    if text != original:
+        path.write_text(text, encoding="utf-8")
+        return True
+    return False
 
 
 def current_version() -> str:
@@ -92,10 +111,26 @@ def bump(new: str) -> None:
             text = re.sub(pattern, repl, text, flags=re.MULTILINE)
 
         if text != original:
-            path.write_text(text, encoding="utf-8")
-            changed.append(rel_path)
+            try:
+                path.write_text(text, encoding="utf-8")
+            except OSError as exc:
+                skipped.append(f"{rel_path} (write failed: {exc.strerror or exc})")
+            else:
+                changed.append(rel_path)
         else:
             skipped.append(f"{rel_path} (no match — check manually)")
+
+    changelog_path = ROOT / "docs/changelog.md"
+    if not changelog_path.exists():
+        skipped.append("docs/changelog.md")
+    else:
+        try:
+            if update_changelog_for_release(changelog_path, new):
+                changed.append("docs/changelog.md")
+            else:
+                skipped.append("docs/changelog.md (no matching planned heading — check manually)")
+        except OSError as exc:
+            skipped.append(f"docs/changelog.md (write failed: {exc.strerror or exc})")
 
     print(f"Bumped {old} → {new}")
     print()
@@ -110,7 +145,7 @@ def bump(new: str) -> None:
     print()
     print("Next steps:")
     print("  1. Review the changes (git diff)")
-    print("  2. Update docs/changelog.md with release notes")
+    print("  2. Review docs/changelog.md release notes")
     print("  3. Commit: git commit -am 'Bump version to {new}'".replace("{new}", new))
     print("  4. Tag:    git tag v{new}".replace("{new}", new))
     print("  5. Build and publish: just publish-to-pypi")

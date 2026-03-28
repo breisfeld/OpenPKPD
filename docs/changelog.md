@@ -5,6 +5,34 @@ This project follows [Semantic Versioning](https://semver.org).
 
 ---
 
+## 0.2.3 — 2026-03-28
+
+### Changed
+
+**FOCE / FOCEI estimation**
+- Corrected FOCE/FOCEI objective handling for the interaction path and expanded
+  analytic and cross-tool regression coverage against `nlmixr2`, `NONMEM`,
+  `Monolix`, `PKNCA`, `WinNonlin`, and Pharmpy-backed workflows.
+- Added configurable FOCEI outer-optimizer controls, fallback/polish settings,
+  best-iterate retention, and structured retry options across the Python API,
+  control-stream runtime, and parser.
+
+**GUI and examples**
+- Expanded the GUI advanced estimation surface to expose the new FOCEI controls,
+  improved error visibility in post-fit workflows, and added regression tests for
+  the new behavior.
+- Added new runnable examples covering FOCEI optimizer controls, persisted
+  control-stream optimizer extensions, phenobarbital population PK, and indometh
+  NCA.
+
+**Validation and developer tooling**
+- Added stronger example integration checks, live R-backed validation coverage,
+  and a local R dependency installer with `just install-r-test-deps` and
+  `just check-r-test-deps`.
+- Restored the Sphinx docs theme to Read the Docs style and improved release
+  tooling so the version bump script now updates Rust and changelog release
+  metadata as well.
+
 ## 0.2.2 — 2026-03-24
 
 ### Changed

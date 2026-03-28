@@ -36,6 +36,14 @@ install-plots:
 install-docs:
     uv sync --extra docs --extra dev
 
+# Install local R packages used by external-validation tests
+install-r-test-deps:
+    Rscript --vanilla scripts/install_r_test_deps.R
+
+# Verify local R packages used by external-validation tests
+check-r-test-deps:
+    Rscript --vanilla scripts/install_r_test_deps.R --check
+
 # ---------------------------------------------------------------------------
 # Testing
 # ---------------------------------------------------------------------------

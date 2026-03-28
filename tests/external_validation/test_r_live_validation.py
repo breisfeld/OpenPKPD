@@ -110,6 +110,12 @@ def script_name_to_focei_ref(script_name: str) -> str:
     raise ValueError(f"Unsupported nlmixr2 script: {script_name}")
 
 
+def script_name_to_saem_ref(script_name: str) -> str:
+    if script_name == "run_warfarin.R":
+        return "warfarin_pk_saem.json"
+    raise ValueError(f"Unsupported nlmixr2 script: {script_name}")
+
+
 @pytest.mark.external_validation
 class TestLivePKNCAReference:
     @pytest.mark.skipif(not is_r_available(), reason="R / rpy2 not available")
@@ -240,6 +246,10 @@ class TestLiveNlmixr2ReferenceGeneration:
         )
         frozen_fo = json.loads((NLMIXR2_DIR / "reference" / "warfarin_pk_fo.json").read_text())
         frozen_foce = json.loads((NLMIXR2_DIR / "reference" / "warfarin_pk_foce.json").read_text())
+        generated_saem = json.loads(
+            (tmp_path / "nlmixr2" / "reference" / script_name_to_saem_ref("run_warfarin.R")).read_text()
+        )
+        frozen_saem = json.loads((NLMIXR2_DIR / "reference" / "warfarin_pk_saem.json").read_text())
 
         for generated, frozen in ((generated_fo, frozen_fo), (generated_foce, frozen_foce)):
             assert generated["method"] == frozen["method"]
@@ -261,3 +271,18 @@ class TestLiveNlmixr2ReferenceGeneration:
                 float(frozen["sigma_prop_err_variance"]), rel=0.10
             )
             assert float(generated["ofv"]) == pytest.approx(float(frozen["ofv"]), rel=0.02)
+
+        assert generated_saem["method"] == frozen_saem["method"] == "SAEM"
+        assert generated_saem["software"] == "nlmixr2"
+        assert generated_saem["dataset"] == frozen_saem["dataset"]
+        assert generated_saem["n_subjects"] == frozen_saem["n_subjects"]
+        assert generated_saem["n_obs_in_likelihood"] == frozen_saem["n_obs_in_likelihood"]
+        assert generated_saem["ofv"] is None
+        for name in frozen_saem["theta"]:
+            observed = float(generated_saem["theta"][name])
+            reference = float(frozen_saem["theta"][name])
+            assert math.isfinite(observed)
+            assert observed == pytest.approx(reference, rel=0.05)
+        assert float(generated_saem["sigma_prop_err_variance"]) == pytest.approx(
+            float(frozen_saem["sigma_prop_err_variance"]), rel=0.10
+        )

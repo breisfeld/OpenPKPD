@@ -4,12 +4,13 @@
 #
 # Dataset : nlmixr2data::warfarin, PK-only subset (dvid == "cp")
 # Model   : 1-cmt oral, proportional error, IIV on KA / CL / V (diagonal)
-# Methods : FO, FOCE-INTERACTION
+# Methods : FO, FOCE-INTERACTION, SAEM
 #
 # Outputs
 #   ../data/warfarin_pk.csv              — NONMEM-format data for openpkpd
 #   reference/warfarin_pk_fo.json        — nlmixr2 FO reference
 #   reference/warfarin_pk_foce.json      — nlmixr2 FOCE-I reference
+#   reference/warfarin_pk_saem.json      — nlmixr2 SAEM reference
 #
 # Run from the nlmixr2/ directory:
 #   Rscript run_warfarin.R
@@ -64,6 +65,11 @@ extract_results <- function(fit, method_name) {
   fe <- fixef(fit)
   omega_diag <- diag(fit$omega)
   prop_err_est <- fit$parFixedDf["prop.err", "Estimate"]
+  ofv_val <- if (length(fit$objDf$OBJF) == 0 || is.na(fit$objDf$OBJF[1])) {
+    NULL
+  } else {
+    unname(fit$objDf$OBJF[1])
+  }
 
   list(
     method = method_name,
@@ -72,7 +78,7 @@ extract_results <- function(fit, method_name) {
     dataset = "warfarin_pk_cp_subset",
     n_subjects = length(unique(dat_nlmixr$id)),
     n_obs_in_likelihood = n_obs_used,
-    ofv = unname(fit$objDf$OBJF[1]),
+    ofv = ofv_val,
     theta = list(
       KA = unname(exp(fe["lka"])),
       CL = unname(exp(fe["lcl"])),
@@ -116,5 +122,10 @@ cat("\n── Running FOCE-INTERACTION ─────────────�
 fit_foce <- nlmixr2(one_cmt_oral, dat_nlmixr, est = "focei",
                     control = foceiControl(maxOuterIterations = 200, print = 0))
 save_json(extract_results(fit_foce, "FOCEI"), "warfarin_pk_foce.json")
+
+cat("\n── Running SAEM ─────────────────────────────────────────────────────\n")
+fit_saem <- nlmixr2(one_cmt_oral, dat_nlmixr, est = "saem",
+                    control = saemControl(print = 0, nBurn = 80, nEm = 40))
+save_json(extract_results(fit_saem, "SAEM"), "warfarin_pk_saem.json")
 
 cat("\nDone.\n")

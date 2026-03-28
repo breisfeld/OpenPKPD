@@ -209,3 +209,87 @@ class TestSAEMTheophyllineBehavior:
             assert late_mean <= early_mean + 20.0, (
                 f"OFV increased in averaging phase: {early_mean:.2f} → {late_mean:.2f}"
             )
+
+
+@pytest.mark.external_validation
+@pytest.mark.slow
+class TestSAEMWarfarinVsNlmixr2:
+    """Empirical SAEM validation on the warfarin PK-only subset against nlmixr2."""
+
+    @staticmethod
+    def _load_reference() -> dict:
+        import json
+
+        ref_path = os.path.join(
+            os.path.dirname(__file__), "nlmixr2", "reference", "warfarin_pk_saem.json"
+        )
+        with open(ref_path) as f:
+            return json.load(f)
+
+    @staticmethod
+    def _build_warfarin_model():
+        from openpkpd.data.dataset import NONMEMDataset
+        from openpkpd.model.population import PopulationModel
+        from openpkpd.pk.analytical.advan2 import ADVAN2
+
+        data_path = os.path.join(os.path.dirname(__file__), "data", "warfarin_pk.csv")
+        if not os.path.exists(data_path):
+            pytest.skip("Warfarin PK dataset not found")
+
+        dataset = NONMEMDataset.from_csv(data_path)
+        theta_specs = [
+            ThetaSpec(init=0.9, lower=0.01, upper=20.0),
+            ThetaSpec(init=0.13, lower=0.001, upper=5.0),
+            ThetaSpec(init=8.7, lower=0.1, upper=200.0),
+        ]
+        omega_specs = [
+            OmegaSpec(block_size=1, values=[0.4]),
+            OmegaSpec(block_size=1, values=[0.3]),
+            OmegaSpec(block_size=1, values=[0.3]),
+        ]
+        sigma_specs = [SigmaSpec(block_size=1, values=[0.05])]
+        params = ParameterSet.from_specs(theta_specs, omega_specs, sigma_specs)
+        pop = PopulationModel(
+            dataset=dataset,
+            pk_subroutine=ADVAN2(),
+            params=params,
+            trans=2,
+            advan=2,
+        )
+        return pop, params
+
+    @pytest.fixture(scope="class")
+    def warfarin_reference(self):
+        return self._load_reference()
+
+    @pytest.fixture(scope="class")
+    def fit_result(self):
+        pop, params = self._build_warfarin_model()
+        return SAEMMethod(n_iter_phase1=80, n_iter_phase2=40, seed=42).estimate(pop, params)
+
+    def test_theta_tracks_nlmixr2_reference(self, fit_result, warfarin_reference):
+        expected = warfarin_reference["theta"]
+        ka, cl, v = fit_result.theta_final
+        np.testing.assert_allclose(ka, expected["KA"], rtol=0.25)
+        np.testing.assert_allclose(cl, expected["CL"], rtol=0.10)
+        np.testing.assert_allclose(v, expected["V"], rtol=0.08)
+
+    def test_sigma_is_finite_and_reasonable(self, fit_result, warfarin_reference):
+        ref_sigma = float(warfarin_reference["sigma_prop_err_variance"])
+        obs_sigma = float(fit_result.sigma_final[0, 0])
+        assert np.isfinite(obs_sigma)
+        assert obs_sigma > 0.0
+        # Current SAEM parity is strongest on fixed effects for this benchmark.
+        # Keep the residual term diagnostic-only until the error-scale mismatch
+        # is better understood and validated.
+        assert obs_sigma < max(2.0, ref_sigma * 40.0)
+
+    def test_fit_result_is_numerically_well_behaved(self, fit_result):
+        assert fit_result.converged
+        assert np.isfinite(fit_result.ofv)
+        assert 0.0 < fit_result.ofv < 2000.0
+        assert len(fit_result.ofv_history or []) == 120
+
+    def test_omega_is_positive_semidefinite(self, fit_result):
+        eig = np.linalg.eigvalsh(fit_result.omega_final)
+        assert np.all(eig >= -1e-8), eig

@@ -59,6 +59,45 @@ def _make_linear_gaussian_engine() -> tuple[PFIMEngine, float]:
     return PFIMEngine(population_model=Model(), init_params=Params()), sigma_var
 
 
+def _make_quadratic_gaussian_engine() -> tuple[PFIMEngine, float]:
+    sigma_var = 2.0
+
+    class SubjectEvents:
+        def __init__(self, obs_times):
+            self.obs_times = np.asarray(obs_times, dtype=float)
+            self.obs_dv = np.full(len(self.obs_times), np.nan)
+            self.obs_cmt = np.ones(len(self.obs_times), dtype=int)
+            self.obs_mdv = np.zeros(len(self.obs_times), dtype=int)
+
+        def observation_mask(self):
+            return np.ones(len(self.obs_times), dtype=bool)
+
+    class Indiv:
+        def __init__(self):
+            self.subject_events = SubjectEvents([0.5, 1.5, 3.0])
+
+        def evaluate(self, theta, eta, sigma, trans=None):
+            times = np.asarray(self.subject_events.obs_times, dtype=float)
+            pred = theta[0] + theta[1] * times**2
+            return pred, self.subject_events.observation_mask(), pred
+
+    class Model:
+        trans = None
+
+        def subject_ids(self):
+            return [1]
+
+        def individual_model(self, sid):
+            return Indiv()
+
+    class Params:
+        theta = np.array([1.0, 0.5])
+        omega = np.zeros((0, 0))
+        sigma = np.array([[sigma_var]])
+
+    return PFIMEngine(population_model=Model(), init_params=Params()), sigma_var
+
+
 @pytest.mark.external_validation
 def test_compute_fim_matches_closed_form_linear_reference() -> None:
     engine, sigma_var = _make_linear_gaussian_engine()
@@ -102,6 +141,40 @@ def test_boundary_two_point_design_has_larger_closed_form_determinant() -> None:
 @pytest.mark.external_validation
 def test_optimize_design_returns_boundary_supported_schedule_for_linear_reference() -> None:
     engine, _sigma_var = _make_linear_gaussian_engine()
+
+    result = engine.optimize_design(
+        n_samples=3,
+        t_min=0.5,
+        t_max=3.0,
+        n_subjects=1,
+        criterion="D",
+        method="L-BFGS-B",
+        n_starts=8,
+    )
+
+    assert result.sampling_times[0] == pytest.approx(0.5, abs=0.15)
+    assert result.sampling_times[-1] == pytest.approx(3.0, abs=0.15)
+    midpoint = np.array([1.25, 1.75, 2.25], dtype=float)
+    det_midpoint = float(np.linalg.det(engine.compute_fim(midpoint, n_subjects=1)))
+    det_optimized = float(np.linalg.det(result.information_matrix))
+    assert det_optimized > det_midpoint
+
+
+@pytest.mark.external_validation
+def test_compute_fim_matches_closed_form_quadratic_reference() -> None:
+    engine, sigma_var = _make_quadratic_gaussian_engine()
+    times = np.array([0.5, 1.5, 3.0], dtype=float)
+
+    observed = engine.compute_fim(times, n_subjects=4)
+    design_matrix = np.column_stack([np.ones(len(times)), times**2])
+    expected = 4.0 * (design_matrix.T @ design_matrix) / sigma_var
+
+    np.testing.assert_allclose(observed, expected, rtol=1e-6, atol=1e-8)
+
+
+@pytest.mark.external_validation
+def test_optimize_design_returns_boundary_supported_schedule_for_quadratic_reference() -> None:
+    engine, _sigma_var = _make_quadratic_gaussian_engine()
 
     result = engine.optimize_design(
         n_samples=3,

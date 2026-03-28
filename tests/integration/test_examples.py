@@ -21,7 +21,7 @@ import pytest
 
 ROOT = Path(__file__).parents[2]
 EXAMPLES_DIR = ROOT / "examples"
-ALL_EXAMPLES = tuple(range(1, 29))
+ALL_EXAMPLES = tuple(range(1, 31))
 PLOT_EXAMPLES = {1, 2, 3, 4, 5, 7, 9, 11, 12, 14, 16, 17, 20, 21, 22, 23, 24}
 
 SMOKE_TIMEOUTS = {
@@ -40,6 +40,8 @@ CONTRACT_TIMEOUTS = {
     26: 120,
     27: 120,
     28: 120,
+    29: 120,
+    30: 180,
 }
 
 
@@ -246,3 +248,30 @@ def test_example_28_contract(tmp_path: Path) -> None:
     assert "AUCinf" in stdout
     assert "Mean AUCinf:" in stdout
     assert "Mean t_half:" in stdout
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_example_29_contract(tmp_path: Path) -> None:
+    result = _run_example(29, tmp_path, timeout=CONTRACT_TIMEOUTS[29])
+    _assert_example_passed(29, result)
+
+    stdout = result.stdout
+    assert "Example 29: Optimal design with PFIM" in stdout
+    assert "Reference times:" in stdout
+    assert "Optimized times:" in stdout
+    assert "D-efficiency vs reference:" in stdout
+    assert "Expected SE:" in stdout
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_example_30_contract(tmp_path: Path) -> None:
+    result = _run_example(30, tmp_path, timeout=CONTRACT_TIMEOUTS[30])
+    _assert_example_passed(30, result)
+
+    stdout = result.stdout
+    assert "Example 30: 4-Compartment General Linear Model (ADVAN5)" in stdout
+    assert "Fitting ADVAN5 (N=4) via FOCE" in stdout
+    assert "Max |ΔIPRED|" in stdout
+    assert "Done." in stdout

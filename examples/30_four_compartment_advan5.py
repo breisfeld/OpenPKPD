@@ -1,5 +1,5 @@
 """
-Example 25: 4-Compartment General Linear Model (ADVAN5)
+Example 30: 4-Compartment General Linear Model (ADVAN5)
 
 Demonstrates:
   - ADVAN5 with TRANS1 (Kij micro rate constants)
@@ -138,9 +138,9 @@ Y = F * (1 + EPS(1))
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    """Run Example 25: 4-compartment IV ADVAN5 model."""
+    """Run Example 30: 4-compartment IV ADVAN5 model."""
     print("=" * 60)
-    print("Example 25: 4-Compartment General Linear Model (ADVAN5)")
+    print("Example 30: 4-Compartment General Linear Model (ADVAN5)")
     print("=" * 60)
 
     # --- Simulate data ---
@@ -153,13 +153,21 @@ def main() -> None:
     print("\n[2] Fitting ADVAN5 (N=4) via FOCE...")
     model = (
         ModelBuilder()
-        .data(dataset)
+        .dataset(dataset)
         .subroutines(advan=5, trans=1)
         .pk(_PK_CODE)
         .error(_ERROR_CODE)
         .theta(
-            [2.0, 10.0, 1.5, 30.0, 0.5, 50.0, 0.1, 100.0],
-            lower=[0.1, 1.0, 0.01, 5.0, 0.01, 10.0, 0.001, 20.0],
+            [
+                (0.1, 2.0),
+                (1.0, 10.0),
+                (0.01, 1.5),
+                (5.0, 30.0),
+                (0.01, 0.5),
+                (10.0, 50.0),
+                (0.001, 0.1),
+                (20.0, 100.0),
+            ],
         )
         .omega([[0.09, 0.0], [0.0, 0.09]])
         .sigma([[0.04]])
@@ -172,7 +180,7 @@ def main() -> None:
     print("\n    Parameter estimates vs. true values:")
     true_vals = [_TRUE_PARAMS[k] for k in ("CL", "V1", "Q2", "V2", "Q3", "V3", "Q4", "V4")]
     names = ["CL", "V1", "Q2", "V2", "Q3", "V3", "Q4", "V4"]
-    thetas = result.estimates.get("THETA", [])
+    thetas = [float(value) for value in result.theta_final]
     for name, true_val, est_val in zip(names, true_vals, thetas):
         pct_err = 100.0 * (est_val - true_val) / true_val if true_val else float("nan")
         print(f"    {name:4s}: true={true_val:6.2f}  est={est_val:6.2f}  ({pct_err:+.1f}%)")

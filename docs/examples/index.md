@@ -1,7 +1,7 @@
 # Examples
 
 Selected documentation pages for the example suite. The repository currently
-ships 28 self-contained example scripts covering common population PK/PD
+ships 30 self-contained example scripts covering common population PK/PD
 workflows. All scripts can
 be run directly:
 
@@ -46,6 +46,8 @@ of displaying them interactively.
 | `26_control_stream_optimizer_extensions.py` | Inspect FOCEI optimizer extensions from a control stream |
 | `27_phenobarbital_population_pk.py` | Neonatal phenobarbital population PK with weight scaling |
 | `28_indometh_nca.py` | NCA on the public Indometh WinNonlin-backed dataset |
+| `29_optimal_design.py` | PFIM-backed sampling-time optimization |
+| `30_four_compartment_advan5.py` | Four-compartment ADVAN5 example with ADVAN11 consistency check |
 
 ## Estimation methods
 
@@ -79,5 +81,6 @@ of displaying them interactively.
 07_diagnostic_plots
 08_focei_optimizer_controls
 09_focei_control_stream_extensions
+10_optimal_design
 16_dde_model
 ```

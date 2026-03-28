@@ -24,6 +24,6 @@
     "reference_software": "nlmixr2",
     "model": "warfarin PK-only 1-cmt oral, IIV on KA/CL/V, prop error",
     "parameterisation": "log-normal: KA=exp(lka+eta.ka), etc.",
-    "tolerance_notes": "SAEM parity is currently release-gated on fixed effects, not exact OFV or residual-variance parity, because the nlmixr2 SAEM run does not expose a stable scalar OFV on this benchmark and OpenPKPD still shows a residual-scale mismatch here."
+    "tolerance_notes": "This benchmark is release-gated on KA, V, and proportional residual variance. CL remains a documented SAEM gap versus the nlmixr2 reference and is tracked separately rather than hidden behind loosened tolerances."
   }
 }

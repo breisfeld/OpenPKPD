@@ -127,6 +127,10 @@ V  = THETA(3)*EXP(ETA(3))
         if add_wt:
             pk += "\nCL = CL * (WT/70)**THETA(4)"
 
+        theta_specs = [(0.01, 1.5, 20), (0.001, 0.08, 5), (0.1, 30, 500)]
+        if add_wt:
+            theta_specs.append((0.01, 1.0, 2.0))
+
         builder = (
             ModelBuilder()
             .problem("Theophylline comparison")
@@ -134,20 +138,21 @@ V  = THETA(3)*EXP(ETA(3))
             .subroutines(advan=2, trans=2)
             .pk(pk)
             .error("Y = F*(1 + EPS(1))")
-            .theta([(0.01, 1.5, 20), (0.001, 0.08, 5), (0.1, 30, 500)])
+            .theta(theta_specs)
             .omega([0.5, 0.3, 0.3] if omega_size == 3 else [0.5])
             .sigma(0.1)
             .estimation(method=method, maxeval=400)
         )
         return builder.build()
 
-    # Fit three candidate models
-    result_1cmt = make_model(method="FO").fit()  # base: 1-cmt, FO
-    result_foce = make_model(method="FOCE").fit()  # FOCE (same structure)
+    result_fo = make_model(method="FO").fit()
+    result_fo_wt = make_model(method="FO", add_wt=True).fit()
+    result_foce = make_model(method="FOCE").fit()
 
-    print(f"1-cmt FO   OFV = {result_1cmt.ofv:.3f}")
+    print(f"1-cmt FO   OFV = {result_fo.ofv:.3f}")
+    print(f"1-cmt FO+WT OFV = {result_fo_wt.ofv:.3f}")
     print(f"1-cmt FOCE OFV = {result_foce.ofv:.3f}")
-    return THEO_CSV, ds, make_model, result_1cmt, result_foce
+    return THEO_CSV, ds, make_model, result_fo, result_fo_wt, result_foce
 
 
 @app.cell
@@ -161,21 +166,22 @@ def _(mo):
 
 
 @app.cell
-def _(lrt, mo, result_1cmt, result_foce):
-    # FO vs FOCE: different approximation so OFV scales differ
-    # For illustration, compare two FO models
-    lrt_result = lrt(result_1cmt, result_foce, df=0)
+def _(lrt, mo, result_fo, result_fo_wt):
+    lrt_result = lrt(result_fo_wt, result_fo)
     print(lrt_result)
 
     mo.md(
         f"""
         **LRT Result:**
 
-        - OFV₁ (FO):   `{result_1cmt.ofv:.3f}`
-        - OFV₂ (FOCE): `{result_foce.ofv:.3f}`
-        - ΔOFV:        `{result_1cmt.ofv - result_foce.ofv:.3f}`
+        - Reduced OFV (FO):      `{result_fo.ofv:.3f}`
+        - Full OFV (FO + WT):    `{result_fo_wt.ofv:.3f}`
+        - ΔOFV:                  `{lrt_result.delta_ofv:.3f}`
+        - Degrees of freedom:    `{lrt_result.df}`
+        - p-value:               `{lrt_result.p_value:.4f}`
 
-        *Note: LRT is only valid for models fit with the same method.*
+        *This comparison uses the same estimation method and differs by one
+        additional covariate effect, so the LRT assumptions are met.*
         """
     )
     return (lrt_result,)
@@ -199,10 +205,10 @@ def _(mo):
 
 
 @app.cell
-def _(compare_models, mo, result_1cmt, result_foce):
+def _(compare_models, mo, result_fo, result_fo_wt, result_foce):
     comparison_table = compare_models(
-        results=[result_1cmt, result_foce],
-        names=["1-cmt FO", "1-cmt FOCE"],
+        results=[result_fo, result_fo_wt, result_foce],
+        labels=["1-cmt FO", "1-cmt FO + WT", "1-cmt FOCE"],
     )
     print(comparison_table)
 
@@ -235,14 +241,15 @@ def _(mo):
 
 
 @app.cell
-def _(aic_weights, mo, result_1cmt, result_foce):
-    weights = aic_weights([result_1cmt, result_foce])
+def _(aic_weights, mo, result_fo, result_fo_wt, result_foce):
+    weights = aic_weights([result_fo, result_fo_wt, result_foce])
     mo.md(
         f"""
         **Akaike Weights:**
 
-        - 1-cmt FO:   `{weights[0]:.3f}`
-        - 1-cmt FOCE: `{weights[1]:.3f}`
+        - 1-cmt FO:       `{weights[0]:.3f}`
+        - 1-cmt FO + WT:  `{weights[1]:.3f}`
+        - 1-cmt FOCE:     `{weights[2]:.3f}`
         """
     )
     return (weights,)
@@ -290,11 +297,11 @@ def _():
 
 
 @app.cell
-def _(model_comparison_plot, result_1cmt, result_foce):
+def _(model_comparison_plot, result_fo, result_fo_wt, result_foce):
     try:
         fig_comp = model_comparison_plot(
-            results=[result_1cmt, result_foce],
-            names=["1-cmt FO", "1-cmt FOCE"],
+            results=[result_fo, result_fo_wt, result_foce],
+            labels=["1-cmt FO", "1-cmt FO + WT", "1-cmt FOCE"],
             title="Model Comparison",
         )
         fig_comp
@@ -325,12 +332,12 @@ def _(mo):
 
         | Task | API |
         |------|-----|
-        | LRT (nested models) | `lrt(result_base, result_full, df=1)` |
-        | AIC/BIC table | `compare_models([r1, r2, ...], names=[...])` |
+        | LRT (nested models) | `lrt(result_full, result_reduced)` |
+        | AIC/BIC table | `compare_models([r1, r2, ...], labels=[...])` |
         | Akaike weights | `aic_weights([r1, r2, ...])` |
         | Bootstrap CI | `BootstrapEngine(built, n_bootstrap=1000).run()` |
         | Likelihood profile | `likelihood_profile(built, param_index)` |
-        | Comparison plot | `model_comparison_plot(results, names)` |
+        | Comparison plot | `model_comparison_plot(results, labels)` |
         | Bootstrap plot | `bootstrap_ci_plot(boot_result)` |
         """
     )

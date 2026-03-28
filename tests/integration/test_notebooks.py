@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -66,15 +67,43 @@ skip_no_matplotlib = pytest.mark.skipif(
 # ---------------------------------------------------------------------------
 
 
-def _run_notebook(path: Path, timeout: int = 120) -> subprocess.CompletedProcess:
-    """Run a marimo notebook headlessly and return the CompletedProcess."""
-    result = subprocess.run(
-        [sys.executable, "-m", "marimo", "run", "--headless", str(path)],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
+def _run_notebook(path: Path, timeout: int = 120) -> tuple[subprocess.CompletedProcess[str], str]:
+    """Execute a marimo notebook by exporting it to HTML and return the HTML text."""
+    with tempfile.TemporaryDirectory(prefix="openpkpd-notebook-") as tmpdir:
+        output_path = Path(tmpdir) / f"{path.stem}.html"
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "marimo",
+                "export",
+                "html",
+                str(path),
+                "-o",
+                str(output_path),
+                "-f",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        html = output_path.read_text(encoding="utf-8") if output_path.exists() else ""
+        return result, html
+
+
+def _assert_notebook_output_contains(
+    result: subprocess.CompletedProcess[str],
+    html: str,
+    notebook: str,
+    expected_text: str,
+) -> None:
+    output = f"{result.stdout}\n{result.stderr}\n{html}"
+    assert expected_text in output, (
+        f"Notebook {notebook} did not emit expected text: {expected_text!r}\n"
+        f"STDOUT:\n{result.stdout[-2000:]}\n"
+        f"STDERR:\n{result.stderr[-2000:]}\n"
+        f"HTML:\n{html[-2000:]}"
     )
-    return result
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +141,7 @@ def test_notebook_core(notebook: str) -> None:
     if not path.exists():
         pytest.skip(f"Notebook not found: {path}")
 
-    result = _run_notebook(path)
+    result, _html = _run_notebook(path)
     assert result.returncode == 0, (
         f"Notebook {notebook} failed with exit code {result.returncode}.\n"
         f"STDOUT:\n{result.stdout[-2000:]}\n"
@@ -131,9 +160,105 @@ def test_notebook_plots(notebook: str) -> None:
     if not path.exists():
         pytest.skip(f"Notebook not found: {path}")
 
-    result = _run_notebook(path, timeout=180)
+    result, _html = _run_notebook(path, timeout=180)
     assert result.returncode == 0, (
         f"Notebook {notebook} failed with exit code {result.returncode}.\n"
         f"STDOUT:\n{result.stdout[-2000:]}\n"
         f"STDERR:\n{result.stderr[-2000:]}"
     )
+
+
+@skip_no_marimo
+@skip_no_matplotlib
+@pytest.mark.slow
+@pytest.mark.integration
+def test_estimation_notebook_reports_focei_advanced_options() -> None:
+    notebook = "03_estimation_methods.py"
+    result, html = _run_notebook(NOTEBOOKS_DIR / notebook, timeout=180)
+    assert result.returncode == 0
+    _assert_notebook_output_contains(result, html, notebook, "FOCEI advanced options")
+    _assert_notebook_output_contains(result, html, notebook, "outer=L-BFGS-B")
+    _assert_notebook_output_contains(result, html, notebook, "fallback=Powell")
+
+
+@skip_no_marimo
+@skip_no_matplotlib
+@pytest.mark.slow
+@pytest.mark.integration
+def test_pk_subroutines_notebook_reports_solver_options() -> None:
+    notebook = "06_pk_subroutines.py"
+    result, html = _run_notebook(NOTEBOOKS_DIR / notebook, timeout=180)
+    assert result.returncode == 0
+    _assert_notebook_output_contains(result, html, notebook, "ODE solver options")
+    _assert_notebook_output_contains(result, html, notebook, "ADVAN6 method=RK45")
+    _assert_notebook_output_contains(result, html, notebook, "ADVAN8 method=Radau")
+
+
+@skip_no_marimo
+@skip_no_matplotlib
+@pytest.mark.slow
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("notebook", "expected_texts"),
+    [
+        (
+            "01_quickstart.py",
+            [
+                "Method: FO",
+                "Converged: True",
+            ],
+        ),
+        (
+            "04_simulation_vpc_npde.py",
+            [
+                "VPC summary",
+                "NPDE Summary",
+                "Numerical Predictive Check",
+            ],
+        ),
+        (
+            "05_nca.py",
+            [
+                "NCA Parameters",
+                "Average Bioequivalence — AUC",
+                "Required N per sequence",
+            ],
+        ),
+        (
+            "07_pkpd_models.py",
+            [
+                "Direct Emax Model",
+                "Indirect Response Model",
+                "Effect Compartment (Ce) Model",
+            ],
+        ),
+        (
+            "09_covariate_modeling.py",
+            [
+                "Candidate relationships: 4",
+                "Stepwise Covariate Modeling (SCM) Summary",
+            ],
+        ),
+        (
+            "10_inference_bootstrap.py",
+            [
+                "1-cmt FO   OFV =",
+                "1-cmt FO+WT OFV =",
+                "1-cmt FOCE OFV =",
+            ],
+        ),
+        (
+            "11_advanced.py",
+            [
+                "Prior specification:",
+                "FIM trace (sum of diagonal):",
+                "Report HTML length:",
+            ],
+        ),
+    ],
+)
+def test_notebooks_emit_expected_results(notebook: str, expected_texts: list[str]) -> None:
+    result, html = _run_notebook(NOTEBOOKS_DIR / notebook, timeout=180)
+    assert result.returncode == 0
+    for expected_text in expected_texts:
+        _assert_notebook_output_contains(result, html, notebook, expected_text)

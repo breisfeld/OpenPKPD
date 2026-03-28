@@ -199,6 +199,21 @@ def _(mo):
 
         where $\mathbf{C}_i = G_i \Omega G_i^\top + R_i$ is the marginal
         covariance of the data.
+
+        FOCEI also exposes advanced robustness controls:
+
+        ```python
+        .estimation(
+            method="FOCEI",
+            maxeval=600,
+            outer_optimizer="L-BFGS-B",
+            outer_fallback_optimizer="Powell",
+            outer_fallback_maxeval=40,
+            retain_best_iterate=True,
+            retry_on_abnormal=True,
+            retry_omega_scales=[0.5, 0.25],
+        )
+        ```
         """
     )
     return
@@ -210,6 +225,47 @@ def _(build_model):
     result_foce = built_foce.fit()
     print(f"FOCE OFV = {result_foce.ofv:.4f}  converged={result_foce.converged}")
     return built_foce, result_foce
+
+
+@app.cell
+def _(ModelBuilder, ds):
+    built_focei_robust = (
+        ModelBuilder()
+        .problem("Theophylline 1-cmt oral — FOCEI robust options")
+        .dataset(ds)
+        .subroutines(advan=2, trans=2)
+        .pk("""
+KA = THETA(1)*EXP(ETA(1))
+CL = THETA(2)*EXP(ETA(2))
+V  = THETA(3)*EXP(ETA(3))
+""")
+        .error("Y = F*(1 + EPS(1))")
+        .theta([(0.01, 1.5, 20), (0.001, 0.08, 5), (0.1, 30, 500)])
+        .omega([0.5, 0.3, 0.3])
+        .sigma(0.1)
+        .estimation(
+            method="FOCEI",
+            maxeval=600,
+            outer_optimizer="L-BFGS-B",
+            outer_fallback_optimizer="Powell",
+            outer_fallback_maxeval=40,
+            retain_best_iterate=True,
+            retry_on_abnormal=True,
+            retry_omega_scales=[0.5, 0.25],
+        )
+        .build()
+    )
+    options = built_focei_robust.estimation_kwargs
+    print("FOCEI advanced options")
+    print(
+        "  "
+        f"outer={options['outer_optimizer']} "
+        f"fallback={options['outer_fallback_optimizer']} "
+        f"retain_best={options['retain_best_iterate']} "
+        f"retry={options['retry_on_abnormal']} "
+        f"scales={options['retry_omega_scales']}"
+    )
+    return built_focei_robust, options
 
 
 @app.cell
@@ -229,8 +285,8 @@ def _(mo):
         ```python
         .estimation(
             method="SAEM",
-            nburn=200,    # stochastic burn-in iterations
-            niter=100,    # smoothing iterations
+            n_iter_phase1=200,    # stochastic exploration iterations
+            n_iter_phase2=100,    # smoothing / convergence iterations
             seed=42,
         )
         ```
@@ -238,7 +294,7 @@ def _(mo):
         SAEM may be followed by IMP for an accurate OFV estimate:
 
         ```python
-        .estimation(method="SAEM", nburn=300, niter=100)
+        .estimation(method="SAEM", n_iter_phase1=300, n_iter_phase2=100)
         .estimation(method="IMP", isample=1000)  # chained estimation
         ```
         """
@@ -247,15 +303,7 @@ def _(mo):
 
 
 @app.cell
-def _(build_model):
-    built_saem = build_model.__wrapped__ if hasattr(build_model, "__wrapped__") else build_model
-
-    from openpkpd import ModelBuilder
-    from openpkpd.data.dataset import NONMEMDataset
-
-    # Rebuild ds inline for SAEM demo
-    import io, pandas as pd
-
+def _(ModelBuilder, NONMEMDataset, build_model, io, pd):
     _THEO = """\
 ID,TIME,AMT,DV,EVID,MDV
 1,0,4.02,0,1,1
@@ -293,20 +341,15 @@ V  = THETA(3)*EXP(ETA(3))
         .theta([(0.01, 1.5, 20), (0.001, 0.08, 5), (0.1, 30, 500)])
         .omega([0.5, 0.3, 0.3])
         .sigma(0.1)
-        .estimation(method="SAEM", nburn=100, niter=50, seed=42)
+        .estimation(method="SAEM", n_iter_phase1=100, n_iter_phase2=50, seed=42)
         .build()
     )
     result_saem = built_saem_model.fit()
     print(f"SAEM OFV = {result_saem.ofv:.4f}  converged={result_saem.converged}")
     return (
-        ModelBuilder,
-        NONMEMDataset,
         _THEO,
         _ds_saem,
-        built_saem,
         built_saem_model,
-        io,
-        pd,
         result_saem,
     )
 
@@ -322,7 +365,8 @@ def _(mo):
 
         Note: FO OFV is not directly comparable to FOCE/SAEM OFV because
         different approximations are used.  Always compare models fitted
-        with the *same* method.
+        with the *same* method. The FOCEI robust controls above affect search
+        behavior rather than the likelihood definition itself.
         """
     )
     return
@@ -444,7 +488,7 @@ def _(mo):
         |--------|--------------------------|-------------|
         | FO | `"FO"` | `maxeval` |
         | FOCE | `"FOCE"` | `interaction=True`, `maxeval` |
-        | SAEM | `"SAEM"` | `nburn`, `niter`, `seed` |
+        | SAEM | `"SAEM"` | `n_iter_phase1`, `n_iter_phase2`, `seed` |
         | IMP | `"IMP"` | `isample`, `seed` |
         | Laplacian | `"LAPLACIAN"` | `maxeval` |
         | Nonparametric | `"NONPARAMETRIC"` | `support_size` |

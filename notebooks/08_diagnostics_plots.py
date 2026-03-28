@@ -289,7 +289,7 @@ def _(mo):
 
 
 @app.cell
-def _(diag_df):
+def _(diag_df, result):
     from openpkpd.plots.eta import (
         eta_histograms,
         eta_pairs,
@@ -298,7 +298,7 @@ def _(diag_df):
         omega_heatmap,
     )
 
-    fig_eta_hist = eta_histograms(diag_df, title="ETA Distributions")
+    fig_eta_hist = eta_histograms(diag_df, result.omega_final, title="ETA Distributions")
     fig_eta_hist
     return (
         eta_histograms,
@@ -320,7 +320,8 @@ def _(diag_df, eta_pairs):
 @app.cell
 def _(diag_df, eta_shrinkage_plot, result):
     try:
-        fig_shrink = eta_shrinkage_plot(result, diag_df, title="ETA Shrinkage")
+        result.compute_shrinkage(iwres=diag_df["IWRES"].to_numpy())
+        fig_shrink = eta_shrinkage_plot(result, title="ETA Shrinkage")
         fig_shrink
     except Exception as e:
         print(f"Shrinkage plot: {e}")
@@ -346,16 +347,16 @@ def _(diag_df):
     from openpkpd.plots.eta import eta_vs_covariate
 
     # diag_df has WT if it was in the original dataset
-    if "WT" in diag_df.columns:
+    if "WT" in diag_df.columns and "ETA1" in diag_df.columns:
         fig_eta_cov = eta_vs_covariate(
             diag_df,
             covariate="WT",
-            eta_cols=["ETA_1", "ETA_2", "ETA_3"] if "ETA_1" in diag_df.columns else None,
+            eta_col="ETA1",
             title="ETA vs Body Weight",
         )
         fig_eta_cov
     else:
-        print("Covariate WT not in diagnostic DataFrame (not in dataset).")
+        print("Covariate WT or ETA1 not available in the diagnostic DataFrame.")
     return (eta_vs_covariate,)
 
 
@@ -445,7 +446,7 @@ def _(mo):
         | DV vs IPRED | `dv_vs_ipred(diag_df)` | `plots.gof` |
         | CWRES vs TIME | `cwres_vs_time(diag_df)` | `plots.gof` |
         | CWRES Q-Q | `cwres_qq(diag_df)` | `plots.gof` |
-        | ETA histograms | `eta_histograms(diag_df)` | `plots.eta` |
+        | ETA histograms | `eta_histograms(diag_df, result.omega_final)` | `plots.eta` |
         | ETA pairs | `eta_pairs(diag_df)` | `plots.eta` |
         | ETA vs covariate | `eta_vs_covariate(diag_df, cov)` | `plots.eta` |
         | Spaghetti | `spaghetti_plot(diag_df)` | `plots.pk` |

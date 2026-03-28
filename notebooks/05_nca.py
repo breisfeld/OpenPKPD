@@ -85,14 +85,14 @@ def _(NCAEngine, np):
     conc[0] = 0.0  # pre-dose = 0
 
     engine = NCAEngine()
-    params = engine.compute(
-        time=times,
+    params = engine.compute_subject(
+        times=times,
         conc=conc,
         dose=dose,
-        route="extravascular",  # "extravascular" | "iv_bolus" | "iv_infusion"
-        lambda_z_method="best",  # auto-select terminal phase
+        route="oral",
+        subject_id="demo-1",
     )
-    print(params)
+    print(params.summary())
     return cl, conc, dose, engine, ka, params, times, v
 
 
@@ -118,10 +118,10 @@ def _(mo, params):
                 params.tmax,
                 params.auc_last,
                 params.auc_inf,
-                params.half_life,
+                params.t_half,
                 params.lambda_z,
-                params.cl_obs,
-                params.vd_obs,
+                params.cl_f,
+                params.vz_f,
                 params.mrt,
             ],
         }
@@ -168,19 +168,21 @@ def _(NCAEngine, np, pd):
         )
         _c = np.maximum(_c + rng.normal(0, 0.05 * _c), 0)
         _c[0] = 0.0
+        rows.append({"ID": _sid, "TIME": 0.0, "DV": 0.0, "AMT": _dose, "EVID": 1, "MDV": 1})
         for t, c in zip(_times, _c):
-            rows.append({"ID": _sid, "TIME": t, "DV": c, "DOSE": _dose})
+            rows.append({"ID": _sid, "TIME": t, "DV": c, "AMT": 0.0, "EVID": 0, "MDV": 0})
 
     pop_df = pd.DataFrame(rows)
 
     engine_pop = NCAEngine()
-    nca_summary = engine_pop.compute_population(
+    nca_summary = engine_pop.compute_dataset(
         df=pop_df,
         id_col="ID",
         time_col="TIME",
         conc_col="DV",
-        dose_col="DOSE",
-        route="extravascular",
+        dose_col="AMT",
+        dose_row_col="EVID",
+        route="oral",
     )
     nca_summary.round(3)
     return engine_pop, nca_summary, pop_df, rows, rng
@@ -198,12 +200,11 @@ def _():
 
 
 @app.cell
-def _(nca_profile_plot, pop_df):
+def _(conc, nca_profile_plot, params, times):
     fig_profile = nca_profile_plot(
-        pop_df,
-        id_col="ID",
-        time_col="TIME",
-        conc_col="DV",
+        times,
+        conc,
+        params,
         log_y=True,
         title="Individual PK Profiles (semi-log)",
     )
@@ -262,34 +263,39 @@ def _(NCAEngine, np, pd):
             _ka = _rng.lognormal(np.log(1.2), 0.2)
             _cl = _rng.lognormal(np.log(3.5), 0.2)
             _v = _rng.lognormal(np.log(40), 0.15)
-            _c = (
-                (_dose / _v)
-                * (_ka / (_ka - _cl / _v))
-                * (np.exp(-_cl / _v * _t) - np.exp(-_ka * _t))
+        _c = (
+            (_dose / _v)
+            * (_ka / (_ka - _cl / _v))
+            * (np.exp(-_cl / _v * _t) - np.exp(-_ka * _t))
+        )
+        _c[0] = 0.0
+        _dp_rows.append(
+            {"ID": f"D{_dose}_S{_sid}", "TIME": 0.0, "DV": 0.0, "AMT": float(_dose), "EVID": 1, "MDV": 1}
+        )
+        for _time, _conc in zip(_t, _c):
+            _dp_rows.append(
+                {
+                    "ID": f"D{_dose}_S{_sid}",
+                    "TIME": _time,
+                    "DV": max(_conc, 0),
+                    "AMT": 0.0,
+                    "EVID": 0,
+                    "MDV": 0,
+                }
             )
-            _c[0] = 0.0
-            for _time, _conc in zip(_t, _c):
-                _dp_rows.append(
-                    {
-                        "ID": f"D{_dose}_S{_sid}",
-                        "TIME": _time,
-                        "DV": max(_conc, 0),
-                        "DOSE": float(_dose),
-                    }
-                )
 
     dp_df = pd.DataFrame(_dp_rows)
 
     _engine_dp = NCAEngine()
-    dp_nca = _engine_dp.compute_population(
+    dp_nca = _engine_dp.compute_dataset(
         df=dp_df,
         id_col="ID",
         time_col="TIME",
         conc_col="DV",
-        dose_col="DOSE",
-        route="extravascular",
+        dose_col="AMT",
+        dose_row_col="EVID",
+        route="oral",
     )
-    dp_nca["DOSE"] = dp_df.groupby("ID")["DOSE"].first().values
     dp_nca.head()
     return dp_df, dp_nca
 
@@ -305,8 +311,8 @@ def _():
 def _(dose_proportionality_plot, dp_nca):
     fig_dp = dose_proportionality_plot(
         dp_nca,
-        dose_col="DOSE",
-        pk_col="auc_last",
+        dose_col="dose",
+        metric="auc_last",
         title="Dose Proportionality — AUC₀₋ₜ vs Dose",
     )
     fig_dp
@@ -327,14 +333,10 @@ def _(mo):
         ```python
         from openpkpd.nca import average_bioequivalence, BEResult
 
-        be = average_bioequivalence(
-            test_auc=[..],   # AUC values for test formulation
-            ref_auc=[..],    # AUC values for reference formulation
-            test_cmax=[..],
-            ref_cmax=[..],
-            alpha=0.05,
-        )
-        print(be.summary())
+        auc_be = average_bioequivalence(test_auc, ref_auc, metric="AUC")
+        cmax_be = average_bioequivalence(test_cmax, ref_cmax, metric="Cmax")
+        print(auc_be.summary())
+        print(cmax_be.summary())
         ```
 
         ### Reference-Scaled ABE (RSABE)
@@ -358,8 +360,8 @@ def _(mo):
         ```python
         from openpkpd.nca import crossover_be_analysis, be_sample_size
 
-        result = crossover_be_analysis(df, pk_col="auc_last", formulation_col="TRT")
-        n = be_sample_size(cv_intra=0.25, ratio=1.0, alpha=0.05, power=0.80)
+        result = crossover_be_analysis(df, metric_col="log_metric", treatment_col="TRT")
+        n = be_sample_size(cv=0.25, true_ratio=1.0, alpha=0.05, power=0.80)
         print(f"Required N per sequence: {n}")
         ```
         """
@@ -379,20 +381,19 @@ def _(np):
     ref_cmax = rng_be.lognormal(np.log(4.5), 0.2, n_sub)
     test_cmax = ref_cmax * rng_be.lognormal(np.log(1.01), 0.15, n_sub)
 
-    be_result = average_bioequivalence(
-        test_auc=test_auc.tolist(),
-        ref_auc=ref_auc.tolist(),
-        test_cmax=test_cmax.tolist(),
-        ref_cmax=ref_cmax.tolist(),
-    )
-    print(be_result.summary())
+    auc_be_result = average_bioequivalence(test_auc, ref_auc, metric="AUC")
+    cmax_be_result = average_bioequivalence(test_cmax, ref_cmax, metric="Cmax")
+    print(auc_be_result.summary())
+    print()
+    print(cmax_be_result.summary())
 
-    n_required = be_sample_size(cv_intra=0.25, ratio=1.0)
+    n_required = be_sample_size(cv=0.25, true_ratio=1.0)
     print(f"\nRequired N per sequence (CV=25%): {n_required}")
     return (
         average_bioequivalence,
-        be_result,
+        auc_be_result,
         be_sample_size,
+        cmax_be_result,
         n_required,
         n_sub,
         ref_auc,
@@ -430,12 +431,12 @@ def _(mo):
 
         | Task | API |
         |------|-----|
-        | Single-subject NCA | `NCAEngine().compute(time, conc, dose, route)` |
-        | Population NCA | `NCAEngine().compute_population(df, ...)` |
-        | Average BE | `average_bioequivalence(test_auc, ref_auc, ...)` |
+        | Single-subject NCA | `NCAEngine().compute_subject(times, conc, dose, route)` |
+        | Population NCA | `NCAEngine().compute_dataset(df, ...)` |
+        | Average BE | `average_bioequivalence(test, reference, metric=...)` |
         | RSABE | `reference_scaled_abe(test, ref, sequence, period)` |
-        | Sample size | `be_sample_size(cv_intra, ratio)` |
-        | Crossover | `crossover_be_analysis(df, pk_col, formulation_col)` |
+        | Sample size | `be_sample_size(cv, true_ratio)` |
+        | Crossover | `crossover_be_analysis(df, metric_col, treatment_col)` |
         | Urine NCA | `UrineNCAEngine().compute(time_mid, amount_excreted, ...)` |
         """
     )

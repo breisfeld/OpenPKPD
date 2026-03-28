@@ -209,7 +209,9 @@ def _(SimulationEngine, VPCEngine, built, result):
     _sim_engine = SimulationEngine(built.population_model, result, seed=42)
     vpc_engine = VPCEngine(_sim_engine)
     vpc_result = vpc_engine.compute(n_replicates=200, n_bins=8)
-    print(vpc_result.summary())
+    print("VPC summary")
+    print(f"Observed bins: {len(vpc_result.obs_percentiles)}")
+    print(f"Simulated replicates: {vpc_result.n_replicates}")
     return vpc_engine, vpc_result
 
 
@@ -302,10 +304,17 @@ def _(NPDEEngine, SimulationEngine, built, result):
 
 
 @app.cell
-def _(npde_plot, npde_result):
-    fig_npde = npde_plot(npde_result, title="Theophylline NPDE")
+def _(built, npde_plot, npde_result, result):
+    from openpkpd.plots.diagnostics import compute_diagnostics
+
+    npde_diag_df = compute_diagnostics(built.population_model, result).merge(
+        npde_result.df[["ID", "TIME", "NPDE"]],
+        on=["ID", "TIME"],
+        how="left",
+    )
+    fig_npde = npde_plot(npde_diag_df, title="Theophylline NPDE")
     fig_npde
-    return (fig_npde,)
+    return fig_npde, npde_diag_df
 
 
 @app.cell
@@ -321,8 +330,9 @@ def _(mo):
         ```python
         from openpkpd.simulation import NPCEngine
 
-        npc_engine = NPCEngine(sim_engine)
-        npc_result = npc_engine.compute(n_replicates=1000, percentiles=[5, 10, 25, 50, 75, 90, 95])
+        npc_sim_result = sim_engine.simulate(n_replicates=1000)
+        npc_engine = NPCEngine(npc_sim_result)
+        npc_result = npc_engine.compute(pi_lower=0.05, pi_upper=0.95)
         print(npc_result.summary())
         ```
 
@@ -336,10 +346,11 @@ def _(mo):
 @app.cell
 def _(NPCEngine, SimulationEngine, built, result):
     _sim_engine_npc = SimulationEngine(built.population_model, result, seed=7)
-    npc_engine = NPCEngine(_sim_engine_npc)
-    npc_result = npc_engine.compute(n_replicates=200)
+    npc_sim_result = _sim_engine_npc.simulate(n_replicates=200)
+    npc_engine = NPCEngine(npc_sim_result)
+    npc_result = npc_engine.compute()
     print(npc_result.summary())
-    return npc_engine, npc_result
+    return npc_engine, npc_result, npc_sim_result
 
 
 @app.cell
@@ -399,7 +410,7 @@ def _(mo):
         | `SimulationEngine` | Generate replicate datasets | `.simulate(n_replicates=K)` |
         | `VPCEngine` | Prediction interval bands | `.compute(n_replicates, n_bins)` |
         | `NPDEEngine` | Normalised prediction errors | `.compute(n_replicates, seed)` |
-        | `NPCEngine` | Numerical predictive check | `.compute(n_replicates)` |
+        | `NPCEngine` | Numerical predictive check | `.compute(pi_lower, pi_upper)` |
         | `SSEEngine` | Estimation performance | `.run(n_replicates)` |
         """
     )

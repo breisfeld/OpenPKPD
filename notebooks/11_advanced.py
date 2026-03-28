@@ -73,7 +73,8 @@ def _(mo):
             theta_prior=np.array([1.5, 0.08, 30.0]),   # prior means for THETA
             theta_prior_cov=np.diag([0.5, 0.01, 100]), # prior covariance
             omega_prior=np.diag([0.5, 0.3, 0.3]),      # prior mean for OMEGA
-            n_subjects_prior=20,                         # "worth" of prior
+            omega_prior_cov=np.diag([0.1, 0.1, 0.1]),
+            nwpri=20,                                   # informational NWPRI count
         )
 
         augmented = PriorAugmentedModel(population_model, prior)
@@ -91,14 +92,15 @@ def _():
     prior = PriorSpec(
         theta_prior=np.array([1.5, 0.08, 30.0]),
         theta_prior_cov=np.diag([0.25, 0.004, 225.0]),
-        omega_prior=np.diag([0.5, 0.3, 0.3]),
-        n_subjects_prior=15,
+        omega_prior=np.array([0.5, 0.3, 0.3]),
+        omega_prior_cov=np.diag([0.05, 0.05, 0.05]),
+        nwpri=15,
     )
     print("Prior specification:")
     print(f"  θ prior means:  {prior.theta_prior}")
     print(f"  θ prior std:    {np.sqrt(np.diag(prior.theta_prior_cov)).round(3)}")
-    print(f"  Ω prior diag:   {np.diag(prior.omega_prior)}")
-    print(f"  n prior subj:   {prior.n_subjects_prior}")
+    print(f"  Ω prior diag:   {prior.omega_prior}")
+    print(f"  NWPRI count:    {prior.nwpri}")
     return (prior,)
 
 
@@ -237,10 +239,7 @@ def _(mo):
         ```python
         from openpkpd.pk.pbpk import FiveOrganPBPK
 
-        pbpk = FiveOrganPBPK(
-            body_weight=70.0,   # kg
-            species="human",
-        )
+        pbpk = FiveOrganPBPK()
 
         params = {
             "Kp_liver":  5.0,
@@ -268,9 +267,49 @@ def _(mo):
 @app.cell
 def _(np, plt):
     from openpkpd.pk.pbpk import FiveOrganPBPK
-    from openpkpd.data.events import DoseEvent
+    from openpkpd.data.event_processor import DoseEvent
 
-    pbpk = FiveOrganPBPK(body_weight=70.0, species="human")
+    pbpk = FiveOrganPBPK()
+
+    def des_callable(t, a, pk_params, theta=None, eta=None):
+        q_lung = pk_params.get("Q_lung", 350.0)
+        q_liver = pk_params.get("Q_liver", 90.0)
+        q_kidney = pk_params.get("Q_kidney", 72.0)
+        q_gut = pk_params.get("Q_gut", 60.0)
+
+        v_lung = max(pk_params.get("V_lung", 0.5), 1e-12)
+        v_liver = max(pk_params.get("V_liver", 1.8), 1e-12)
+        v_kidney = max(pk_params.get("V_kidney", 0.3), 1e-12)
+        v_gut = max(pk_params.get("V_gut", 1.0), 1e-12)
+        v_central = max(pk_params.get("V_central", 5.0), 1e-12)
+
+        kp_lung = pk_params.get("Kp_lung", 2.5)
+        kp_liver = pk_params.get("Kp_liver", 8.0)
+        kp_kidney = pk_params.get("Kp_kidney", 4.0)
+        kp_gut = pk_params.get("Kp_gut", 3.0)
+
+        cl_liver = pk_params.get("CL_liver", 15.0)
+        cl_kidney = pk_params.get("CL_kidney", 8.0)
+
+        c_lung = a[0] / v_lung
+        c_liver = a[1] / v_liver
+        c_kidney = a[2] / v_kidney
+        c_gut = a[3] / v_gut
+        c_central = a[4] / v_central
+
+        ret_lung = q_lung * c_lung / kp_lung
+        ret_liver = q_liver * c_liver / kp_liver
+        ret_kidney = q_kidney * c_kidney / kp_kidney
+        ret_gut = q_gut * c_gut / kp_gut
+        q_total = q_lung + q_liver + q_kidney + q_gut
+
+        return [
+            q_lung * (c_central - c_lung / kp_lung),
+            q_liver * (c_central - c_liver / kp_liver) - cl_liver * c_liver,
+            q_kidney * (c_central - c_kidney / kp_kidney) - cl_kidney * c_kidney,
+            q_gut * (c_central - c_gut / kp_gut),
+            -q_total * c_central + ret_lung + ret_liver + ret_kidney + ret_gut,
+        ]
 
     pbpk_params = {
         "Kp_liver": 5.0,
@@ -285,7 +324,7 @@ def _(np, plt):
     t_pbpk = np.linspace(0.01, 24, 200)
     dose_iv = [DoseEvent(time=0.0, amount=100.0, compartment=1, rate=0.0)]
 
-    sol_pbpk = pbpk.solve(pbpk_params, dose_iv, t_pbpk)
+    sol_pbpk = pbpk.solve(pbpk_params, dose_iv, t_pbpk, des_callable=des_callable)
 
     fig_pbpk, ax_pbpk = plt.subplots(figsize=(9, 4))
     ax_pbpk.semilogy(t_pbpk, sol_pbpk.ipred, lw=2, label="Plasma (PBPK)")
@@ -300,6 +339,7 @@ def _(np, plt):
         FiveOrganPBPK,
         ax_pbpk,
         dose_iv,
+        des_callable,
         fig_pbpk,
         pbpk,
         pbpk_params,
@@ -409,10 +449,10 @@ def _(mo):
 
 
 @app.cell
-def _(result_oed):
+def _(built_oed, result_oed):
     from openpkpd import estimation_result_to_html
 
-    html_str = estimation_result_to_html(result_oed)
+    html_str = estimation_result_to_html(result_oed, built_oed.params)
     print(f"Report HTML length: {len(html_str)} chars")
     print(html_str[:500] + "...")
     return (estimation_result_to_html, html_str)

@@ -241,6 +241,10 @@ def _(mo):
 
         > **Tip:** For better accuracy use `method="FOCE"` with `interaction=True`.
         > FO is faster and useful for initial exploration.
+        >
+        > For harder nonlinear fits, FOCEI also supports advanced robustness
+        > options such as `outer_optimizer`, `outer_fallback_optimizer`,
+        > `retain_best_iterate`, and `retry_on_abnormal`.
         """
     )
     return
@@ -273,7 +277,6 @@ def _(mo, pd, result):
         {
             "Parameter": ["KA (hr⁻¹)", "CL (L/hr)", "V (L)"],
             "Estimate": result.theta_final,
-            "SE": result.theta_se if result.theta_se is not None else [None] * 3,
         }
     )
 

@@ -110,12 +110,14 @@ def _(exponential_effect, linear_effect, np, plt, power_effect):
     wt = np.linspace(40, 120, 200)
     ref_wt = 70.0
 
-    # Power (allometric) effect on CL: CL = CLhat * (WT/70)^0.75
-    cl_power = power_effect(wt, ref=ref_wt, theta=0.75, base_param=5.0)
-    # Linear effect on V
-    v_linear = linear_effect(wt, ref=ref_wt, theta=0.015, base_param=30.0)
-    # Exponential effect on CL
-    cl_exp = exponential_effect(wt, ref=ref_wt, theta=0.01, base_param=5.0)
+    power_rel = power_effect("CL", "WT", reference=ref_wt)
+    linear_rel = linear_effect("V", "WT", reference=ref_wt)
+    exp_rel = exponential_effect("CL", "WT", reference=ref_wt)
+
+    # Evaluate the relationship objects over a covariate grid.
+    cl_power = np.array([power_rel.apply(5.0, w, 0.75) for w in wt])
+    v_linear = np.array([linear_rel.apply(30.0, w, 0.015) for w in wt])
+    cl_exp = np.array([exp_rel.apply(5.0, w, 0.01) for w in wt])
 
     fig_cov, axes = plt.subplots(1, 3, figsize=(14, 4))
 
@@ -290,12 +292,13 @@ def _(mo):
 
 
 @app.cell
-def _(SCMEngine, base_builder, base_pk, candidates, warf_ds):
+def _(SCMEngine, base_builder, base_pk, candidates):
     scm = SCMEngine(
         base_model_builder=base_builder,
         base_pk_code=base_pk,
         candidates=candidates,
-        dataset=warf_ds,
+        estimation_method="FO",
+        estimation_kwargs={"maxeval": 300},
         forward_pvalue=0.05,
         backward_pvalue=0.001,
     )
@@ -313,11 +316,11 @@ def _(mo, scm_result):
     for step in scm_result.steps:
         steps_data.append(
             {
-                "Phase": step.phase,
+                "Phase": step.step_type,
                 "Covariate": f"{step.relationship.parameter} ~ {step.relationship.covariate}",
                 "ΔOFV": round(step.delta_ofv, 3),
-                "p-value": round(step.pvalue, 4),
-                "Action": step.action,
+                "p-value": round(step.p_value, 4),
+                "Accepted": step.accepted,
             }
         )
 
@@ -327,7 +330,7 @@ def _(mo, scm_result):
         [
             mo.md("### SCM Steps"),
             mo.ui.table(steps_df) if not steps_df.empty else mo.md("*(no steps completed)*"),
-            mo.md(f"**Final model covariates:** {scm_result.retained_covariates}"),
+            mo.md(f"**Accepted relationships:** {scm_result.accepted_relationships}"),
         ]
     )
     return _pd, steps_data, steps_df
@@ -335,13 +338,9 @@ def _(mo, scm_result):
 
 @app.cell
 def _():
-    import matplotlib
-
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
     from openpkpd.plots.covariate import covariate_forest_plot
 
-    return covariate_forest_plot, matplotlib, plt
+    return (covariate_forest_plot,)
 
 
 @app.cell
@@ -396,7 +395,7 @@ def _(mo):
         ```python
         from openpkpd.inference import lrt
 
-        lrt_result = lrt(base_result, covariate_result, df=1)
+        lrt_result = lrt(covariate_result, base_result)
         print(lrt_result)
         # ΔOFV = x.xx, p = 0.xxx → significant / not significant
         ```
@@ -413,7 +412,7 @@ def _(mo):
         | Exponential effect | `CovariateEffect.EXPONENTIAL` |
         | Categorical effect | `CovariateEffect.CATEGORICAL` |
         | Run SCM | `SCMEngine(base_builder, ..., candidates).run()` |
-        | Read results | `scm_result.retained_covariates`, `.steps` |
+        | Read results | `scm_result.accepted_relationships`, `.steps` |
         | Forest plot | `covariate_forest_plot(scm_result)` |
         """
     )

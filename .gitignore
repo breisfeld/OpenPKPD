@@ -598,3 +598,6 @@ TSWLatexianTemp*
 
 # Internal dev planning docs
 docs/dev/
+
+# marimo session state
+notebooks/__marimo__/

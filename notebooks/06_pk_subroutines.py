@@ -97,7 +97,7 @@ def _(np, plt):
     from openpkpd.pk.analytical.advan2 import ADVAN2
     from openpkpd.pk.analytical.advan3 import ADVAN3
     from openpkpd.pk.analytical.advan4 import ADVAN4
-    from openpkpd.data.events import DoseEvent
+    from openpkpd.data.event_processor import DoseEvent
 
     t_obs = np.linspace(0.01, 24, 200)
 
@@ -105,7 +105,7 @@ def _(np, plt):
     advan1 = ADVAN1()
     dose_iv = [DoseEvent(time=0.0, amount=100.0, compartment=1, rate=0.0)]
     sol1 = advan1.solve(
-        pk_params={"CL": 3.5, "V": 40.0},
+        pk_params={"K": 3.5 / 40.0, "V": 40.0},
         dose_events=dose_iv,
         obs_times=t_obs,
     )
@@ -114,7 +114,7 @@ def _(np, plt):
     advan2 = ADVAN2()
     dose_oral = [DoseEvent(time=0.0, amount=100.0, compartment=1, rate=0.0)]
     sol2 = advan2.solve(
-        pk_params={"KA": 1.2, "CL": 3.5, "V": 40.0},
+        pk_params={"KA": 1.2, "K": 3.5 / 40.0, "V": 40.0},
         dose_events=dose_oral,
         obs_times=t_obs,
     )
@@ -130,7 +130,13 @@ def _(np, plt):
     # --- ADVAN4: 2-cmt oral ---
     advan4 = ADVAN4()
     sol4 = advan4.solve(
-        pk_params={"KA": 1.2, "CL": 3.5, "V1": 20.0, "Q": 2.0, "V2": 40.0},
+        pk_params={
+            "KA": 1.2,
+            "K": 3.5 / 20.0,
+            "K12": 2.0 / 20.0,
+            "K21": 2.0 / 40.0,
+            "V2": 20.0,
+        },
         dose_events=dose_oral,
         obs_times=t_obs,
     )
@@ -192,12 +198,12 @@ def _(DoseEvent, np, plt):
     t3 = np.linspace(0.01, 48, 300)
     sol11 = advan11.solve(
         pk_params={
-            "CL": 3.5,
+            "K": 3.5 / 10.0,
             "V1": 10.0,
-            "Q2": 2.0,
-            "V2": 30.0,
-            "Q3": 0.5,
-            "V3": 60.0,
+            "K12": 2.0 / 10.0,
+            "K21": 2.0 / 30.0,
+            "K13": 0.5 / 10.0,
+            "K31": 0.5 / 60.0,
         },
         dose_events=[DoseEvent(time=0.0, amount=100.0, compartment=1, rate=0.0)],
         obs_times=t3,
@@ -241,6 +247,16 @@ def _(mo):
         \"\"\")
         ```
 
+        The ODE routes also expose solver controls directly:
+
+        ```python
+        from openpkpd.pk.ode.advan6 import ADVAN6
+        from openpkpd.pk.ode.advan8 import ADVAN8
+
+        advan6 = ADVAN6(n_compartments=2, rtol=1e-7, atol=1e-9, method="RK45")
+        advan8 = ADVAN8(n_compartments=2, rtol=1e-7, atol=1e-10, method="Radau")
+        ```
+
         ### Direct ADVAN6 usage
         """
     )
@@ -250,8 +266,10 @@ def _(mo):
 @app.cell
 def _(DoseEvent, np, plt):
     from openpkpd.pk.ode.advan6 import ADVAN6
+    from openpkpd.pk.ode.advan8 import ADVAN8
 
-    advan6 = ADVAN6(n_compartments=2)
+    advan6 = ADVAN6(n_compartments=2, rtol=1e-7, atol=1e-9, method="RK45")
+    advan8 = ADVAN8(n_compartments=2, rtol=1e-7, atol=1e-10, method="Radau")
     t_ode = np.linspace(0.01, 24, 150)
 
     # Define the DES callable: 2-cmt IV model
@@ -271,6 +289,12 @@ def _(DoseEvent, np, plt):
         obs_times=t_ode,
         des_callable=des_2cmt,
     )
+    sol8 = advan8.solve(
+        pk_params={"CL": 3.5, "V1": 20.0, "Q": 2.0, "V2": 40.0},
+        dose_events=[DoseEvent(time=0.0, amount=100.0, compartment=1, rate=0.0)],
+        obs_times=t_ode,
+        des_callable=des_2cmt,
+    )
 
     # Compare with ADVAN3 analytical for the same params
     from openpkpd.pk.analytical.advan3 import ADVAN3 as _ADVAN3
@@ -282,24 +306,31 @@ def _(DoseEvent, np, plt):
     )
 
     fig6, ax6 = plt.subplots(figsize=(8, 4))
-    ax6.semilogy(t_ode, sol6.ipred, label="ADVAN6 ODE", lw=2)
+    ax6.semilogy(t_ode, sol6.ipred, label="ADVAN6 RK45", lw=2)
+    ax6.semilogy(t_ode, sol8.ipred, label="ADVAN8 Radau", lw=2, ls=":")
     ax6.semilogy(t_ode, _sol_an.ipred, label="ADVAN3 Analytical", lw=2, ls="--")
     ax6.set_xlabel("Time (h)")
     ax6.set_ylabel("C (mg/L)")
-    ax6.set_title("ADVAN6 ODE vs ADVAN3 Analytical — 2-compartment IV")
+    ax6.set_title("ODE solver options vs ADVAN3 analytical — 2-compartment IV")
     ax6.legend()
     ax6.set_ylim(1e-2, None)
     fig6.tight_layout()
+    print("ODE solver options")
+    print(f"  ADVAN6 method={advan6.method} rtol={advan6.rtol} atol={advan6.atol}")
+    print(f"  ADVAN8 method={advan8.method} rtol={advan8.rtol} atol={advan8.atol}")
     fig6
     return (
         ADVAN6,
+        ADVAN8,
         _ADVAN3,
         _sol_an,
         advan6,
+        advan8,
         ax6,
         des_2cmt,
         fig6,
         sol6,
+        sol8,
         t_ode,
     )
 
@@ -377,6 +408,14 @@ def _(mo):
         | Parallel absorption | 6 | 8 |
         | Custom ODE | 6/8 | — (user DES) |
         | Custom ODE + adjoint | 13 | — (user DES, JAX) |
+
+        Practical guidance:
+
+        - Start with **ADVAN6 / RK45** for smooth non-stiff systems.
+        - Prefer **ADVAN8 / LSODA or Radau** when the state scales differ
+          sharply or the solver needs tighter tolerances for stable integration.
+        - Tighten `rtol` / `atol` when you need closer agreement between
+          numerical and analytical reference paths.
         """
     )
     return

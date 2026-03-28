@@ -106,16 +106,21 @@ ID,TIME,AMT,DV,EVID,MDV,WT,AGE,SEX
 
     warf_df = pd.read_csv(io.StringIO(WARFARIN_CSV))
     warf_ds = NONMEMDataset.from_dataframe(warf_df)
+    covariate_cols = [
+        col
+        for col in warf_ds.df.columns
+        if col not in {"ID", "TIME", "AMT", "DV", "EVID", "MDV", "CMT", "RATE", "ADDL", "II", "SS"}
+    ]
 
-    print(f"Subjects: {warf_ds.n_subjects}")
-    print(f"Observations: {warf_ds.n_observations}")
-    print(f"Covariates: {warf_ds.covariate_names}")
+    print(f"Subjects: {warf_ds.n_subjects()}")
+    print(f"Observations: {warf_ds.n_observations()}")
+    print(f"Covariates: {covariate_cols}")
     warf_df
-    return WARFARIN_CSV, warf_df, warf_ds
+    return WARFARIN_CSV, covariate_cols, warf_df, warf_ds
 
 
 @app.cell
-def _(mo, warf_ds):
+def _(covariate_cols, mo, warf_ds):
     mo.md(
         f"""
         ## 2. Dataset Properties
@@ -124,10 +129,10 @@ def _(mo, warf_ds):
 
         | Property | Value |
         |----------|-------|
-        | `.n_subjects` | `{warf_ds.n_subjects}` |
-        | `.n_observations` | `{warf_ds.n_observations}` |
-        | `.covariate_names` | `{warf_ds.covariate_names}` |
-        | `.column_names` | `{warf_ds.column_names}` |
+        | `.n_subjects()` | `{warf_ds.n_subjects()}` |
+        | `.n_observations()` | `{warf_ds.n_observations()}` |
+        | covariate columns | `{covariate_cols}` |
+        | `.df.columns` | `{list(warf_ds.df.columns)}` |
         """
     )
     return
@@ -267,15 +272,15 @@ def _(mo):
         )
         ```
 
-        After loading, `ds.covariate_names` lists all time-invariant (or
-        time-varying) covariates found in the data.
+        After loading, inspect `ds.df.columns` and select the covariate columns
+        you want to use in modeling or imputation.
         """
     )
     return
 
 
 @app.cell
-def _(mo, warf_df, warf_ds):
+def _(covariate_cols, mo, warf_df, warf_ds):
     import matplotlib
 
     matplotlib.use("Agg")
@@ -301,15 +306,15 @@ def _(mo, warf_df, warf_ds):
 
     fig.tight_layout()
     mo.md(
-        f"**Dataset summary:** {warf_ds.n_subjects} subjects, "
-        f"{warf_ds.n_observations} observations, "
-        f"covariates: {warf_ds.covariate_names}"
+        f"**Dataset summary:** {warf_ds.n_subjects()} subjects, "
+        f"{warf_ds.n_observations()} observations, "
+        f"covariates: {covariate_cols}"
     )
     return axes, fig, matplotlib, obs_df, plt, sid, sub
 
 
 @app.cell
-def _():
+def _(fig):
     fig
     return
 
@@ -324,8 +329,8 @@ def _(mo):
         |------|-----|
         | Load from DataFrame | `NONMEMDataset.from_dataframe(df)` |
         | Load from CSV file | `NONMEMDataset.from_csv("file.csv")` |
-        | Check subjects/observations | `.n_subjects`, `.n_observations` |
-        | Get covariate names | `.covariate_names` |
+        | Check subjects/observations | `.n_subjects()`, `.n_observations()` |
+        | Inspect covariates | `ds.df.columns` |
         | BLQ handling | `.estimation(blq_method="M3")` |
         | IOV | `OCC` column + IOV omega block |
 

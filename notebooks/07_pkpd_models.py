@@ -80,6 +80,20 @@ def _():
 
 
 @app.cell
+def _():
+    from openpkpd.models.pkpd import (
+        EmaxModel,
+        EffectCompartmentModel,
+        HillModel,
+        IndirectResponseModel,
+        InhibEmaxModel,
+        PDData,
+    )
+
+    return EmaxModel, EffectCompartmentModel, HillModel, IndirectResponseModel, InhibEmaxModel, PDData
+
+
+@app.cell
 def _(mo):
     mo.md(
         r"""
@@ -99,29 +113,31 @@ def _(mo):
 
 
 @app.cell
-def _(np, plt):
-    from openpkpd.models.pkpd import EmaxModel, SigmoidEmaxModel, InhibitoryEmaxModel
-
+def _(EmaxModel, HillModel, InhibEmaxModel, PDData, np, plt):
     C = np.linspace(0, 100, 400)
+    dummy = PDData(subject_id=1, times=C, response=np.zeros_like(C), concentrations=C)
 
-    emax_model = EmaxModel(e0=1.0, emax=10.0, ec50=20.0)
-    sig_model = SigmoidEmaxModel(e0=1.0, emax=10.0, ec50=20.0, hill=3.0)
-    inh_model = InhibitoryEmaxModel(e0=10.0, imax=1.0, ic50=15.0, hill=1.5)
+    emax_model = EmaxModel()
+    sig_model = HillModel()
+    inh_model = InhibEmaxModel()
+    emax_effect = emax_model.predict({"E0": 1.0, "Emax": 10.0, "EC50": 20.0}, dummy)
+    sig_effect = sig_model.predict({"E0": 1.0, "Emax": 10.0, "EC50": 20.0, "gamma": 3.0}, dummy)
+    inh_effect = inh_model.predict({"E0": 10.0, "Imax": 1.0, "IC50": 15.0, "gamma": 1.5}, dummy)
 
     fig_emax, axes = plt.subplots(1, 2, figsize=(12, 4))
 
-    axes[0].plot(C, emax_model.effect(C), label="Emax (Hill=1)", lw=2)
-    axes[0].plot(C, sig_model.effect(C), label="Sigmoid Emax (Hill=3)", lw=2, ls="--")
-    axes[0].axhline(emax_model.e0 + emax_model.emax, color="grey", ls=":", lw=1)
-    axes[0].axvline(emax_model.ec50, color="red", ls=":", lw=1, label="EC₅₀")
+    axes[0].plot(C, emax_effect, label="Emax (Hill=1)", lw=2)
+    axes[0].plot(C, sig_effect, label="Hill model (gamma=3)", lw=2, ls="--")
+    axes[0].axhline(11.0, color="grey", ls=":", lw=1)
+    axes[0].axvline(20.0, color="red", ls=":", lw=1, label="EC₅₀")
     axes[0].set_xlabel("Concentration")
     axes[0].set_ylabel("Effect")
     axes[0].set_title("Emax and Sigmoid Emax Models")
     axes[0].legend()
 
-    axes[1].plot(C, inh_model.effect(C), color="darkorange", lw=2)
-    axes[1].axhline(inh_model.e0 * (1 - inh_model.imax), color="grey", ls=":", lw=1)
-    axes[1].axvline(inh_model.ic50, color="red", ls=":", lw=1, label="IC₅₀")
+    axes[1].plot(C, inh_effect, color="darkorange", lw=2)
+    axes[1].axhline(0.0, color="grey", ls=":", lw=1)
+    axes[1].axvline(15.0, color="red", ls=":", lw=1, label="IC₅₀")
     axes[1].set_xlabel("Concentration")
     axes[1].set_ylabel("Effect")
     axes[1].set_title("Inhibitory Emax Model (Hill=1.5)")
@@ -132,13 +148,16 @@ def _(np, plt):
     return (
         C,
         EmaxModel,
-        InhibitoryEmaxModel,
-        SigmoidEmaxModel,
+        HillModel,
+        InhibEmaxModel,
         axes,
         emax_model,
+        emax_effect,
         fig_emax,
         inh_model,
+        inh_effect,
         sig_model,
+        sig_effect,
     )
 
 
@@ -165,21 +184,24 @@ def _(mo):
 
 
 @app.cell
-def _(np, plt):
-    from openpkpd.models.pkpd import IndirectResponseModel
-
+def _(IndirectResponseModel, PDData, np, plt):
     t_idr = np.linspace(0, 48, 300)
 
-    # Type I: inhibit production
-    idr_i = IndirectResponseModel(kin=2.0, kout=0.1, imax=0.8, ic50=1.0, model_type="I")
-    # Type III: stimulate production
-    idr_iii = IndirectResponseModel(kin=2.0, kout=0.1, emax=5.0, ec50=1.0, model_type="III")
+    idr_i = IndirectResponseModel(idr_type=3)  # inhibit input
+    idr_iii = IndirectResponseModel(idr_type=1)  # stimulate input
 
     # Simulate a declining concentration profile
     C_t = 5.0 * np.exp(-0.3 * t_idr)
+    idr_data = PDData(
+        subject_id=1,
+        times=t_idr,
+        response=np.zeros_like(t_idr),
+        concentrations=C_t,
+        baseline=20.0,
+    )
 
-    R_i = idr_i.simulate(t_idr, C_t)
-    R_iii = idr_iii.simulate(t_idr, C_t)
+    R_i = idr_i.predict({"Kin": 2.0, "Kout": 0.1, "IC50": 1.0, "Imax": 0.8}, idr_data)
+    R_iii = idr_iii.predict({"Kin": 2.0, "Kout": 0.1, "EC50": 1.0, "Emax": 5.0}, idr_data)
 
     fig_idr, ax_idr = plt.subplots(1, 2, figsize=(12, 4))
     ax_idr[0].plot(t_idr, C_t, color="grey", lw=1.5, ls="--", label="C(t)")
@@ -190,7 +212,7 @@ def _(np, plt):
 
     ax_idr[1].plot(t_idr, R_i, lw=2, label="IDR Type I  (inhib. prod.)")
     ax_idr[1].plot(t_idr, R_iii, lw=2, ls="--", label="IDR Type III (stim. prod.)")
-    ax_idr[1].axhline(idr_i.baseline, color="grey", ls=":", lw=1, label="Baseline")
+    ax_idr[1].axhline(20.0, color="grey", ls=":", lw=1, label="Baseline")
     ax_idr[1].set_xlabel("Time (h)")
     ax_idr[1].set_ylabel("Response R")
     ax_idr[1].set_title("Indirect Response Model")
@@ -229,14 +251,23 @@ def _(mo):
 
 
 @app.cell
-def _(np, plt):
-    from openpkpd.models.pkpd import EffectCompartmentModel
-
+def _(EffectCompartmentModel, PDData, np, plt):
     t_ce = np.linspace(0, 24, 300)
     Cp = 10 * (np.exp(-0.2 * t_ce) - np.exp(-1.5 * t_ce))
 
-    ce_model = EffectCompartmentModel(ke0=0.5, emax=8.0, ec50=3.0)
-    Ce, E = ce_model.simulate(t_ce, Cp)
+    ce_model = EffectCompartmentModel()
+    ce_data = PDData(subject_id=1, times=t_ce, response=np.zeros_like(t_ce), concentrations=Cp)
+    E = ce_model.predict({"Ke0": 0.5, "Emax": 8.0, "EC50": 3.0, "n": 1.0}, ce_data)
+
+    # Reconstruct Ce for illustration with the same ODE used by the model.
+    from scipy.integrate import solve_ivp
+
+    def ce_ode(t, y):
+        cp = float(np.interp(t, t_ce, Cp, left=0.0, right=0.0))
+        return [0.5 * (cp - y[0])]
+
+    ce_sol = solve_ivp(ce_ode, [float(t_ce[0]), float(t_ce[-1])], [0.0], t_eval=t_ce)
+    Ce = ce_sol.y[0] if ce_sol.success else np.zeros_like(t_ce)
 
     fig_ce, (a1, a2) = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
     a1.plot(t_ce, Cp, lw=2, label="Cp (plasma)")
@@ -252,7 +283,7 @@ def _(np, plt):
 
     fig_ce.tight_layout()
     fig_ce
-    return Ce, Cp, E, EffectCompartmentModel, a1, a2, ce_model, fig_ce, t_ce
+    return Ce, Cp, E, EffectCompartmentModel, a1, a2, ce_model, ce_data, fig_ce, t_ce
 
 
 @app.cell
@@ -373,8 +404,8 @@ def _(mo):
         | Model class | Module | Use case |
         |-------------|--------|----------|
         | `EmaxModel` | `models.pkpd` | Direct saturable effect |
-        | `SigmoidEmaxModel` | `models.pkpd` | Sigmoid concentration-response |
-        | `InhibitoryEmaxModel` | `models.pkpd` | Inhibitory effects |
+        | `HillModel` | `models.pkpd` | Sigmoid concentration-response |
+        | `InhibEmaxModel` | `models.pkpd` | Inhibitory effects |
         | `IndirectResponseModel` | `models.pkpd` | Indirect (Kin/Kout) PD |
         | `EffectCompartmentModel` | `models.pkpd` | Hysteresis via Ce |
         | `PopulationPDModel` | `models.population_pd` | Mixed-effects PD |

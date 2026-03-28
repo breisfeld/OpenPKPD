@@ -72,6 +72,7 @@ dev = [
     "mypy>=1.11",
     "hypothesis>=6.110",
     "pre-commit>=3.8",
+    "marimo>=0.10",
     "matplotlib>=3.9",
     "maturin>=1.5,<2",
 ]
@@ -178,6 +179,8 @@ dev = [
     "pytest>=9.0.2",
     "hypothesis>=6.110",
     "pytest-xdist>=3.8.0",
+    "marimo>=0.10",
+    "matplotlib>=3.9",
 ]
 validation = [
     "rpy2>=3.6.5",

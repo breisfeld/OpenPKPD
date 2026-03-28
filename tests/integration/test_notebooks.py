@@ -235,8 +235,11 @@ def test_pk_subroutines_notebook_reports_solver_options() -> None:
         (
             "09_covariate_modeling.py",
             [
+                "Base model OFV:",
                 "Candidate relationships: 4",
                 "Stepwise Covariate Modeling (SCM) Summary",
+                "Retained relationship count:",
+                "Top SCM signal:",
             ],
         ),
         (

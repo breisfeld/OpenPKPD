@@ -337,6 +337,27 @@ def _(mo, scm_result):
 
 
 @app.cell
+def _(base_result, scm_result, steps_df):
+    accepted = scm_result.accepted_relationships
+    print(f"Retained relationship count: {len(accepted)}")
+    if accepted:
+        for rel in accepted:
+            print(f"Retained: {rel.parameter} ~ {rel.covariate} ({rel.effect.name})")
+    else:
+        print("Retained: none")
+
+    if not steps_df.empty:
+        best_step = steps_df.sort_values("ΔOFV").iloc[0]
+        print(
+            "Top SCM signal: "
+            f"{best_step['Covariate']} with ΔOFV={best_step['ΔOFV']:.3f} "
+            f"({best_step['Phase']})"
+        )
+    print(f"Base model OFV: {base_result.ofv:.3f}")
+    return
+
+
+@app.cell
 def _():
     from openpkpd.plots.covariate import covariate_forest_plot
 

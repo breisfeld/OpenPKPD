@@ -21,6 +21,7 @@ from openpkpd_gui.workflows.results_workflow import (
     filter_artifacts,
     format_artifact_metadata,
     format_results_comparison_action,
+    format_results_comparison_delta,
     format_results_comparison_panel,
     format_fit_review_summary,
     format_results_comparison_summary,
@@ -257,6 +258,42 @@ def test_format_results_comparison_panel_handles_empty_peer_set() -> None:
 
     assert "Comparison panel:" in panel
     assert "No sibling scenarios yet" in panel
+
+
+def test_format_results_comparison_delta_reports_metric_differences() -> None:
+    workspace = Workspace(name="Review helpers")
+    workspace.active_scenario.runs = [RunRecord(workflow="fit", status=RunStatus.SUCCEEDED)]
+    workspace.active_scenario.artifacts = [
+        ArtifactRecord(kind="report", label="Baseline report", path="/tmp/base-report.html")
+    ]
+    peer = workspace.active_scenario.snapshot_clone(name="Variant A")
+    peer.runs = [
+        RunRecord(workflow="fit", status=RunStatus.SUCCEEDED),
+        RunRecord(workflow="nca", status=RunStatus.SUCCEEDED),
+        RunRecord(workflow="fit", status=RunStatus.SUCCEEDED),
+    ]
+    peer.artifacts = [
+        ArtifactRecord(kind="report", label="Report", path="/tmp/a-report.html"),
+        ArtifactRecord(kind="plot", label="Plot", path="/tmp/a-plot.png"),
+        ArtifactRecord(kind="table", label="Table", path="/tmp/a-table.csv"),
+    ]
+    workspace.active_project.add_scenario(peer, make_active=False)
+
+    delta = format_results_comparison_delta(workspace)
+
+    assert "Comparison delta vs Variant A:" in delta
+    assert "2 more successful runs" in delta
+    assert "1 more successful fits" in delta
+    assert "2 more outputs" in delta
+
+
+def test_format_results_comparison_delta_handles_empty_peer_set() -> None:
+    workspace = Workspace(name="Review helpers")
+
+    delta = format_results_comparison_delta(workspace)
+
+    assert "Comparison delta:" in delta
+    assert "no sibling scenario available yet" in delta
 
 
 def test_select_results_comparison_target_returns_richest_peer() -> None:

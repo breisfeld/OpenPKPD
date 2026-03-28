@@ -286,6 +286,38 @@ def format_results_comparison_panel(workspace: Workspace) -> str:
     return "\n".join(lines)
 
 
+def format_results_comparison_delta(workspace: Workspace) -> str:
+    """Summarize deltas between the current scenario and the best comparison target."""
+    project = workspace.active_project
+    current = project.active_scenario
+    target_id = select_results_comparison_target(workspace)
+    if target_id is None:
+        return (
+            "Comparison delta: no sibling scenario available yet. Create or duplicate a scenario "
+            "to review fit-status and artifact deltas."
+        )
+
+    target = next(
+        scenario for scenario in project.scenarios if scenario.scenario_id == target_id
+    )
+    current_fit_runs = [run for run in current.runs if run.workflow == "fit"]
+    target_fit_runs = [run for run in target.runs if run.workflow == "fit"]
+    current_fit_successes = sum(1 for run in current_fit_runs if run.status == RunStatus.SUCCEEDED)
+    target_fit_successes = sum(1 for run in target_fit_runs if run.status == RunStatus.SUCCEEDED)
+    current_successes = sum(1 for run in current.runs if run.status == RunStatus.SUCCEEDED)
+    target_successes = sum(1 for run in target.runs if run.status == RunStatus.SUCCEEDED)
+    artifact_delta = len(target.artifacts) - len(current.artifacts)
+    fit_delta = target_fit_successes - current_fit_successes
+    success_delta = target_successes - current_successes
+    artifact_word = "more" if artifact_delta >= 0 else "fewer"
+    fit_word = "more" if fit_delta >= 0 else "fewer"
+    success_word = "more" if success_delta >= 0 else "fewer"
+    return (
+        f"Comparison delta vs {target.name}: {abs(success_delta)} {success_word} successful runs, "
+        f"{abs(fit_delta)} {fit_word} successful fits, and {abs(artifact_delta)} {artifact_word} outputs."
+    )
+
+
 def format_results_comparison_action(workspace: Workspace) -> str:
     """Recommend the next most useful sibling scenario to inspect."""
     project = workspace.active_project
@@ -722,6 +754,10 @@ def build_results_workflow(
     comparison_panel_label.setObjectName("results-comparison-panel-label")
     comparison_panel_label.setWordWrap(True)
 
+    comparison_delta_label = qt_widgets.QLabel(format_results_comparison_delta(project))
+    comparison_delta_label.setObjectName("results-comparison-delta-label")
+    comparison_delta_label.setWordWrap(True)
+
     comparison_action_button = qt_widgets.QPushButton("Open comparison scenario")
     comparison_action_button.setObjectName("results-comparison-action-button")
     comparison_action_button.setMinimumHeight(32)
@@ -975,6 +1011,7 @@ def build_results_workflow(
     layout.addWidget(overview_label)
     layout.addWidget(comparison_label)
     layout.addWidget(comparison_panel_label)
+    layout.addWidget(comparison_delta_label)
     layout.addWidget(comparison_action_label)
     layout.addWidget(comparison_action_button)
     layout.addWidget(stale_warning_label)
@@ -1340,6 +1377,7 @@ def build_results_workflow(
         overview_label.setText(format_results_overview(project))
         comparison_label.setText(format_results_comparison_summary(project))
         comparison_panel_label.setText(format_results_comparison_panel(project))
+        comparison_delta_label.setText(format_results_comparison_delta(project))
         comparison_action_label.setText(format_results_comparison_action(project))
         comparison_action_button.setEnabled(select_results_comparison_target(project) is not None)
         stale_warning_label.setText(format_results_stale_warning(project))

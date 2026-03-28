@@ -6,5 +6,5 @@ build:
     python: "3.12"
   commands:
   - pip install uv
-  - uv sync --extra docs
-  - uv run sphinx-build -b html docs/ $READTHEDOCS_OUTPUT/html
+  - uv sync --no-dev --extra docs
+  - uv run --no-dev sphinx-build -b html docs/ $READTHEDOCS_OUTPUT/html

@@ -177,7 +177,9 @@ markers = [
 dev = [
     "pytest>=9.0.2",
     "hypothesis>=6.110",
+    "pytest-xdist>=3.8.0",
+]
+validation = [
     "rpy2>=3.6.5",
     "pharmpy-core>=2.0.0",
-    "pytest-xdist>=3.8.0",
 ]

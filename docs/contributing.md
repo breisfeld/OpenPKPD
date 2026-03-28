@@ -154,14 +154,6 @@ See the {doc}`/user_guide/index` for an overview of major modules. Key files:
 3. Ensure all tests pass and ruff/mypy report no errors.
 4. Open a pull request with a clear description of the change.
 
-## Roadmap
-
-See the documentation roadmap in `docs/roadmap.md` for current follow-up work:
-
-- **Phase 2** — ADVAN5–10 (ODE-based models)
-- **Phase 3** — NUTS/BAYES, mixture models, IOV, simulation
-- **Phase 4** — PBPK, DDE, full regression suite
-
 ## Licence
 
 OpenPKPD is released under the GNU Affero General Public Licence v3 (AGPLv3).

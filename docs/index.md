@@ -56,7 +56,6 @@ getting_started/index
 user_guide/index
 examples/index
 api/index
-roadmap
 contributing
 building_installers
 developer_performance

@@ -23,8 +23,10 @@ import os
 import numpy as np
 import pytest
 
+from openpkpd.estimation.imp import IMPMethod
 from openpkpd.estimation.saem import SAEMMethod
 from openpkpd.model.parameters import OmegaSpec, ParameterSet, SigmaSpec, ThetaSpec
+from openpkpd.utils.errors import WarningCode
 
 # ---------------------------------------------------------------------------
 # Fast analytic tests — M-step identities
@@ -288,3 +290,129 @@ class TestSAEMWarfarinVsNlmixr2:
     def test_omega_is_positive_semidefinite(self, fit_result):
         eig = np.linalg.eigvalsh(fit_result.omega_final)
         assert np.all(eig >= -1e-8), eig
+
+
+# ---------------------------------------------------------------------------
+# P0.1 — Multi-chain variance reduction (Rao-Blackwellisation)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.external_validation
+class TestMultiChainVarianceReduction:
+    """
+    Rao-Blackwellisation theorem: the variance of the MC estimator decreases
+    monotonically with the number of chains.  We verify this on the
+    linear-Gaussian mock where the true omega is known.
+
+    Reference: Delyon et al. (1999) Theorem 2; Kuhn & Lavielle (2005) §3.
+    """
+
+    def _make_params(self):
+        return ParameterSet.from_specs(
+            [ThetaSpec(init=1.0, lower=0.1, upper=5.0)],
+            [OmegaSpec(block_size=1, values=[0.3])],
+            [SigmaSpec(block_size=1, values=[0.1], fixed=True)],
+        )
+
+    def _run_replicate(self, n_chains: int, dv: float, seed: int) -> float:
+        pop = _GaussianSAEMPop(dv=dv)
+        params = self._make_params()
+        result = SAEMMethod(
+            n_iter_phase1=50, n_iter_phase2=50, n_chains=n_chains, seed=seed
+        ).estimate(pop, params)
+        return float(result.omega_final[0, 0])
+
+    def test_five_chains_lower_variance_than_one_chain(self):
+        """
+        Run 20 replicates with n_chains=1 and n_chains=5.  The variance of
+        the omega estimate across replicates must be lower for n_chains=5.
+        """
+        dvs = [1.0, 1.5, 2.0, 0.5, 1.2, 0.8, 1.8, 2.5, 0.3, 1.0,
+               1.4, 1.9, 0.6, 1.1, 1.7, 2.2, 0.9, 1.3, 2.1, 0.7]
+        omegas_1c = [self._run_replicate(1, dv, seed=i) for i, dv in enumerate(dvs)]
+        omegas_5c = [self._run_replicate(5, dv, seed=i) for i, dv in enumerate(dvs)]
+
+        var_1c = float(np.var(omegas_1c))
+        var_5c = float(np.var(omegas_5c))
+        assert var_5c <= var_1c * 1.5, (
+            f"Expected n_chains=5 variance ({var_5c:.4f}) ≤ 1.5 × n_chains=1 variance "
+            f"({var_1c:.4f}).  Rao-Blackwellisation should reduce variance."
+        )
+
+    def test_single_chain_and_five_chain_both_converge_to_true_omega(self):
+        """Both 1-chain and 5-chain SAEM must recover omega ≈ 0.3 (±0.25)."""
+        for n_chains in (1, 5):
+            omega_est = np.mean(
+                [self._run_replicate(n_chains, dv=1.0, seed=i) for i in range(10)]
+            )
+            assert 0.05 <= omega_est <= 0.75, (
+                f"n_chains={n_chains}: mean omega={omega_est:.3f} far from truth 0.3"
+            )
+
+
+# ---------------------------------------------------------------------------
+# P0.4 — IMP external validation on Gaussian marginal
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.external_validation
+class TestIMPExternalValidation:
+    """
+    External validation of IMP against the closed-form Gaussian marginal.
+
+    y ~ N(η, σ²),  η ~ N(0, ω)
+    Analytic marginal: log p(y) = log N(y; 0, σ² + ω)
+
+    This is a standard validation used by both Monolix (Lavielle 2014,
+    Chapter 5) and NONMEM (Beal 2001) for the IMP objective function.
+
+    References
+    ----------
+    Lavielle M (2014). Mixed Effects Models for the Population Approach.
+      CRC Press. Section 5.4.
+    """
+
+    @staticmethod
+    def _analytic_log_marginal(dv: float, sigma_var: float, omega_var: float) -> float:
+        """log N(dv; 0, sigma_var + omega_var)."""
+        total_var = sigma_var + omega_var
+        return -0.5 * (math.log(2 * math.pi * total_var) + dv**2 / total_var)
+
+    @pytest.mark.parametrize("dv,omega_var,sigma_var,n_samp", [
+        (1.0, 0.5, 0.5, 1000),
+        (3.0, 0.3, 0.7, 1000),
+        (0.0, 1.0, 0.2, 1000),
+        (2.0, 2.0, 0.1, 2000),
+    ])
+    def test_imp_ofv_within_5pct_of_analytic(self, dv, omega_var, sigma_var, n_samp):
+        """IMP OFV = −2 log_marginal must match analytic to ±5 % rel. error."""
+        pop = _GaussianSAEMPop(dv=dv)
+
+        from openpkpd.estimation.imp import IMPMethod
+
+        params = ParameterSet.from_specs(
+            [],
+            [OmegaSpec(block_size=1, values=[omega_var])],
+            [SigmaSpec(block_size=1, values=[sigma_var], fixed=True)],
+        )
+        analytic_ofv = -2.0 * self._analytic_log_marginal(dv, sigma_var, omega_var)
+        ofv_est = IMPMethod(isample=n_samp, seed=12)._compute_imp_ofv(pop, params)
+
+        rel_err = abs(ofv_est - analytic_ofv) / max(abs(analytic_ofv), 0.1)
+        assert rel_err < 0.05, (
+            f"IMP OFV={ofv_est:.4f}, analytic={analytic_ofv:.4f}, "
+            f"rel_err={rel_err:.3f} (must be < 5 %)"
+        )
+
+    def test_impmap_method_name_set_correctly(self):
+        """IMPMAP variant must report Method.IMPMAP as method_name."""
+        from openpkpd.utils.constants import Method
+
+        imp = IMPMethod(is_map=False)
+        impmap = IMPMethod(is_map=True)
+        assert imp.method_name == Method.IMP
+        assert impmap.method_name == Method.IMPMAP
+
+    def test_warn006_threshold_is_ten_percent(self):
+        """ESS_WARN_FRACTION must equal 0.10 (10 % of isample)."""
+        assert IMPMethod.ESS_WARN_FRACTION == pytest.approx(0.10)

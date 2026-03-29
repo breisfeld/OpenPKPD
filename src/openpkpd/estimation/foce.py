@@ -30,6 +30,7 @@ from openpkpd.estimation.base import EstimationMethod, EstimationResult
 from openpkpd.math.matrix import repair_pd
 from openpkpd.model.parameters import ParameterSet
 from openpkpd.utils.constants import LOG2PI, Method
+from openpkpd.utils.errors import WarningCode, WarningSeverity
 from openpkpd.utils.logging import get_logger
 
 logger = get_logger("estimation.foce")
@@ -205,13 +206,37 @@ def _compute_G_i(
     h: float = 1e-4,
 ) -> np.ndarray:
     """
-    Compute the sensitivity matrix G_i = ∂pred/∂η at η̂_i via forward differences.
+    Compute the sensitivity matrix G_i = ∂pred/∂η at η̂_i.
+
+    When the individual model's PK subroutine exposes *solve_with_sensitivity*
+    (e.g. ADVAN13 with forward sensitivity equations), the computation is split:
+      1. ``solve_with_sensitivity`` gives ∂amounts/∂pk_params (n_t × n_cmt × n_p).
+      2. Finite-difference on the *cheap* pk_callable gives ∂pk_params/∂η.
+      3. The observation-model Jacobian ∂pred/∂amounts is obtained via one FD
+         per ETA dimension, but on the *observation model only* (no ODE re-solve).
+
+    Fallback: standard forward-difference on *evaluate_observation_model* —
+    requires one full model evaluation (including ODE) per ETA dimension.
 
     Returns an (n_obs, n_eta) matrix.
     """
     n_eta = len(eta)
     n_obs = len(pred0_obs)
     G = np.zeros((n_obs, n_eta))
+
+    # ── Try sensitivity-assisted gradient (ADVAN13 path) ─────────────────────
+    pk_sub = getattr(indiv, "pk_subroutine", None)
+    sws = getattr(pk_sub, "solve_with_sensitivity", None) if pk_sub is not None else None
+
+    if sws is not None:
+        try:
+            return _compute_G_i_via_sensitivity(
+                indiv, pk_sub, theta, eta, sigma, trans, obs_mask, pred0_obs, h
+            )
+        except Exception:
+            pass  # fall through to FD path
+
+    # ── Standard forward-difference path ─────────────────────────────────────
     for k in range(n_eta):
         eta_p = eta.copy()
         eta_p[k] += h
@@ -221,6 +246,116 @@ def _compute_G_i(
         except Exception:
             pass  # column stays zero
     return G
+
+
+def _compute_G_i_via_sensitivity(
+    indiv: Any,
+    pk_sub: Any,
+    theta: np.ndarray,
+    eta: np.ndarray,
+    sigma: np.ndarray,
+    trans: int,
+    obs_mask: np.ndarray,
+    pred0_obs: np.ndarray,
+    h: float = 1e-4,
+) -> np.ndarray:
+    """
+    Sensitivity-assisted G_i using ADVAN's solve_with_sensitivity output.
+
+    Algorithm (chain rule):
+      G[:, k] ≈ (∂IPRED/∂amounts) × (∂amounts/∂pk_params) × (∂pk_params/∂η[k])
+
+    Step 1 — get ∂amounts/∂pk_params from pk_sub.solve_with_sensitivity().
+              shape: (n_obs, n_cmt, n_pk_params)
+    Step 2 — FD on the pk_callable (eta → pk_params) to get ∂pk_params/∂η[k].
+              n_eta calls, each much cheaper than a full ODE solve.
+    Step 3 — combine to get ∂amounts/∂η[k] = sensitivity @ d_pk_k
+              shape: (n_obs, n_cmt)
+    Step 4 — FD on the observation model (which maps perturbed amounts → IPRED)
+              to get ∂IPRED/∂η[k].  Only the observation model runs; ODE is skipped.
+
+    Raises on any failure so the caller can fall back to plain FD.
+    """
+    n_eta = len(eta)
+    n_obs = len(pred0_obs)
+    G = np.zeros((n_obs, n_eta))
+
+    # Nominal sensitivity: ∂amounts/∂pk_params at (theta, eta)
+    # returns PKSolution with .sensitivity field of shape (n_t, n_cmt, n_pk_params)
+    sol0 = pk_sub.solve_with_sensitivity(theta=theta, eta=eta, trans=trans)
+    sensitivity = np.asarray(sol0.sensitivity)  # (n_t, n_cmt, n_pk_params)
+    amounts0 = np.asarray(sol0.y)               # (n_t, n_cmt) or (n_t,)
+
+    # Base pk_params at nominal eta
+    pk_callable = getattr(indiv, "pk_callable", None)
+    if pk_callable is None:
+        raise RuntimeError("IndividualModel has no pk_callable attribute")
+    pk0 = np.asarray(pk_callable(theta, eta, trans=trans), dtype=float)  # (n_pk_params,)
+    n_pk = len(pk0)
+    n_t, *_ = sensitivity.shape
+    if sensitivity.ndim == 2:
+        sensitivity = sensitivity[:, :, np.newaxis]  # (n_t, 1, n_pk) → broadcast
+
+    for k in range(n_eta):
+        eta_p = eta.copy()
+        eta_p[k] += h
+        # ∂pk_params/∂η[k] — cheap, no ODE
+        pk_p = np.asarray(pk_callable(theta, eta_p, trans=trans), dtype=float)
+        d_pk_k = (pk_p - pk0) / h  # (n_pk_params,)
+
+        # ∂amounts/∂η[k] = sensitivity @ d_pk_k  (n_t, n_cmt)
+        if sensitivity.ndim == 3:
+            d_amounts_k = sensitivity @ d_pk_k  # (n_t, n_cmt)
+        else:
+            d_amounts_k = sensitivity * d_pk_k[0]
+
+        # ∂IPRED/∂η[k]: perturb amounts by d_amounts_k * h and use FD
+        perturbed_amounts = amounts0 + d_amounts_k * h
+        obs_from_amounts = getattr(indiv, "_obs_from_amounts", None)
+        if obs_from_amounts is not None:
+            raw = obs_from_amounts(theta, eta_p, sigma, trans=trans, amounts=perturbed_amounts)
+        else:
+            raw = indiv.evaluate_observation_model(
+                theta, eta_p, sigma, trans=trans, _amounts=perturbed_amounts
+            )
+        # evaluate_observation_model returns (amounts, obs_mask, dv, pred, var)
+        if isinstance(raw, tuple):
+            pred_p = np.asarray(raw[3])
+        else:
+            pred_p = np.asarray(raw)
+        if pred_p.shape == pred0_obs.shape:
+            G[:, k] = (pred_p - pred0_obs) / h
+        elif pred_p.size >= obs_mask.sum():
+            G[:, k] = (pred_p[obs_mask] - pred0_obs) / h
+
+    return G
+
+
+def _estimate_gradient_norm(result: Any) -> float | None:
+    """
+    Extract gradient norm from a scipy OptimizeResult, or return None.
+
+    L-BFGS-B stores the projected gradient in ``result.jac`` (the gradient
+    is the *projected* L-infinity norm for the display, but the full gradient
+    array is available when ``jac=True`` or ``jac='2-point'`` is used).
+    trust-constr stores the actual gradient in ``result.grad``.
+    """
+    # trust-constr sets result.grad
+    grad = getattr(result, "grad", None)
+    if grad is not None:
+        arr = np.asarray(grad, dtype=float)
+        if arr.size > 0:
+            return float(np.max(np.abs(arr)))
+    # L-BFGS-B sets result.jac when jac is supplied as array
+    jac = getattr(result, "jac", None)
+    if jac is not None:
+        try:
+            arr = np.asarray(jac, dtype=float)
+            if arr.size > 0:
+                return float(np.max(np.abs(arr)))
+        except (TypeError, ValueError):
+            pass
+    return None
 
 
 class FOCEMethod(EstimationMethod):
@@ -407,6 +542,22 @@ class FOCEMethod(EstimationMethod):
             method=self.method_name,
             message=getattr(result, "message", ""),
         )
+
+        # ── Structured estimation warnings ────────────────────────────────────
+        # Gradient norm at convergence
+        grad_norm = _estimate_gradient_norm(result)
+        if grad_norm is not None and grad_norm > 1e-2:
+            res.add_structured_warning(
+                WarningCode.WARN_003,
+                f"Gradient norm at convergence = {grad_norm:.3e} (> 1e-2). "
+                "Outer optimisation may not have reached a true minimum; "
+                "try tighter gtol or 'trust-constr' outer_optimizer.",
+                WarningSeverity.WARNING,
+            )
+
+        # Omega conditioning
+        res.check_omega_conditioning()
+
         res.compute_shrinkage()
         return res
 
@@ -588,24 +739,69 @@ class FOCEMethod(EstimationMethod):
         optimizer: str,
         maxeval: int,
     ) -> Any:
-        method_key = str(optimizer).strip().upper()
-        if method_key == "L-BFGS-B":
-            method = "L-BFGS-B"
-        elif method_key == "POWELL":
-            method = "Powell"
-        else:
-            raise ValueError(f"Unsupported FOCE outer optimizer: {optimizer}")
+        """
+        Run the outer (population-parameter) optimizer.
+
+        Supported methods
+        -----------------
+        ``L-BFGS-B``    (default) — quasi-Newton with box bounds.
+        ``Powell``      — derivative-free, used as fallback for FOCEI.
+        ``trust-constr`` — trust-region sequential-QP with box bounds.
+                          More robust on ill-conditioned Omega; uses central
+                          finite-difference gradients computed internally by
+                          scipy when ``jac='2-point'``.
+        """
+        from scipy.optimize import Bounds as ScipyBounds
+
+        method_key = str(optimizer).strip().upper().replace("-", "").replace("_", "")
         options: dict[str, Any]
-        if method == "L-BFGS-B":
-            options = {"maxiter": maxeval, "ftol": 1e-9, "gtol": self.gtol}
-        elif method == "Powell":
-            options = {"maxiter": maxeval, "xtol": 1e-3, "ftol": 1e-3}
-        return minimize(
-            objective,
-            x0,
-            method=method,
-            bounds=bounds,
-            options=options,
+
+        if method_key == "LBFGSB":
+            return minimize(
+                objective,
+                x0,
+                method="L-BFGS-B",
+                bounds=bounds,
+                options={"maxiter": maxeval, "ftol": 1e-9, "gtol": self.gtol},
+            )
+
+        if method_key == "POWELL":
+            return minimize(
+                objective,
+                x0,
+                method="Powell",
+                bounds=bounds,
+                options={"maxiter": maxeval, "xtol": 1e-3, "ftol": 1e-3},
+            )
+
+        if method_key == "TRUSTCONSTR":
+            # Build scipy Bounds object; None → ±inf
+            from scipy.optimize import SR1
+
+            lb = np.array([b[0] if b[0] is not None else -np.inf for b in bounds])
+            ub = np.array([b[1] if b[1] is not None else +np.inf for b in bounds])
+            scipy_bounds = ScipyBounds(lb, ub)
+            # scipy trust-constr: when jac is FD ('2-point'), the Hessian must
+            # be a quasi-Newton approximation (SR1 or BFGS), not also FD.
+            return minimize(
+                objective,
+                x0,
+                method="trust-constr",
+                jac="2-point",          # central FD gradient
+                hess=SR1(),             # SR1 quasi-Newton Hessian approximation
+                bounds=scipy_bounds,
+                options={
+                    "maxiter": maxeval,
+                    "gtol": self.gtol,
+                    "xtol": 1e-8,
+                    "verbose": 0,
+                    "finite_diff_rel_step": 1e-4,
+                },
+            )
+
+        raise ValueError(
+            f"Unsupported FOCE outer optimizer: {optimizer!r}. "
+            "Use 'L-BFGS-B', 'Powell', or 'trust-constr'."
         )
 
     def _inner_loop(

@@ -49,8 +49,10 @@ def get_estimation_method(
         kwargs.pop("maxeval", None)
         kwargs.pop("n_parallel", None)
         return SAEMMethod(**kwargs)
-    elif m in (Method.IMP, Method.IMPMAP):
-        return IMPMethod(**kwargs)
+    elif m == Method.IMP:
+        return IMPMethod(is_map=False, **kwargs)
+    elif m == Method.IMPMAP:
+        return IMPMethod(is_map=True, **kwargs)
     elif m == Method.BAYES:
         kwargs.pop("n_parallel", None)
         return BAYESMethod(**kwargs)

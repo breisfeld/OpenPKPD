@@ -32,6 +32,7 @@ from openpkpd.estimation.base import EstimationMethod, EstimationResult
 from openpkpd.math.matrix import numerical_hessian, repair_pd
 from openpkpd.model.parameters import ParameterSet
 from openpkpd.utils.constants import Method
+from openpkpd.utils.errors import WarningCode, WarningSeverity
 from openpkpd.utils.logging import get_logger
 
 logger = get_logger("estimation.imp")
@@ -50,6 +51,9 @@ class IMPMethod(EstimationMethod):
 
     method_name = Method.IMP
 
+    #: ESS fraction below which a WARN_006 is emitted (fraction of isample).
+    ESS_WARN_FRACTION: float = 0.10
+
     def __init__(
         self,
         isample: int = 300,
@@ -57,15 +61,21 @@ class IMPMethod(EstimationMethod):
         print_interval: int = 10,
         seed: int | None = None,
         n_parallel: int = 1,
+        is_map: bool = False,
     ) -> None:
         self.isample = isample
         self.maxeval = maxeval
         self.print_interval = print_interval
         self.n_parallel = n_parallel
+        self.is_map = is_map
         self.rng = np.random.default_rng(seed)
         self._iter = 0
         self._ofv_history: list[float] = []
         self._subj_rngs: dict[int, np.random.Generator] = {}
+        # Populated during estimate(): list of (subj_id, ess) for low-ESS subjects
+        self._low_ess_subjects: list[tuple[int, float]] = []
+        if is_map:
+            self.method_name = Method.IMPMAP
 
     def estimate(
         self,
@@ -75,10 +85,14 @@ class IMPMethod(EstimationMethod):
     ) -> EstimationResult:
         t0 = time.time()
         params = init_params.apply_bounds()
-        logger.info(f"Starting IMP estimation, isample={self.isample}")
+        logger.info(
+            f"Starting {'IMPMAP' if self.is_map else 'IMP'} estimation, "
+            f"isample={self.isample}"
+        )
 
         self._iter = 0
         self._ofv_history = []
+        self._low_ess_subjects = []
 
         # One RNG per subject — independent streams, thread-safe for parallel eval
         def _child_rng() -> np.random.Generator:
@@ -114,7 +128,8 @@ class IMPMethod(EstimationMethod):
         eta_hat = self._map_etas(population_model, final_params)
 
         elapsed = time.time() - t0
-        logger.info(f"IMP completed in {elapsed:.1f}s, OFV={final_ofv:.4f}")
+        method_label = "IMPMAP" if self.is_map else "IMP"
+        logger.info(f"{method_label} completed in {elapsed:.1f}s, OFV={final_ofv:.4f}")
 
         res = EstimationResult(
             theta_final=final_params.theta,
@@ -128,6 +143,22 @@ class IMPMethod(EstimationMethod):
             method=self.method_name,
             message=getattr(result, "message", ""),
         )
+
+        # ── WARN_006: low effective sample size ──────────────────────────────
+        if self._low_ess_subjects:
+            n_low = len(self._low_ess_subjects)
+            worst_id, worst_ess = min(self._low_ess_subjects, key=lambda t: t[1])
+            threshold = self.ESS_WARN_FRACTION * self.isample
+            res.add_structured_warning(
+                WarningCode.WARN_006,
+                f"{n_low} subject(s) had low effective sample size "
+                f"(< {threshold:.0f} = {self.ESS_WARN_FRACTION * 100:.0f}% × isample={self.isample}). "
+                f"Worst: subject {worst_id} ESS={worst_ess:.1f}. "
+                "Consider increasing isample or tightening the proposal covariance.",
+                WarningSeverity.WARNING,
+            )
+
+        res.check_omega_conditioning()
         res.compute_shrinkage()
         return res
 
@@ -257,12 +288,19 @@ class IMPMethod(EstimationMethod):
             np.mean(np.exp(np.clip(log_weights - log_weights_max, -50, 50)))
         )
 
-        # ESS monitoring
+        # ESS monitoring — store for WARN_006 emission in estimate()
         w = np.exp(np.clip(log_weights - np.max(log_weights), -50, 0))
-        w /= w.sum()
-        ess = 1.0 / float(np.sum(w**2))
-        if ess < 0.1 * self.isample:
-            logger.debug(f"  Subject {subj_id}: low ESS={ess:.1f}")
+        w_sum = float(w.sum())
+        if w_sum > 0:
+            w_norm = w / w_sum
+            ess = 1.0 / float(np.sum(w_norm**2))
+        else:
+            ess = 0.0
+        threshold = self.ESS_WARN_FRACTION * self.isample
+        if ess < threshold:
+            logger.debug(f"  Subject {subj_id}: low ESS={ess:.1f} (threshold={threshold:.0f})")
+            # Thread-safe append — Python list.append is GIL-protected
+            self._low_ess_subjects.append((subj_id, ess))
 
         return float(log_marg)
 

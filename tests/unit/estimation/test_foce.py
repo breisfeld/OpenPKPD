@@ -5,10 +5,16 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from openpkpd.estimation.foce import FOCEMethod
+from openpkpd.estimation.foce import (
+    FOCEMethod,
+    _compute_G_i,
+    _compute_G_i_via_sensitivity,
+    _estimate_gradient_norm,
+)
 from openpkpd.model.derivative_kernels import DerivativeKernelCapabilities
 from openpkpd.model.parameters import OmegaSpec, ParameterSet, SigmaSpec, ThetaSpec
 from openpkpd.utils.constants import LOG2PI
+from openpkpd.utils.errors import WarningCode
 
 
 class _DummySubjectEvents:
@@ -668,3 +674,280 @@ def test_multistart_gtol_is_passed_to_optimizer(
 
     assert seen_gtol, "minimize was never called"
     assert seen_gtol[0] == pytest.approx(1e-7)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P0.2 — Trust-region outer optimizer
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestTrustConstrOptimizer:
+    """trust-constr must be accepted and must find the minimum of a quadratic OFV."""
+
+    def _make_quadratic_params(self) -> ParameterSet:
+        return ParameterSet.from_specs(
+            [ThetaSpec(init=2.0, lower=0.5, upper=5.0)],
+            [OmegaSpec(block_size=1, values=[0.1], fixed=True)],
+            [SigmaSpec(block_size=1, values=[0.05], fixed=True)],
+        )
+
+    def test_trust_constr_accepted_without_error(self):
+        params = self._make_quadratic_params()
+        foce = FOCEMethod(
+            maxeval=30,
+            outer_optimizer="trust-constr",
+            outer_fallback_optimizer=None,
+            retain_best_iterate=False,
+        )
+        # Should not raise ValueError
+        result = foce.estimate(_DummyPopulationModel(), params)
+        assert np.isfinite(result.ofv)
+
+    def test_invalid_optimizer_raises(self):
+        params = self._make_quadratic_params()
+        foce = FOCEMethod(outer_optimizer="bogus", outer_fallback_optimizer=None)
+        with pytest.raises(ValueError, match="Unsupported"):
+            foce.estimate(_DummyPopulationModel(), params)
+
+    def test_trust_constr_finds_optimum_of_quadratic(self):
+        """
+        OFV = (theta - 1.5)^2.  The trust-constr optimizer should converge to
+        theta ≈ 1.5 given enough function evaluations.
+        """
+        class _QuadraticIndividual:
+            subject_events = type(
+                "E", (), {"obs_dv": np.array([1.5]), "observation_mask": lambda s: np.array([True])}
+            )()
+
+            def obj_eta(self, eta, theta, omega, sigma, trans=2):
+                return float((float(theta[0]) - 1.5) ** 2)
+
+            def log_likelihood(self, theta, eta, sigma, trans=2):
+                return -(float(theta[0]) - 1.5) ** 2
+
+            def evaluate_observation_model(self, theta, eta, sigma, trans=2):
+                p = np.array([float(theta[0])])
+                return p, np.array([True]), p, p, np.array([0.05])
+
+        class _QuadraticPop:
+            trans = 2
+            _indiv = _QuadraticIndividual()
+
+            def subject_ids(self): return [1]
+            def n_subjects(self): return 1
+            def individual_model(self, sid): return self._indiv
+
+        params = self._make_quadratic_params()
+        result = FOCEMethod(
+            maxeval=200,
+            outer_optimizer="trust-constr",
+            outer_fallback_optimizer=None,
+            retain_best_iterate=False,
+        ).estimate(_QuadraticPop(), params)
+        assert result.theta_final[0] == pytest.approx(1.5, abs=0.05)
+
+    def test_lbfgsb_still_works_as_default(self):
+        params = self._make_quadratic_params()
+        result = FOCEMethod(
+            maxeval=30,
+            outer_optimizer="L-BFGS-B",
+            outer_fallback_optimizer=None,
+            retain_best_iterate=False,
+        ).estimate(_DummyPopulationModel(), params)
+        assert np.isfinite(result.ofv)
+
+    def test_powell_accepted(self):
+        params = self._make_quadratic_params()
+        result = FOCEMethod(
+            maxeval=10,
+            outer_optimizer="Powell",
+            outer_fallback_optimizer=None,
+            retain_best_iterate=False,
+        ).estimate(_DummyPopulationModel(), params)
+        assert np.isfinite(result.ofv)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P0.2/P0.5 — _estimate_gradient_norm
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestEstimateGradientNorm:
+    def test_returns_none_when_no_jac(self):
+        result = SimpleNamespace(x=np.array([1.0]), success=True, message="ok")
+        assert _estimate_gradient_norm(result) is None
+
+    def test_reads_jac_from_lbfgsb_result(self):
+        result = SimpleNamespace(
+            x=np.array([1.0]),
+            jac=np.array([0.002, -0.01, 0.005]),
+            success=True,
+            message="ok",
+        )
+        norm = _estimate_gradient_norm(result)
+        assert norm == pytest.approx(0.01)
+
+    def test_reads_grad_from_trust_constr_result(self):
+        result = SimpleNamespace(
+            x=np.array([1.0]),
+            grad=np.array([0.5, -0.3]),
+            success=True,
+            message="ok",
+        )
+        norm = _estimate_gradient_norm(result)
+        assert norm == pytest.approx(0.5)
+
+    def test_grad_takes_precedence_over_jac(self):
+        result = SimpleNamespace(
+            x=np.array([1.0]),
+            grad=np.array([0.9]),
+            jac=np.array([0.1]),
+            success=True,
+            message="ok",
+        )
+        # grad is checked first
+        assert _estimate_gradient_norm(result) == pytest.approx(0.9)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P0.5 — Structured warnings emitted by FOCE estimate()
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestFOCEStructuredWarnings:
+    def _make_params(self, omega_diag=(0.1,)) -> ParameterSet:
+        return ParameterSet.from_specs(
+            [ThetaSpec(init=1.0, lower=0.1, upper=5.0)],
+            [OmegaSpec(block_size=1, values=[v]) for v in omega_diag],
+            [SigmaSpec(block_size=1, values=[0.05], fixed=True)],
+        )
+
+    def test_well_conditioned_produces_no_conditioning_warning(self):
+        params = self._make_params(omega_diag=(0.2,))
+        result = FOCEMethod(
+            maxeval=5,
+            outer_fallback_optimizer=None,
+            retain_best_iterate=False,
+        ).estimate(_DummyPopulationModel(), params)
+        codes = {w.code for w in result.structured_warnings}
+        assert WarningCode.WARN_001 not in codes
+        assert WarningCode.WARN_002 not in codes
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P0.3 — _compute_G_i and sensitivity path
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestComputeGi:
+    """Verify _compute_G_i produces the correct Jacobian."""
+
+    def _make_linear_indiv(self, slope: float = 2.0):
+        """IPRED(eta) = slope * eta[0].  G_i = [[slope]]."""
+        class _LinearIndiv:
+            def evaluate_observation_model(self, theta, eta, sigma, trans=2):
+                pred = np.array([slope * float(eta[0])])
+                var = np.array([0.1])
+                return pred, np.array([True]), pred, pred, var
+        return _LinearIndiv()
+
+    def test_fd_gradient_correct_for_linear_model(self):
+        indiv = self._make_linear_indiv(slope=3.0)
+        eta = np.array([0.5])
+        pred0 = np.array([3.0 * 0.5])   # 1.5
+        obs_mask = np.array([True])
+        G = _compute_G_i(indiv, np.array([]), eta, np.eye(1), 2, obs_mask, pred0)
+        assert G.shape == (1, 1)
+        np.testing.assert_allclose(G[0, 0], 3.0, rtol=1e-3)
+
+    def test_fd_gradient_correct_for_two_eta_model(self):
+        """IPRED(eta) = 2*eta[0] + 4*eta[1].  G = [[2, 4]]."""
+        class _MultiEtaIndiv:
+            def evaluate_observation_model(self, theta, eta, sigma, trans=2):
+                pred = np.array([2.0 * float(eta[0]) + 4.0 * float(eta[1])])
+                return pred, np.array([True]), pred, pred, np.array([0.1])
+
+        eta = np.array([1.0, 1.0])
+        pred0 = np.array([6.0])
+        obs_mask = np.array([True])
+        G = _compute_G_i(_MultiEtaIndiv(), np.array([]), eta, np.eye(1), 2, obs_mask, pred0)
+        assert G.shape == (1, 2)
+        np.testing.assert_allclose(G[0, 0], 2.0, rtol=1e-3)
+        np.testing.assert_allclose(G[0, 1], 4.0, rtol=1e-3)
+
+    def test_fd_gradient_falls_back_gracefully_when_evaluate_raises(self):
+        """If evaluate_observation_model raises, the column should stay zero."""
+        class _FlakyIndiv:
+            def evaluate_observation_model(self, theta, eta, sigma, trans=2):
+                if eta[0] != 0.5:
+                    raise RuntimeError("boom")
+                return np.array([1.0]), np.array([True]), np.array([1.0]), np.array([1.0]), np.array([0.1])
+
+        eta = np.array([0.5])
+        pred0 = np.array([1.0])
+        G = _compute_G_i(_FlakyIndiv(), np.array([]), eta, np.eye(1), 2, np.array([True]), pred0)
+        assert G.shape == (1, 1)
+        assert float(G[0, 0]) == pytest.approx(0.0)
+
+    def test_sensitivity_path_matches_fd_for_diagonal_chain_rule(self):
+        """
+        When pk_sub.solve_with_sensitivity is present and well-behaved,
+        _compute_G_i should route through the sensitivity path and the result
+        must agree with the FD result to within integration tolerance.
+
+        Model: pk_param = exp(eta[0])  (one PK param, one ETA)
+               amounts[t] = dose * exp(-pk_param * t)  (mono-exponential decay)
+               IPRED = amounts / V   (observation = compartment 1 / V)
+        At eta=0: pk_param=1, amounts[t=1] = dose*exp(-1), IPRED = dose*exp(-1)/V
+        Sensitivity: ∂amounts/∂pk_param = -t*amounts
+        ∂pk_param/∂eta = exp(eta) = 1 at eta=0
+        ∂IPRED/∂eta = (1/V) * (-t) * amounts = -t * IPRED
+        """
+        dose, V, t_obs = 10.0, 2.0, 1.0
+        # Nominal prediction
+        pk0 = np.exp(0.0)          # = 1.0
+        amt0 = dose * np.exp(-pk0 * t_obs)
+        ipred0 = amt0 / V
+
+        class _SensSubroutine:
+            class _Sol:
+                def __init__(self, y, sensitivity):
+                    self.y = y                   # shape (1, 1)
+                    self.sensitivity = sensitivity  # shape (1, 1, 1)
+
+            def solve_with_sensitivity(self, theta, eta, trans=2):
+                pk = np.exp(float(eta[0]))
+                amt = dose * np.exp(-pk * t_obs)
+                d_amt_dpk = -t_obs * amt        # ∂amounts/∂pk
+                return self._Sol(
+                    y=np.array([[amt]]),
+                    sensitivity=np.array([[[d_amt_dpk]]]),
+                )
+
+        class _SensIndiv:
+            pk_subroutine = _SensSubroutine()
+
+            def pk_callable(self, theta, eta, trans=2):
+                return np.array([np.exp(float(eta[0]))])
+
+            def evaluate_observation_model(self, theta, eta, sigma, trans=2, _amounts=None):
+                if _amounts is not None:
+                    amt = float(np.asarray(_amounts).ravel()[0])
+                else:
+                    pk = np.exp(float(eta[0]))
+                    amt = dose * np.exp(-pk * t_obs)
+                pred = np.array([amt / V])
+                return pred, np.array([True]), pred, pred, np.array([0.05])
+
+        indiv = _SensIndiv()
+        eta = np.array([0.0])
+        obs_mask = np.array([True])
+        pred0_obs = np.array([ipred0])
+
+        G_fd = _compute_G_i(indiv, np.array([]), eta, np.eye(1), 2, obs_mask, pred0_obs, h=1e-5)
+        G_sens = _compute_G_i_via_sensitivity(
+            indiv, indiv.pk_subroutine, np.array([]), eta, np.eye(1), 2, obs_mask, pred0_obs, h=1e-5
+        )
+        # Both paths should agree to within ~1 % relative tolerance
+        np.testing.assert_allclose(G_sens, G_fd, rtol=0.02,
+            err_msg=f"Sensitivity path G={G_sens} vs FD path G={G_fd}")

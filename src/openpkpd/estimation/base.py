@@ -12,6 +12,8 @@ from typing import Any
 
 import numpy as np
 
+from openpkpd.utils.errors import EstimationWarning, WarningCode, WarningSeverity
+
 
 @dataclass
 class EstimationResult:
@@ -30,6 +32,7 @@ class EstimationResult:
     post_hoc_etas: dict[int, np.ndarray] = field(default_factory=dict)
     ofv_history: list[float] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    structured_warnings: list[EstimationWarning] = field(default_factory=list)
     shrinkage_warnings: list[str] = field(default_factory=list)
     n_function_evals: int = 0
     elapsed_time: float = 0.0
@@ -133,6 +136,67 @@ class EstimationResult:
 
         self._n_parameters = n
 
+    # ── Structured warning helpers ─────────────────────────────────────────
+
+    def add_structured_warning(
+        self,
+        code: WarningCode,
+        message: str,
+        severity: WarningSeverity = WarningSeverity.WARNING,
+    ) -> None:
+        """
+        Append a structured EstimationWarning and its string representation.
+
+        The string form is added to ``warnings`` for backward compatibility;
+        the typed form is added to ``structured_warnings``.
+        """
+        w = EstimationWarning(code=code, message=message, severity=severity)
+        self.structured_warnings.append(w)
+        self.warnings.append(str(w))
+
+    def check_omega_conditioning(self) -> None:
+        """
+        Check Omega eigenvalues and condition number; add WARN_001/002/004.
+
+        Intended to be called after the M-step or covariance step.
+        A 0×0 or empty Omega (sigma-only models) is silently skipped.
+        """
+        if self.omega_final is None or self.omega_final.size == 0:
+            return
+        try:
+            eigenvalues = np.linalg.eigvalsh(self.omega_final)
+            if eigenvalues.size == 0:
+                return
+            lmin = float(np.min(eigenvalues))
+            lmax = float(np.max(eigenvalues))
+        except np.linalg.LinAlgError:
+            return
+
+        if lmin < 1e-6:
+            self.add_structured_warning(
+                WarningCode.WARN_004,
+                f"Near-singular Omega: smallest eigenvalue = {lmin:.3e} "
+                "(consider re-parameterisation or fixing off-diagonal elements).",
+                WarningSeverity.ERROR,
+            )
+            return  # condition number undefined
+
+        cond = lmax / lmin
+        if cond > 1e4:
+            self.add_structured_warning(
+                WarningCode.WARN_002,
+                f"Omega condition number = {cond:.2e} (> 10 000). "
+                "Standard errors and correlations may be unreliable.",
+                WarningSeverity.ERROR,
+            )
+        elif cond > 1e3:
+            self.add_structured_warning(
+                WarningCode.WARN_001,
+                f"Omega condition number = {cond:.2e} (> 1 000). "
+                "Mild ill-conditioning; inspect parameter correlations.",
+                WarningSeverity.WARNING,
+            )
+
     def summary(self) -> str:
         """Return a text summary of the estimation result."""
         lines = [
@@ -156,7 +220,11 @@ class EstimationResult:
             lines.append("Shrinkage warnings:")
             for w in self.shrinkage_warnings:
                 lines.append(f"  {w}")
-        if self.warnings:
+        if self.structured_warnings:
+            lines.append("Estimation warnings:")
+            for w in self.structured_warnings:
+                lines.append(f"  {w}")
+        elif self.warnings:
             lines.append(f"Warnings: {self.warnings}")
         return "\n".join(lines)
 
@@ -264,6 +332,11 @@ class EstimationResult:
                 )
                 self.shrinkage_warnings.append(msg)
                 warnings.warn(msg, UserWarning, stacklevel=2)
+                self.add_structured_warning(
+                    WarningCode.WARN_005,
+                    msg,
+                    WarningSeverity.WARNING,
+                )
 
         self.eta_shrinkage = shrinkage
 

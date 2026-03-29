@@ -1,6 +1,72 @@
-"""Custom exception hierarchy for openpkpd."""
+"""Custom exception hierarchy and structured warning types for openpkpd."""
 
 from __future__ import annotations
+
+import enum
+from dataclasses import dataclass, field
+
+
+# ── Warning infrastructure ─────────────────────────────────────────────────────
+
+
+class WarningSeverity(enum.Enum):
+    """Severity level for an EstimationWarning."""
+
+    INFO = "INFO"
+    WARNING = "WARNING"
+    ERROR = "ERROR"
+
+
+class WarningCode(enum.Enum):
+    """
+    Structured codes for estimation diagnostics.
+
+    WARN_001  Condition number > 1 000 (moderate ill-conditioning).
+    WARN_002  Condition number > 10 000 (severe ill-conditioning).
+    WARN_003  Gradient norm at convergence exceeds tolerance (questionable convergence).
+    WARN_004  Near-singular Omega: smallest eigenvalue below threshold.
+    WARN_005  High ETA shrinkage > 30 % (parameter identifiability concern).
+    WARN_006  Low IMP effective sample size (poor importance-sampling coverage).
+    WARN_007  SAEM phase-2 parameter stability criterion not met.
+    WARN_008  IOV ETA gradient may be unreliable (occasion structure incomplete).
+    """
+
+    WARN_001 = "WARN_001"
+    WARN_002 = "WARN_002"
+    WARN_003 = "WARN_003"
+    WARN_004 = "WARN_004"
+    WARN_005 = "WARN_005"
+    WARN_006 = "WARN_006"
+    WARN_007 = "WARN_007"
+    WARN_008 = "WARN_008"
+
+
+@dataclass
+class EstimationWarning:
+    """
+    A structured diagnostic message attached to an EstimationResult.
+
+    Attributes:
+        code:     Unique WarningCode identifying the category.
+        message:  Human-readable description, including numeric values.
+        severity: INFO, WARNING, or ERROR.
+    """
+
+    code: WarningCode
+    message: str
+    severity: WarningSeverity = field(default=WarningSeverity.WARNING)
+
+    def __str__(self) -> str:  # noqa: D105
+        return f"[{self.code.value}] {self.message}"
+
+    def __repr__(self) -> str:  # noqa: D105
+        return (
+            f"EstimationWarning(code={self.code!r}, "
+            f"severity={self.severity!r}, message={self.message!r})"
+        )
+
+
+# ── Exception hierarchy ────────────────────────────────────────────────────────
 
 
 class PyNONMEMError(Exception):

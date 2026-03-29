@@ -36,6 +36,7 @@ from openpkpd.estimation.base import EstimationMethod, EstimationResult
 from openpkpd.math.matrix import repair_pd
 from openpkpd.model.parameters import ParameterSet
 from openpkpd.utils.constants import Method
+from openpkpd.utils.errors import WarningCode, WarningSeverity
 from openpkpd.utils.logging import get_logger
 
 logger = get_logger("estimation.saem")
@@ -65,16 +66,20 @@ class SAEMMethod(EstimationMethod):
 
     method_name = Method.SAEM
 
+    #: Number of phase-2 trailing iterations used to assess parameter stability.
+    _PH2_WINDOW: int = 20
+
     def __init__(
         self,
-        n_iter_phase1: int = 200,
-        n_iter_phase2: int = 100,
-        n_chains: int = 1,
+        n_iter_phase1: int = 300,
+        n_iter_phase2: int = 200,
+        n_chains: int = 5,
         mh_accept_target: float = 0.23,
         mh_step_size: float = 0.4,
         print_interval: int = 10,
         seed: int | None = None,
         n_parallel: int = 1,
+        phi_tol: float = 1e-3,
     ) -> None:
         self.n_iter_phase1 = n_iter_phase1
         self.n_iter_phase2 = n_iter_phase2
@@ -83,6 +88,7 @@ class SAEMMethod(EstimationMethod):
         self.mh_step_size = mh_step_size
         self.print_interval = print_interval
         self.n_parallel = n_parallel
+        self.phi_tol = phi_tol
         self.rng = np.random.default_rng(seed)
 
     @staticmethod
@@ -223,6 +229,11 @@ class SAEMMethod(EstimationMethod):
 
         ofv_history: list[float] = []
         K_total = self.n_iter_phase1 + self.n_iter_phase2
+
+        # Phase-2 parameter tracking for convergence criterion
+        # Stores the concatenation [theta | diag(omega)] at each phase-2 step.
+        ph2_param_history: list[np.ndarray] = []
+        converged = False
 
         for k in range(K_total):
             is_phase1 = k < self.n_iter_phase1
@@ -418,6 +429,25 @@ class SAEMMethod(EstimationMethod):
                 phase = "P1" if is_phase1 else "P2"
                 logger.info(f"  SAEM iter {k:4d} [{phase}]  OFV={ofv:.4f}  γ={gamma:.4f}")
 
+            # Phase-2 convergence criterion: parameter stability over a window
+            if not is_phase1:
+                phi = np.concatenate([theta, np.diag(omega)])
+                ph2_param_history.append(phi)
+                W = self._PH2_WINDOW
+                if len(ph2_param_history) >= 2 * W:
+                    # Compare mean of last W with mean of preceding W
+                    window_new = np.mean(ph2_param_history[-W:], axis=0)
+                    window_old = np.mean(ph2_param_history[-2 * W : -W], axis=0)
+                    denom = np.abs(window_old) + 1e-8
+                    rel_change = float(np.max(np.abs(window_new - window_old) / denom))
+                    if rel_change < self.phi_tol:
+                        logger.info(
+                            f"  SAEM phase-2 converged at iter {k} "
+                            f"(max rel Δphi={rel_change:.2e} < phi_tol={self.phi_tol:.2e})"
+                        )
+                        converged = True
+                        break
+
         elapsed = time.time() - t0
         final_ofv = ofv_history[-1] if ofv_history else float("nan")
         logger.info(f"SAEM completed in {elapsed:.1f}s, OFV={final_ofv:.4f}")
@@ -425,18 +455,37 @@ class SAEMMethod(EstimationMethod):
         # Final post-hoc ETAs: mean across all chains (RB point estimate)
         final_etas = {sid: np.mean(eta_chains[sid], axis=0) for sid in subj_ids}
 
+        conv_msg = (
+            f"SAEM phase-2 stability criterion met "
+            f"({n_chains} chain{'s' if n_chains > 1 else ''} per subject)"
+            if converged
+            else (
+                f"SAEM phase-2 ran to {self.n_iter_phase2} iterations without satisfying "
+                f"phi_tol={self.phi_tol:.1e} — parameters may not be fully converged"
+            )
+        )
+
         res = EstimationResult(
             theta_final=theta,
             omega_final=omega,
             sigma_final=sigma,
             ofv=final_ofv,
-            converged=True,  # SAEM converges by design
+            converged=converged,
             post_hoc_etas=final_etas,
             ofv_history=ofv_history,
             elapsed_time=elapsed,
             method=self.method_name,
-            message=f"SAEM converged ({n_chains} chain{'s' if n_chains > 1 else ''} per subject)",
+            message=conv_msg,
         )
+        if not converged:
+            res.add_structured_warning(
+                WarningCode.WARN_007,
+                f"SAEM phase-2 stability criterion (phi_tol={self.phi_tol:.1e}) was not "
+                f"satisfied after {self.n_iter_phase2} iterations. Consider increasing "
+                "n_iter_phase2 or loosening phi_tol.",
+                WarningSeverity.WARNING,
+            )
+        res.check_omega_conditioning()
         dataset = getattr(population_model, "dataset", None)
         if dataset is not None and hasattr(dataset, "n_observations"):
             res.n_observations = int(dataset.n_observations())

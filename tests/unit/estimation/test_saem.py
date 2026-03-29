@@ -11,6 +11,7 @@ import pytest
 from openpkpd.estimation.base import EstimationResult
 from openpkpd.estimation.saem import SAEMMethod
 from openpkpd.model.parameters import OmegaSpec, ParameterSet, SigmaSpec, ThetaSpec
+from openpkpd.utils.errors import WarningCode
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -52,6 +53,133 @@ def _make_mock_pop_model(n_subjects: int = 4, n_eta: int = 1):
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
+
+class TestSAEMDefaults:
+    """P0.1 — Verify that the improved defaults are correct."""
+
+    def test_default_n_chains_is_five(self):
+        saem = SAEMMethod()
+        assert saem.n_chains == 5, "Default n_chains must be 5 for Rao-Blackwellisation benefit"
+
+    def test_default_n_iter_phase1_is_300(self):
+        saem = SAEMMethod()
+        assert saem.n_iter_phase1 == 300
+
+    def test_default_n_iter_phase2_is_200(self):
+        saem = SAEMMethod()
+        assert saem.n_iter_phase2 == 200
+
+    def test_default_phi_tol_is_1e_3(self):
+        saem = SAEMMethod()
+        assert saem.phi_tol == pytest.approx(1e-3)
+
+
+class TestSAEMConvergenceCriterion:
+    """P0.1 — Phase-2 stability criterion."""
+
+    def test_converged_true_when_parameters_stable(self):
+        """
+        With a very loose phi_tol (100 %) the convergence criterion triggers
+        as soon as two windows of phase-2 history are available.
+        """
+        # phi_tol=100 means any relative change < 100 → converges after 2*_PH2_WINDOW+1 iters
+        saem = SAEMMethod(
+            n_iter_phase1=2,
+            n_iter_phase2=2 * SAEMMethod._PH2_WINDOW + 10,
+            n_chains=1,
+            phi_tol=100.0,   # guaranteed to trigger immediately
+            seed=0,
+        )
+        pop = _make_mock_pop_model(n_subjects=3)
+        params = _make_minimal_params()
+        result = saem.estimate(pop, params)
+        assert result.converged is True
+
+    def test_converged_false_when_iterations_exhausted_without_stability(self):
+        """
+        When phi_tol is impossibly tight and phase-2 is very short, the
+        stability criterion should NOT be met.
+        """
+        class _NoisyModel:
+            trans = 2
+
+            def __init__(self):
+                self._rng = np.random.default_rng(99)
+                self._subj_ids = [1, 2]
+
+            def subject_ids(self):
+                return self._subj_ids
+
+            def n_subjects(self):
+                return 2
+
+            def individual_model(self, sid):
+                rng = self._rng
+
+                class _Noisy:
+                    def obj_eta(self_, eta, theta, omega, sigma, trans=2):
+                        return float(np.sum(eta**2)) + rng.uniform(-5, 5)
+
+                    def log_likelihood(self_, theta, eta, sigma, trans=2):
+                        return rng.uniform(-100, 100)
+
+                return _Noisy()
+
+        saem = SAEMMethod(
+            n_iter_phase1=0,
+            n_iter_phase2=5,         # too few to satisfy 2*_PH2_WINDOW=40 window
+            n_chains=1,
+            phi_tol=1e-10,           # impossibly tight
+            seed=42,
+        )
+        result = saem.estimate(_NoisyModel(), _make_minimal_params())
+        assert result.converged is False
+
+    def test_warn007_emitted_when_not_converged(self):
+        saem = SAEMMethod(
+            n_iter_phase1=0,
+            n_iter_phase2=5,
+            n_chains=1,
+            phi_tol=1e-10,
+            seed=0,
+        )
+        result = saem.estimate(_make_mock_pop_model(n_subjects=2), _make_minimal_params())
+        codes = {w.code for w in result.structured_warnings}
+        assert WarningCode.WARN_007 in codes
+
+    def test_no_warn007_when_converged(self):
+        saem = SAEMMethod(
+            n_iter_phase1=2,
+            n_iter_phase2=2 * SAEMMethod._PH2_WINDOW + 5,
+            n_chains=1,
+            phi_tol=1.0,             # very loose → converges immediately
+            seed=0,
+        )
+        result = saem.estimate(_make_mock_pop_model(n_subjects=2), _make_minimal_params())
+        codes = {w.code for w in result.structured_warnings}
+        assert WarningCode.WARN_007 not in codes
+
+
+class TestSAEMOmegaConditioning:
+    """P0.1/P0.5 — check_omega_conditioning called at end of SAEM."""
+
+    def test_check_omega_conditioning_called_on_result(self):
+        """
+        SAEM must call check_omega_conditioning on the result.
+        We test this indirectly: a well-conditioned omega produces no WARN_001/002/004.
+        (Direct WARN_004 from initial omega would be overwritten by the M-step repair.)
+        """
+        saem = SAEMMethod(n_iter_phase1=2, n_iter_phase2=0, n_chains=1, seed=0)
+        pop = _make_mock_pop_model(n_subjects=2)
+        params = _make_minimal_params()
+        result = saem.estimate(pop, params)
+        # structured_warnings list must exist (can be empty for well-cond. omega)
+        assert isinstance(result.structured_warnings, list)
+        codes = {w.code for w in result.structured_warnings}
+        # WARN_001/002 should not appear for a healthy omega
+        assert WarningCode.WARN_001 not in codes
+        assert WarningCode.WARN_002 not in codes
 
 
 class TestSAEMChainInitialization:
@@ -134,18 +262,34 @@ class TestSAEMRaoBlackwellResult:
         result = saem.estimate(pop, params)
         assert isinstance(result, EstimationResult)
 
-    def test_converged_flag(self):
+    def test_converged_flag_is_boolean(self):
         saem = SAEMMethod(n_iter_phase1=2, n_iter_phase2=1, n_chains=1, seed=11)
         pop = _make_mock_pop_model()
         params = _make_minimal_params()
         result = saem.estimate(pop, params)
-        assert result.converged is True
+        assert isinstance(result.converged, bool)
 
-    def test_message_mentions_chains(self):
+    def test_message_is_non_empty_string(self):
+        """Result.message must be a non-empty string."""
         saem = SAEMMethod(n_iter_phase1=2, n_iter_phase2=0, n_chains=4, seed=12)
         pop = _make_mock_pop_model()
         params = _make_minimal_params()
         result = saem.estimate(pop, params)
+        assert isinstance(result.message, str) and len(result.message) > 0
+
+    def test_converged_message_mentions_chains(self):
+        """When SAEM converges (phi_tol=100), the message must mention chain count."""
+        saem = SAEMMethod(
+            n_iter_phase1=2,
+            n_iter_phase2=2 * SAEMMethod._PH2_WINDOW + 5,
+            n_chains=4,
+            phi_tol=100.0,   # guaranteed to trigger immediately
+            seed=12,
+        )
+        pop = _make_mock_pop_model()
+        params = _make_minimal_params()
+        result = saem.estimate(pop, params)
+        assert result.converged is True
         assert "4" in result.message or "chain" in result.message.lower()
 
     def test_post_hoc_etas_all_subjects_present(self):
@@ -163,7 +307,8 @@ class TestSAEMRaoBlackwellResult:
         pop = _make_mock_pop_model()
         params = _make_minimal_params()
         result = saem.estimate(pop, params)
-        assert len(result.ofv_history) == n1 + n2
+        # History length is at most n1+n2; may be shorter if early convergence triggered.
+        assert 1 <= len(result.ofv_history) <= n1 + n2
 
     def test_result_populates_metadata_from_dataset_and_free_specs(self):
         params = ParameterSet(

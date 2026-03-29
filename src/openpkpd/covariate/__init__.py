@@ -1,5 +1,5 @@
 """
-Covariate modeling for openpkpd.
+Covariate modeling and automated model development for openpkpd.
 
 This package provides:
   - CovariateEffect:        Enum of supported effect types.
@@ -38,6 +38,16 @@ from openpkpd.covariate.effects import (
     linear_effect,
     power_effect,
 )
+from openpkpd.covariate.amd import (
+    AMDPipeline,
+    AMDResult,
+    AMDStructuralResult,
+)
+from openpkpd.covariate.frem import (
+    FREMCovariateEffect,
+    FREMEngine,
+    FREMResult,
+)
 from openpkpd.covariate.scm import (
     SCMEngine,
     SCMResult,
@@ -45,6 +55,9 @@ from openpkpd.covariate.scm import (
 )
 
 __all__ = [
+    "AMDPipeline",
+    "AMDResult",
+    "AMDStructuralResult",
     "CovariateEffect",
     "CovariateRelationship",
     "power_effect",
@@ -54,4 +67,7 @@ __all__ = [
     "SCMStep",
     "SCMResult",
     "SCMEngine",
+    "FREMCovariateEffect",
+    "FREMEngine",
+    "FREMResult",
 ]

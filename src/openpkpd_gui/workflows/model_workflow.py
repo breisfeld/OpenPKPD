@@ -55,6 +55,7 @@ _NAMED_MODELS: tuple[tuple[str, int, int], ...] = (
     ("3-compartment IV bolus  (ADVAN11 / TRANS4)", 11, 4),
     ("3-compartment oral  (ADVAN12 / TRANS4)", 12, 4),
     ("ODE / user-defined  (ADVAN6)", 6, 1),
+    ("ODE / user-defined, stiff  (ADVAN8 / LSODA)", 8, 1),
     ("Custom…", -1, -1),
 )
 _NAMED_MODEL_LABELS = [label for label, _, _ in _NAMED_MODELS]
@@ -84,7 +85,12 @@ _ADVAN_HELP_TEXT = (
     "  ADVAN2/TRANS2 — 1-compartment, oral, CL/V/KA\n"
     "  ADVAN4/TRANS4 — 2-compartment, oral, CL/V1/Q/V2/KA\n"
     "  ADVAN5/TRANS1 — N-compartment linear, micro rate constants Kij/Ki0\n"
-    "  ADVAN6        — ODE-based user-defined model"
+    "  ADVAN6        — ODE-based user-defined model (non-stiff RK45)\n"
+    "  ADVAN8        — ODE-based user-defined model (stiff, LSODA)\n\n"
+    "Use ADVAN8 when your $DES model has widely separated time scales\n"
+    "(e.g. fast distribution K12 >> slow elimination K10), PBPK systems,\n"
+    "or receptor-binding models. ADVAN6 handles most standard PK ODEs and\n"
+    "automatically falls back to the stiff solver if the step limit is hit."
 )
 _OMEGA_HELP_TEXT = (
     "OMEGA is the covariance matrix of inter-individual variability (IIV).\n"

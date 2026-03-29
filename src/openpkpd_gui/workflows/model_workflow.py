@@ -67,7 +67,7 @@ _ESTIMATION_METHODS_DISPLAY: tuple[tuple[str, str], ...] = (
     ("SAEM", "SAEM — Stochastic approximation EM (nonlinear / complex models)"),
     ("IMP", "IMP — Importance sampling"),
     ("LAPLACIAN", "Laplacian — Laplace approximation"),
-    ("BAYES", "BAYES — Full Bayesian NUTS (PyMC / NumPyro)"),
+    ("BAYES", "BAYES — Full Bayesian NUTS (PyMC / built-in)"),
 )
 
 _ESTIMATION_HELP_TEXT = (
@@ -80,9 +80,9 @@ _ESTIMATION_HELP_TEXT = (
     "Laplacian: Laplace approximation, similar accuracy to FOCE.\n\n"
     "BAYES: Full Bayesian posterior sampling via NUTS (No-U-Turn Sampler). "
     "Returns the full posterior distribution, credible intervals, R-hat convergence "
-    "diagnostics, and effective sample size. Requires 'openpkpd[bayes]' (PyMC) or "
-    "'openpkpd[jax]' (NumPyro). Slower than FOCE/SAEM but provides uncertainty "
-    "quantification without linearisation assumptions."
+    "diagnostics, and effective sample size. Supports PyMC or the built-in native "
+    "backend. Slower than FOCE/SAEM but provides uncertainty quantification without "
+    "linearisation assumptions."
 )
 _ADVAN_HELP_TEXT = (
     "ADVAN selects the PK structural model (compartment structure).\n"

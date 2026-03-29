@@ -260,6 +260,16 @@ The **NCA** page supports standalone non-compartmental analysis.
 The **Results** page focuses on fit runs, saved artifacts, and common follow-up
 actions.
 
+#### Top summary
+
+- **Overview label** — run/output count and latest analysis status for the current scenario
+- **Comparison snapshot** — sibling-scenario summary for quick side-by-side review context
+- **Comparison panel** — richer sibling-scenario summary with latest fit state and output counts
+- **Comparison delta** — quick run/output delta against the current best comparison target
+- **Artifact delta** — missing/extra artifact-role and plot-type summary versus that target
+- **Stale warning** — warns when saved inputs changed after the latest successful fit
+- **Next action** — points back to the blocking workflow when Results is still empty
+
 #### Runs list
 
 Lists all fit runs for the selected scenario in reverse chronological order.
@@ -302,6 +312,15 @@ message. Selecting a row populates the detail and artifact panels.
 | `.csv` | Interactive sortable table with column headers |
 | `.txt`, `.log`, `.json`, `.md` | Plain-text browser |
 | `.png`, `.jpg`, `.svg` | Image viewer with scroll support |
+
+#### Practical review flow
+
+1. Start with the comparison summary at the top of the page.
+2. Use the comparison and artifact deltas to identify what changed between scenarios.
+3. Select the run you want to review, then use the quick actions to jump to
+   convergence, GOF, or the latest report.
+4. Open the artifact panel only after the deltas tell you which outputs are new,
+   missing, or different.
 
 ### Plots workflow
 

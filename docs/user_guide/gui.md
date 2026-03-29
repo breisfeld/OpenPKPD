@@ -356,6 +356,11 @@ actions.
 
 - **Overview label** — run/output count and latest analysis status for the current scenario
 - **Comparison snapshot** — sibling-scenario summary for quick side-by-side review context
+- **Comparison panel** — richer sibling-scenario summary with latest fit state,
+  successful-run counts, and output counts
+- **Comparison delta** — quick comparison against the current best review target
+- **Artifact delta** — highlights missing/extra artifact roles and plot groups
+  versus the selected comparison target
 - **Stale warning** — warns when saved inputs changed after the latest successful fit
 - **Next action** — points back to the blocking workflow when Results is still empty
 
@@ -401,6 +406,19 @@ message. Selecting a row populates the detail and artifact panels.
 | `.csv` | Interactive sortable table with column headers |
 | `.txt`, `.log`, `.json`, `.md` | Plain-text browser |
 | `.png`, `.jpg`, `.svg` | Image viewer with scroll support |
+
+#### Review workflow
+
+For repeated model-review cycles:
+
+1. Use **Comparison snapshot** and **Comparison panel** to pick the most useful
+   sibling scenario to inspect.
+2. Read **Comparison delta** to see whether the current scenario is ahead or
+   behind on successful runs and saved outputs.
+3. Read **Artifact delta** to spot missing reports, tables, or plot groups
+   before opening individual artifacts.
+4. Use the quick actions to jump directly to convergence, GOF, or the latest
+   report from the currently selected review target.
 
 ### Plots workflow
 

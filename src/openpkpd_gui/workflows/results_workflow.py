@@ -326,6 +326,44 @@ def format_results_comparison_delta(workspace: Workspace) -> str:
     )
 
 
+def format_results_artifact_delta(workspace: Workspace) -> str:
+    """Summarize artifact-role and plot-type differences vs the comparison target."""
+    project = workspace.active_project
+    current = project.active_scenario
+    target_id = select_results_comparison_target(workspace)
+    if target_id is None:
+        return (
+            "Artifact delta: no sibling scenario available yet. Create or duplicate a scenario "
+            "to compare reports, tables, and plot groups."
+        )
+
+    target = next(
+        scenario for scenario in project.scenarios if scenario.scenario_id == target_id
+    )
+    current_roles = {artifact_role(artifact) for artifact in current.artifacts}
+    target_roles = {artifact_role(artifact) for artifact in target.artifacts}
+    missing_roles = sorted(target_roles - current_roles)
+    extra_roles = sorted(current_roles - target_roles)
+
+    current_plot_types = {
+        plot_type for artifact in current.artifacts if (plot_type := artifact_plot_type(artifact))
+    }
+    target_plot_types = {
+        plot_type for artifact in target.artifacts if (plot_type := artifact_plot_type(artifact))
+    }
+    missing_plots = sorted(target_plot_types - current_plot_types)
+    extra_plots = sorted(current_plot_types - target_plot_types)
+
+    def _format(values: list[str]) -> str:
+        return ", ".join(values[:3]) + ("…" if len(values) > 3 else "") if values else "none"
+
+    return (
+        f"Artifact delta vs {target.name}: missing roles {_format(missing_roles)}; "
+        f"extra roles {_format(extra_roles)}; missing plot types {_format(missing_plots)}; "
+        f"extra plot types {_format(extra_plots)}."
+    )
+
+
 def format_results_comparison_action(workspace: Workspace) -> str:
     """Recommend the next most useful sibling scenario to inspect."""
     project = workspace.active_project
@@ -783,6 +821,10 @@ def build_results_workflow(
     comparison_delta_label.setObjectName("results-comparison-delta-label")
     comparison_delta_label.setWordWrap(True)
 
+    artifact_delta_label = qt_widgets.QLabel(format_results_artifact_delta(project))
+    artifact_delta_label.setObjectName("results-artifact-delta-label")
+    artifact_delta_label.setWordWrap(True)
+
     comparison_action_button = qt_widgets.QPushButton("Open comparison scenario")
     comparison_action_button.setObjectName("results-comparison-action-button")
     comparison_action_button.setMinimumHeight(32)
@@ -1041,6 +1083,7 @@ def build_results_workflow(
     layout.addWidget(comparison_label)
     layout.addWidget(comparison_panel_label)
     layout.addWidget(comparison_delta_label)
+    layout.addWidget(artifact_delta_label)
     layout.addWidget(comparison_action_label)
     layout.addWidget(comparison_action_button)
     layout.addWidget(stale_warning_label)
@@ -1415,6 +1458,7 @@ def build_results_workflow(
         comparison_label.setText(format_results_comparison_summary(project))
         comparison_panel_label.setText(format_results_comparison_panel(project))
         comparison_delta_label.setText(format_results_comparison_delta(project))
+        artifact_delta_label.setText(format_results_artifact_delta(project))
         comparison_action_label.setText(format_results_comparison_action(project))
         comparison_action_button.setEnabled(select_results_comparison_target(project) is not None)
         stale_warning_label.setText(format_results_stale_warning(project))

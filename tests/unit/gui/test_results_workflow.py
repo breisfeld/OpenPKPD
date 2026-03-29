@@ -20,6 +20,7 @@ from openpkpd_gui.workflows.results_workflow import (
     build_results_workflow,
     filter_artifacts,
     format_artifact_metadata,
+    format_results_artifact_delta,
     format_results_comparison_action,
     format_results_comparison_delta,
     format_results_comparison_panel,
@@ -296,6 +297,57 @@ def test_format_results_comparison_delta_handles_empty_peer_set() -> None:
     assert "no sibling scenario available yet" in delta
 
 
+def test_format_results_artifact_delta_reports_role_and_plot_differences() -> None:
+    workspace = Workspace(name="Review helpers")
+    workspace.active_scenario.artifacts = [
+        ArtifactRecord(
+            kind="plot",
+            label="Baseline GOF",
+            path="/tmp/base-gof.png",
+            metadata={"artifact_role": "plot", "plot_type": "gof_panel"},
+        ),
+        ArtifactRecord(
+            kind="table",
+            label="Diagnostics",
+            path="/tmp/base.csv",
+            metadata={"artifact_role": "diagnostics_table"},
+        ),
+    ]
+    peer = workspace.active_scenario.snapshot_clone(name="Variant A")
+    peer.artifacts = [
+        ArtifactRecord(
+            kind="report",
+            label="Report",
+            path="/tmp/a-report.html",
+            metadata={"artifact_role": "report"},
+        ),
+        ArtifactRecord(
+            kind="plot",
+            label="Residuals",
+            path="/tmp/a-resid.png",
+            metadata={"artifact_role": "plot", "plot_type": "residual_trends"},
+        ),
+    ]
+    workspace.active_project.add_scenario(peer, make_active=False)
+
+    delta = format_results_artifact_delta(workspace)
+
+    assert "Artifact delta vs Variant A:" in delta
+    assert "missing roles report" in delta
+    assert "extra roles diagnostics_table" in delta
+    assert "missing plot types residual_trends" in delta
+    assert "extra plot types gof_panel" in delta
+
+
+def test_format_results_artifact_delta_handles_empty_peer_set() -> None:
+    workspace = Workspace(name="Review helpers")
+
+    delta = format_results_artifact_delta(workspace)
+
+    assert "Artifact delta:" in delta
+    assert "no sibling scenario available yet" in delta
+
+
 def test_select_results_comparison_target_returns_richest_peer() -> None:
     workspace = Workspace(name="Review helpers")
     peer_a = workspace.active_scenario.snapshot_clone(name="Variant A")
@@ -455,6 +507,7 @@ def test_results_workflow_empty_state_button_navigates_to_fit_and_clears_after_r
         next_action_label = widget.findChild(qt_widgets.QLabel, "results-next-action-label")
         next_action_button = widget.findChild(qt_widgets.QPushButton, "results-next-action-button")
         comparison_label = widget.findChild(qt_widgets.QLabel, "results-comparison-label")
+        artifact_delta_label = widget.findChild(qt_widgets.QLabel, "results-artifact-delta-label")
         comparison_action_label = widget.findChild(
             qt_widgets.QLabel, "results-comparison-action-label"
         )
@@ -465,6 +518,7 @@ def test_results_workflow_empty_state_button_navigates_to_fit_and_clears_after_r
         assert next_action_label is not None
         assert next_action_button is not None
         assert comparison_label is not None
+        assert artifact_delta_label is not None
         assert comparison_action_label is not None
         assert comparison_action_button is not None
         assert next_action_button.text() == "Open Fit"
@@ -473,6 +527,7 @@ def test_results_workflow_empty_state_button_navigates_to_fit_and_clears_after_r
             == "Run a fit to populate Results with run logs, reports, and saved outputs."
         )
         assert "No sibling scenarios yet" in comparison_label.text()
+        assert "no sibling scenario available yet" in artifact_delta_label.text()
         assert "create a sibling scenario" in comparison_action_label.text()
         assert comparison_action_button.isEnabled() is False
 
@@ -517,10 +572,13 @@ def test_results_workflow_comparison_button_switches_to_target_scenario() -> Non
             qt_widgets.QPushButton, "results-comparison-action-button"
         )
         comparison_label = widget.findChild(qt_widgets.QLabel, "results-comparison-label")
+        artifact_delta_label = widget.findChild(qt_widgets.QLabel, "results-artifact-delta-label")
 
         assert comparison_action_button is not None
         assert comparison_label is not None
+        assert artifact_delta_label is not None
         assert comparison_action_button.isEnabled() is True
+        assert "Artifact delta vs Variant A:" in artifact_delta_label.text()
 
         comparison_action_button.click()
         app.processEvents()

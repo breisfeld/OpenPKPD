@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from openpkpd_gui.domain.run_record import RunRecord, RunStatus
@@ -67,7 +68,7 @@ def _cache_fit_context(
 def test_create_job_requires_cached_fit_context() -> None:
     workspace = Workspace(name="Design demo")
 
-    with pytest.raises(ValueError, match="requires a successful fit"):
+    with pytest.raises(ValueError, match="requires a reusable successful fit"):
         DesignService().create_job(workspace, fit_service=FitService())
 
 
@@ -171,3 +172,56 @@ def test_create_job_and_apply_outcome_write_fit_linked_design_artifacts(
     assert schedule.metadata.get("row_count") == 7
     assert Path(summary.path or "").exists()
     assert Path(schedule.path or "").exists()
+
+    summary_text = Path(summary.path or "").read_text(encoding="utf-8")
+    assert "Design Result (3 sampling times)" in summary_text
+    assert "Criterion: A" in summary_text
+    assert "Optimization method: L-BFGS-B" in summary_text
+    assert "Subjects: 20" in summary_text
+    assert "Observed/reference times: [1.0, 2.0, 4.0, 8.0]" in summary_text
+    assert "Relative efficiency vs observed: 1.250000" in summary_text
+
+    metrics = next(
+        artifact
+        for artifact in artifacts
+        if artifact.metadata.get("artifact_role") == "design_metrics"
+    )
+    fim = next(
+        artifact for artifact in artifacts if artifact.metadata.get("artifact_role") == "design_fim"
+    )
+    expected_se = next(
+        artifact
+        for artifact in artifacts
+        if artifact.metadata.get("artifact_role") == "design_expected_se"
+    )
+
+    metrics_df = pd.read_csv(Path(metrics.path or ""))
+    schedule_df = pd.read_csv(Path(schedule.path or ""))
+    fim_df = pd.read_csv(Path(fim.path or ""), index_col=0)
+    se_df = pd.read_csv(Path(expected_se.path or ""))
+
+    metrics_map = {
+        str(row.metric): row.value for row in metrics_df.itertuples(index=False)
+    }
+    assert metrics_map["criterion"] == "A"
+    assert metrics_map["optimization_method"] == "L-BFGS-B"
+    assert float(metrics_map["n_samples"]) == 3.0
+    assert float(metrics_map["n_subjects"]) == 20.0
+    assert float(metrics_map["t_min"]) == 0.0
+    assert float(metrics_map["t_max"]) == 12.0
+    assert float(metrics_map["a_efficiency"]) == pytest.approx(0.33)
+    assert float(metrics_map["condition_number"]) == pytest.approx(4.2)
+    assert float(metrics_map["reference_sample_count"]) == 4.0
+    assert float(metrics_map["relative_efficiency"]) == pytest.approx(1.25)
+
+    optimized = schedule_df.loc[schedule_df["design_kind"] == "optimized", "time"].to_numpy()
+    reference = schedule_df.loc[schedule_df["design_kind"] == "reference", "time"].to_numpy()
+    np.testing.assert_allclose(optimized, np.array([0.5, 2.0, 8.0]))
+    np.testing.assert_allclose(reference, np.array([1.0, 2.0, 4.0, 8.0]))
+
+    assert list(fim_df.index) == ["THETA(1)", "THETA(2)"]
+    assert list(fim_df.columns) == ["THETA(1)", "THETA(2)"]
+    np.testing.assert_allclose(fim_df.to_numpy(dtype=float), np.array([[10.0, 1.0], [1.0, 5.0]]))
+
+    assert se_df["parameter"].tolist() == ["THETA(1)", "THETA(2)"]
+    np.testing.assert_allclose(se_df["expected_se"].to_numpy(dtype=float), np.array([0.1, 0.2]))

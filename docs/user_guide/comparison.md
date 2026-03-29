@@ -56,7 +56,9 @@ NumPyro when installed, otherwise falls back to a Laplace approximation.
 
 | ADVAN | Description | OpenPKPD | NONMEM | Monolix | WinNonLin | mrgsolve | Pumas.jl | Pharmpy |
 |-------|-------------|:--------:|:------:|:-------:|:---------:|:--------:|:--------:|:-------:|
-| ADVAN6 | Non-stiff ODE ($DES) | Y | Y | Y | — | Y | Y | via NM |
+| ADVAN5 | General linear N-cmt (matrix exponential) | Y | Y | Y | — | — | Y | via NM |
+| ADVAN7 | General linear N-cmt, no peripheral elim. | Y | Y | — | — | — | Y | via NM |
+| ADVAN6 | Non-stiff ODE ($DES), JIT-accelerated | Y | Y | Y | — | Y | Y | via NM |
 | ADVAN8 | Stiff ODE (LSODA) | Y | Y | Y | — | Y | Y | via NM |
 | ADVAN10 | 1-cmt Michaelis-Menten | Y | Y | Y | Y | Y | Y | via NM |
 | ADVAN13 | Stiff ODE + adjoint sensitivity | P | Y | — | — | — | Y | via NM |
@@ -168,8 +170,8 @@ NumPyro when installed, otherwise falls back to a Laplace approximation.
 | Categorical covariate effects | Y | Y | Y | Y | — | Y | Y |
 | Stepwise SCM (forward/backward) | P | via PsN | Y (COSSAC) | — | — | Y | Y |
 | Parallel SCM candidate evaluation | P | — | Y | — | — | Y | Y |
-| FREM (full random effects model) | — | — | — | — | — | — | Y |
-| Automated model development (AMD) | — | — | — | — | — | — | Y |
+| FREM (full random effects model) | P | — | — | — | — | — | Y |
+| Automated model development (AMD) | P | — | — | — | — | — | Y |
 
 ---
 
@@ -191,7 +193,7 @@ NumPyro when installed, otherwise falls back to a Laplace approximation.
 |---------|:--------:|:------:|:-------:|:---------:|:--------:|:--------:|:-------:|
 | Open source (no licence fee) | Y | — | — | — | Y | partial | Y |
 | Native Python API | Y | — | — | — | — | — | Y |
-| NONMEM .ctl file parsing | Y | — | — | — | — | — | Y |
+| NONMEM .ctl file parsing + writing | Y | — | — | — | — | — | Y |
 | SBML / QSP model import | Y | — | — | — | — | — | — |
 | Delay differential equations | Y | Y | — | — | — | Y | via NM |
 | R integration | — | via PsN | — | Y | Y | — | Y |

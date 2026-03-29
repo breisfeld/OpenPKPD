@@ -36,6 +36,7 @@ validation
 testing
 advanced_pk
 nca
+monolix_migration
 comparison
 external_validation_benchmarks
 citations

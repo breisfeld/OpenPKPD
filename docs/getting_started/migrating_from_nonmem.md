@@ -92,13 +92,20 @@ OpenPKPD writes the same output files as NONMEM 7.x:
 
 ## Current limitations
 
-The following NONMEM features are planned for future phases:
+The following NONMEM features are not yet fully supported:
 
-- **ADVAN5/7** — general linear (matrix exponential) — Phase 3
-- **ADVAN6/8/13** — general nonlinear ODE — Phase 3
-- **ADVAN11/12** — 3-compartment IV/oral — Phase 3
-- **$MIXTURE** — finite mixture models — Phase 3
-- **$PRIOR** — MAP estimation with informative priors — Phase 3
-- **IOV** (inter-occasion variability) — Phase 3
-- **$SIMULATION** — Monte Carlo simulation — Phase 3
-- **NUTS/BAYES** — MCMC via NumPyro or PyMC — Phase 3
+- **$MIXTURE** — finite mixture models — not yet implemented
+- **$PRIOR** — MAP estimation with informative priors — not yet implemented
+- **$SIMULATION** — Monte Carlo simulation block — partial; use `openpkpd.simulation` directly
+
+Previously listed as limitations but now implemented:
+
+| Feature | Status |
+|---------|--------|
+| ADVAN5/7 (general linear, matrix exponential) | ✅ Implemented |
+| ADVAN6/8 (general nonlinear ODE, stiff/nonstiff) | ✅ Implemented |
+| ADVAN11/12 (3-compartment IV/oral) | ✅ Implemented |
+| ADVAN13 (stiff ODE + adjoint sensitivity) | ✅ Implemented (partial) |
+| IOV (inter-occasion variability) | ✅ Implemented |
+| NUTS/BAYES (MCMC via PyMC/NumPyro) | ✅ Implemented |
+| Control stream round-trip write (`to_nmtran()`) | ✅ Implemented |

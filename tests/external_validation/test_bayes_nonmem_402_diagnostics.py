@@ -1,4 +1,4 @@
-"""Diagnostic-only empirical BAYES(Laplace) coverage on NONMEM run 402."""
+"""Empirical BAYES(Laplace) benchmark on NONMEM run 402."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ def _build_problem():
 @pytest.mark.external_validation
 @pytest.mark.slow
 class TestBayesLaplaceNonmem402Diagnostics:
-    """Pin the current BAYES(Laplace) behavior on the empirical 402 benchmark."""
+    """Empirical BAYES(Laplace) benchmark against the NONMEM 402 parameter basin."""
 
     @pytest.fixture(scope="class")
     def fit_result(self):

@@ -17,6 +17,7 @@ import pytest
 from openpkpd.estimation.base import EstimationResult
 from openpkpd.estimation.bayes import BayesianResult, BAYESMethod
 from openpkpd.model.parameters import ParameterSet
+from openpkpd.utils.errors import EstimationError
 
 # ---------------------------------------------------------------------------
 # BAYESMethod construction
@@ -103,10 +104,11 @@ def test_backend_selection_explicit_pymc_when_available() -> None:
     assert method._select_backend() == "pymc"
 
 
-def test_backend_selection_explicit_numpyro() -> None:
-    """Explicit 'numpyro' backend should return 'numpyro'."""
+def test_backend_selection_rejects_removed_backend() -> None:
+    """Removed/unknown BAYES backends must fail loudly rather than falling through."""
     method = BAYESMethod(backend="numpyro")
-    assert method._select_backend() == "numpyro"
+    with pytest.raises(EstimationError, match="Unsupported BAYES backend"):
+        method._select_backend()
 
 
 # ---------------------------------------------------------------------------
@@ -518,7 +520,7 @@ class TestBayesianResultDiagnostics:
         assert "1.0020" in summary or "1.002" in summary
 
     def test_converged_flag_reflects_rhat(self) -> None:
-        """BAYESMethod(NumPyro) sets converged=True iff all R-hat ≤ 1.1."""
+        """BayesianResult should reflect the standard R-hat convergence rule."""
         good_rhat = np.array([1.003, 1.007])
         bad_rhat = np.array([1.003, 1.25])
         r_good = self._make_result(rhat_override=good_rhat)
@@ -811,6 +813,37 @@ class TestNumPyNUTSBackend:
         assert np.all(result.posterior_ci_lo <= mean + 1e-9)
         assert np.all(result.posterior_ci_hi >= mean - 1e-9)
 
+    def test_nuts_diagnostics_include_sampler_and_logprob_counters(self, nuts_result) -> None:
+        result, _ = nuts_result
+        diag = result.diagnostics["nuts"]
+        assert diag["n_chains"] == 2
+        assert diag["n_samples_per_chain"] == 60
+        assert diag["n_warmup_per_chain"] == 40
+        assert diag["theta_only"] is True
+        assert diag["used_population_model"] is True
+        assert diag["log_prob_calls"] > 0
+        assert diag["foce_inner_calls"] > 0
+        assert diag["foce_outer_calls"] > 0
+        assert diag["log_prob_calls_per_posterior_draw"] > 0.0
+        assert diag["exact_log_prob_cache_size"] == 128
+        assert diag["exact_log_prob_cache_hits"] >= 0
+        assert diag["exact_log_prob_cache_misses"] > 0
+        assert diag["used_analytic_theta_gradient"] is True
+        assert diag["theta_gradient_calls"] > 0
+        assert diag["theta_gradient_seconds"] >= 0.0
+        assert diag["warm_start_cache_size"] == 32
+        assert diag["warm_start_exact_hits"] >= 0
+        assert diag["warm_start_nearest_hits"] >= 0
+        assert diag["warm_start_cold_starts"] >= 0
+        assert len(diag["chain_diagnostics"]) == 2
+        for chain in diag["chain_diagnostics"]:
+            assert chain["n_samples"] == 60
+            assert chain["n_warmup"] == 40
+            assert chain["step_size_final"] > 0.0
+            assert chain["mean_tree_depth_sampling"] >= 0.0
+            assert chain["total_leaf_evaluations"] > 0
+            assert chain["used_fd_gradient"] is False
+
     def test_nuts_auto_selects_nuts_when_pymc_absent(self) -> None:
         """_select_backend() must return 'nuts' when PyMC is not installed."""
         import sys
@@ -884,6 +917,136 @@ class TestNumPyNUTSBackend:
         )
         assert result.backend_used == "nuts"
         assert result.posterior_samples["theta"].shape == (8, 2)
+        diag = result.diagnostics["nuts"]
+        assert diag["used_population_model"] is True
+        assert diag["foce_inner_calls"] > 0
+        assert diag["foce_outer_calls"] > 0
+        assert diag["used_analytic_theta_gradient"] is False
+
+    def test_nuts_exact_log_prob_cache_reuses_repeated_theta(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        from openpkpd.estimation.foce import FOCEMethod
+        from openpkpd.estimation.nuts import NUTSSampler
+
+        mock_model = MagicMock()
+        mock_model.subject_ids.return_value = [1]
+
+        mock_init = MagicMock()
+        mock_init.theta = np.array([2.0, 0.5])
+        mock_init.omega = np.eye(1) * 0.1
+        mock_init.sigma = np.eye(1) * 0.01
+
+        inner_calls: list[int] = []
+
+        def _mock_inner(self, pop_model, params):
+            inner_calls.append(1)
+            return {1: np.array([params.theta[0]], dtype=float)}
+
+        def _mock_outer(self, pop_model, params, eta_hat):
+            return 5.0
+
+        def _mock_sample(self, init_theta, n_samples=1000, n_warmup=500, init_step_size=0.1):
+            theta0 = np.asarray(init_theta, dtype=float)
+            self._log_prob_raw(theta0)
+            self._log_prob_raw(theta0.copy())
+            self.last_diagnostics = {
+                "n_warmup": int(n_warmup),
+                "n_samples": int(n_samples),
+                "step_size_initial": float(init_step_size),
+                "step_size_final": float(init_step_size),
+                "target_accept": float(self._delta),
+                "max_tree_depth": int(self._max_tree_depth),
+                "max_tree_depth_hit_count": 0,
+                "max_tree_depth_hit_fraction": 0.0,
+                "mean_tree_depth_warmup": 0.0,
+                "mean_tree_depth_sampling": 0.0,
+                "mean_accept_stat_warmup": 0.0,
+                "mean_accept_stat_sampling": 0.0,
+                "total_leaf_evaluations": 0,
+                "used_fd_gradient": True,
+                "log_prob_cache_hits": 0,
+                "log_prob_cache_misses": 0,
+                "unique_log_prob_evals": 0,
+            }
+            return np.tile(theta0, (n_samples, 1))
+
+        method = BAYESMethod(n_samples=4, n_chains=1, tune=2, backend="nuts", seed=0)
+
+        with patch.object(FOCEMethod, "_inner_loop", _mock_inner), \
+             patch.object(FOCEMethod, "_outer_ofv", _mock_outer), \
+             patch.object(NUTSSampler, "sample", _mock_sample):
+            result = method._estimate_nuts(mock_model, mock_init)
+
+        assert len(inner_calls) == 1
+        diag = result.diagnostics["nuts"]
+        assert diag["exact_log_prob_cache_hits"] >= 1
+        assert diag["exact_log_prob_cache_misses"] == 1
+
+    def test_nuts_foce_warm_start_cache_seeds_nearest_theta(self) -> None:
+        from unittest.mock import MagicMock, patch
+
+        from openpkpd.estimation.foce import FOCEMethod
+        from openpkpd.estimation.nuts import NUTSSampler
+
+        mock_model = MagicMock()
+        mock_model.subject_ids.return_value = [1]
+
+        mock_init = MagicMock()
+        mock_init.theta = np.array([2.0, 0.5])
+        mock_init.omega = np.eye(1) * 0.1
+        mock_init.sigma = np.eye(1) * 0.01
+
+        seeded_eta: list[dict[int, np.ndarray]] = []
+
+        def _mock_inner(self, pop_model, params):
+            seeded_eta.append(
+                {sid: np.asarray(value, dtype=float).copy() for sid, value in self._current_eta_hat.items()}
+            )
+            return {1: np.array([params.theta[0]], dtype=float)}
+
+        def _mock_outer(self, pop_model, params, eta_hat):
+            return 5.0
+
+        def _mock_sample(self, init_theta, n_samples=1000, n_warmup=500, init_step_size=0.1):
+            theta0 = np.asarray(init_theta, dtype=float)
+            theta1 = theta0 + np.array([0.1, 0.0])
+            self._log_prob_raw(theta0)
+            self._log_prob_raw(theta1)
+            self.last_diagnostics = {
+                "n_warmup": int(n_warmup),
+                "n_samples": int(n_samples),
+                "step_size_initial": float(init_step_size),
+                "step_size_final": float(init_step_size),
+                "target_accept": float(self._delta),
+                "max_tree_depth": int(self._max_tree_depth),
+                "max_tree_depth_hit_count": 0,
+                "max_tree_depth_hit_fraction": 0.0,
+                "mean_tree_depth_warmup": 0.0,
+                "mean_tree_depth_sampling": 0.0,
+                "mean_accept_stat_warmup": 0.0,
+                "mean_accept_stat_sampling": 0.0,
+                "total_leaf_evaluations": 0,
+                "used_fd_gradient": True,
+                "log_prob_cache_hits": 0,
+                "log_prob_cache_misses": 0,
+                "unique_log_prob_evals": 0,
+            }
+            return np.tile(theta0, (n_samples, 1))
+
+        method = BAYESMethod(n_samples=4, n_chains=1, tune=2, backend="nuts", seed=0)
+
+        with patch.object(FOCEMethod, "_inner_loop", _mock_inner), \
+             patch.object(FOCEMethod, "_outer_ofv", _mock_outer), \
+             patch.object(NUTSSampler, "sample", _mock_sample):
+            result = method._estimate_nuts(mock_model, mock_init)
+
+        assert len(seeded_eta) == 2
+        np.testing.assert_allclose(seeded_eta[0][1], np.zeros(1))
+        np.testing.assert_allclose(seeded_eta[1][1], np.array([2.0]))
+        diag = result.diagnostics["nuts"]
+        assert diag["warm_start_cold_starts"] == 1
+        assert diag["warm_start_nearest_hits"] >= 1
 
     def test_nuts_prior_only_when_population_model_is_none(self) -> None:
         """When population_model=None, _estimate_nuts must not import or call
@@ -914,72 +1077,8 @@ class TestNumPyNUTSBackend:
             "_inner_loop should not be called when population_model is None"
         )
         assert result.backend_used == "nuts"
-
-
-# ---------------------------------------------------------------------------
-# Real MCMC backend — NumPyro NUTS sampling (requires openpkpd[jax])
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.unit
-class TestNumPyroNUTSBackend:
-    """
-    Lightweight integration test that actually runs the NumPyro NUTS sampler
-    (n_samples=30, n_chains=2, nwarmup=30) and verifies that:
-    - posterior_samples_by_chain is populated with the correct shape
-    - r_hat is computed (not trivially all-ones)
-    - n_effective is computed (not trivially n_total)
-    - converged is a bool driven by R-hat
-
-    Skipped automatically when numpyro/jax is not installed.
-    """
-
-    def test_numpyro_nuts_computes_real_rhat_and_ess(self) -> None:
-        numpyro = pytest.importorskip("numpyro")  # noqa: F841
-
-        # Build a tiny BayesianResult by calling _estimate_numpyro directly
-        # with a mock log-likelihood that is just a 1-D Gaussian
-        from unittest.mock import MagicMock
-        import jax.numpy as jnp
-
-        method = BAYESMethod(n_samples=30, n_chains=2, n_warmup=30,
-                             backend="numpyro", seed=42)
-
-        # The _estimate_numpyro method calls model.log_likelihood(theta, data)
-        # We mock it as a 1-D Gaussian centred at 2.0 (one THETA parameter)
-        mock_model = MagicMock()
-        mock_model.n_theta = 1
-        mock_model.log_likelihood.side_effect = lambda theta, data: (
-            -0.5 * float((theta[0] - 2.0) ** 2)
-        )
-
-        mock_init = MagicMock()
-        mock_init.theta = np.array([2.0])
-        mock_init.omega = np.eye(1) * 0.1
-        mock_init.sigma = np.eye(1) * 0.1
-
-        result = method._estimate_numpyro(mock_model, data=None, init_params=mock_init)
-
-        # Shape checks
-        assert "theta" in result.posterior_samples_by_chain
-        chains = result.posterior_samples_by_chain["theta"]
-        assert chains.shape == (2, 30, 1), (
-            f"Expected (2, 30, 1), got {chains.shape}"
-        )
-        assert result.posterior_samples["theta"].shape == (60, 1)
-
-        # R-hat was actually computed (not trivially 1.0 for all)
-        assert result.r_hat.shape == (1,)
-        assert np.all(np.isfinite(result.r_hat)), "R-hat must be finite"
-
-        # ESS was actually computed (not trivially n_total=60)
-        assert result.n_effective.shape == (1,)
-        assert np.all(result.n_effective > 0), "ESS must be positive"
-        # For a well-identified Gaussian with 30 draws, ESS < n_total is normal
-        # but for a simple model it should be at least a few samples
-        assert np.all(result.n_effective <= 60), "ESS cannot exceed total draws"
-
-        # converged is a bool driven by R-hat
-        assert isinstance(result.converged, bool)
-        expected_converged = bool(np.all(result.r_hat <= 1.1))
-        assert result.converged == expected_converged
+        diag = result.diagnostics["nuts"]
+        assert diag["used_population_model"] is False
+        assert diag["foce_inner_calls"] == 0
+        assert diag["foce_outer_calls"] == 0
+        assert diag["used_analytic_theta_gradient"] is True

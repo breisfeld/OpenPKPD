@@ -86,6 +86,39 @@ def _build_warfarin_bayes_laplace_model(n_samples: int = 300, maxeval: int = 40)
     )
 
 
+def _build_theophylline_bayes_nuts_model(n_samples: int = 24, tune: int = 16):
+    """Return a measured second-tier BAYES(NUTS) model on empirical theophylline data."""
+    from openpkpd import ModelBuilder
+    from openpkpd.data.dataset import NONMEMDataset
+
+    data_path = os.path.join(DATA_DIR, "theophylline_boeckmann.csv")
+    if not os.path.exists(data_path):
+        pytest.skip(f"Data file not found: {data_path}")
+
+    dataset = NONMEMDataset.from_csv(data_path)
+    return (
+        ModelBuilder()
+        .problem("Theophylline 1-cmt oral — empirical BAYES(NUTS) validation")
+        .dataset(dataset)
+        .subroutines(advan=2, trans=2)
+        .pk("KA = THETA(1)*EXP(ETA(1))\nCL = THETA(2)*EXP(ETA(2))\nV  = THETA(3)*EXP(ETA(3))")
+        .error("Y = F*(1 + EPS(1))")
+        .theta([(0.01, 1.5, 20), (0.001, 0.08, 5), (0.1, 30, 500)])
+        .omega([0.09, 0.06, 0.04])
+        .sigma(0.02)
+        .estimation(
+            method="BAYES",
+            backend="nuts",
+            n_samples=n_samples,
+            tune=tune,
+            n_chains=2,
+            seed=42,
+            prior_sd_theta=1e8,
+        )
+        .build()
+    )
+
+
 @pytest.mark.external_validation
 @pytest.mark.slow
 class TestTheophyllineBayesLaplaceEmpirical:
@@ -228,3 +261,57 @@ class TestWarfarinBayesLaplaceEmpirical:
         posterior_sd = fit_result.posterior_samples["theta"].std(axis=0, ddof=1)
         assert np.all(np.isfinite(posterior_sd))
         assert np.all(posterior_sd > 0.0)
+
+
+@pytest.mark.external_validation
+@pytest.mark.slow
+class TestTheophyllineBayesNUTSEmpirical:
+    """Empirical BAYES(NUTS) should hit the validated theophylline basin on the measured budget."""
+
+    @pytest.fixture(scope="class")
+    def fit_result(self):
+        warnings.filterwarnings("ignore")
+        return _build_theophylline_bayes_nuts_model().fit()
+
+    @pytest.fixture(scope="class")
+    def nlmixr2_ref(self):
+        return _load_ref("theophylline_foce.json")
+
+    def test_backend_and_chain_shapes_are_present(self, fit_result):
+        theta_samples = fit_result.posterior_samples.get("theta")
+        assert fit_result.backend_used == "nuts"
+        assert fit_result.method == "BAYES(NUTS)"
+        assert theta_samples is not None
+        assert theta_samples.ndim == 2
+        assert theta_samples.shape[1] == 3
+        assert theta_samples.shape[0] == 48
+
+    def test_theta_tracks_external_theophylline_reference(self, fit_result, nlmixr2_ref):
+        observed = [float(value) for value in fit_result.theta_final]
+        expected = [
+            float(nlmixr2_ref["theta"]["KA"]),
+            float(nlmixr2_ref["theta"]["CL"]),
+            float(nlmixr2_ref["theta"]["V"]),
+        ]
+        tolerances = [0.05, 0.03, 0.03]
+        for name, obs, exp, tol in zip(("KA", "CL", "V"), observed, expected, tolerances):
+            rel_err = abs(obs - exp) / exp
+            assert rel_err < tol, (
+                f"{name}={obs:.4f} vs nlmixr2 FOCEI={exp:.4f} "
+                f"(rel_err={rel_err:.1%}, tolerance={tol:.0%})"
+            )
+
+    def test_rhat_is_finite_and_bounded_for_measured_budget(self, fit_result):
+        assert np.all(np.isfinite(fit_result.r_hat))
+        assert float(np.max(fit_result.r_hat)) < 1.25
+        assert np.all(np.isfinite(fit_result.n_effective))
+        assert np.all(fit_result.n_effective > 0.0)
+
+    def test_symbolic_analytic_path_is_active(self, fit_result):
+        diag = fit_result.diagnostics["nuts"]
+        assert diag["used_analytic_theta_gradient"] is True
+        assert diag["theta_only"] is True
+        assert diag["log_prob_calls"] > 0
+        assert diag["foce_inner_calls"] > 0
+        assert diag["warm_start_nearest_hits"] > 0
+        assert all(chain["used_fd_gradient"] is False for chain in diag["chain_diagnostics"])

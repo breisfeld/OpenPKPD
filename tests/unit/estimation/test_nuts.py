@@ -520,6 +520,40 @@ class TestNUTSSamplerAccuracy:
         assert samples.shape == (100, 1)
         assert np.all(np.isfinite(samples)), "Samples must be finite with max_tree_depth=1"
 
+    def test_sampler_records_run_diagnostics(self):
+        """Sampler should expose tree-depth, acceptance, and step-size diagnostics."""
+        sampler = NUTSSampler(_std_normal_log_prob, _std_normal_grad, seed=81)
+        samples = sampler.sample(np.array([0.0]), n_samples=60, n_warmup=40)
+        assert samples.shape == (60, 1)
+        diag = sampler.last_diagnostics
+        assert diag["n_samples"] == 60
+        assert diag["n_warmup"] == 40
+        assert diag["step_size_initial"] == pytest.approx(0.1)
+        assert diag["step_size_final"] > 0.0
+        assert diag["mean_tree_depth_sampling"] >= 0.0
+        assert diag["mean_accept_stat_sampling"] >= 0.0
+        assert diag["total_leaf_evaluations"] > 0
+        assert diag["used_fd_gradient"] is False
+        assert diag["log_prob_cache_hits"] >= 0
+        assert diag["log_prob_cache_misses"] > 0
+        assert diag["unique_log_prob_evals"] == diag["log_prob_cache_misses"]
+
+    def test_fd_gradient_reuses_cached_log_prob_evaluations(self):
+        calls = 0
+
+        def counting_log_prob(theta: np.ndarray) -> float:
+            nonlocal calls
+            calls += 1
+            return _std_normal_log_prob(theta)
+
+        sampler = NUTSSampler(counting_log_prob, grad_log_prob_fn=None, seed=82)
+        samples = sampler.sample(np.array([0.0]), n_samples=20, n_warmup=10)
+        assert samples.shape == (20, 1)
+        diag = sampler.last_diagnostics
+        assert diag["used_fd_gradient"] is True
+        assert diag["log_prob_cache_hits"] > 0
+        assert calls == diag["unique_log_prob_evals"]
+
 
 # ---------------------------------------------------------------------------
 # nuts_estimate
@@ -549,6 +583,8 @@ class TestNutsEstimate:
         assert "r_hat" in result
         assert "n_effective" in result
         assert "backend_used" in result
+        assert "n_chains" in result
+        assert "diagnostics_note" in result
 
     def test_backend_used_is_nuts(self):
         result = nuts_estimate(
@@ -560,7 +596,7 @@ class TestNutsEstimate:
         )
         assert result["backend_used"] == "nuts"
 
-    def test_r_hat_near_one(self):
+    def test_r_hat_is_marked_unavailable_for_single_chain_helper(self):
         result = nuts_estimate(
             _std_normal_log_prob,
             np.array([0.0, 0.0]),
@@ -568,8 +604,9 @@ class TestNutsEstimate:
             n_warmup=100,
             seed=5,
         )
-        # r_hat is set to ones (single chain, no multi-chain diagnostic)
-        np.testing.assert_allclose(result["r_hat"], np.ones(2))
+        assert result["n_chains"] == 1
+        assert np.isnan(result["r_hat"]).all()
+        assert "single chain" in result["diagnostics_note"].lower()
 
     def test_n_effective_positive(self):
         result = nuts_estimate(

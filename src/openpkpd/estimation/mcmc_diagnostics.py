@@ -2,8 +2,8 @@
 Standalone MCMC convergence diagnostics.
 
 Implements split-R-hat (Vehtari et al. 2021) and autocorrelation-based
-effective sample size that work without ArviZ, so all backends (NumPyro,
-Laplace) can compute diagnostics consistently.
+effective sample size that work without ArviZ, so native backends can compute
+diagnostics consistently.
 
 References:
     Vehtari, A. et al. (2021). Rank-normalization, folding, and localization:

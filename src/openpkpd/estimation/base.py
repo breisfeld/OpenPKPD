@@ -38,6 +38,7 @@ class EstimationResult:
     elapsed_time: float = 0.0
     method: str = ""
     message: str = ""
+    diagnostics: dict[str, Any] = field(default_factory=dict)
     n_observations: int = 0
     n_subjects: int = 0
     _n_parameters: int = 0

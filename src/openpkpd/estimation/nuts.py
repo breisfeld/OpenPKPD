@@ -2,8 +2,8 @@
 No-U-Turn Sampler (NUTS) — pure NumPy/SciPy implementation.
 
 Implements the NUTS algorithm with dual averaging step-size adaptation
-(Algorithm 6 from Hoffman & Gelman 2014) entirely in NumPy.  No
-PyMC, NumPyro, or JAX dependency is required.
+(Algorithm 6 from Hoffman & Gelman 2014) entirely in NumPy. No external
+autodiff or accelerator stack is required.
 
 The sampler can be used standalone or as the ``'nuts'`` backend for
 :class:`~openpkpd.estimation.bayes.BAYESMethod`.
@@ -28,6 +28,7 @@ Hoffman, M.D. & Gelman, A. (2014). The No-U-Turn Sampler: Adaptively
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from collections.abc import Callable
 
 import numpy as np
@@ -248,34 +249,65 @@ class NUTSSampler:
         max_tree_depth: int = 10,
         delta_max: float = 1000.0,
         fd_step: float = 1e-5,
+        log_prob_cache_size: int = 4096,
         seed: int | None = None,
     ) -> None:
-        self._log_prob = log_prob_fn
+        self._log_prob_raw = log_prob_fn
         self._delta = delta
         self._max_tree_depth = max_tree_depth
         self._delta_max = delta_max
         self._fd_step = fd_step
+        self._log_prob_cache_size = max(int(log_prob_cache_size), 0)
+        self._log_prob_cache: OrderedDict[bytes, float] = OrderedDict()
+        self._log_prob_cache_hits = 0
+        self._log_prob_cache_misses = 0
         if seed is not None:
             np.random.seed(seed)
 
         if grad_log_prob_fn is not None:
             self._grad_log_prob = grad_log_prob_fn
+            self._uses_fd_gradient = False
         else:
             self._grad_log_prob = self._fd_gradient
+            self._uses_fd_gradient = True
+        self.last_diagnostics: dict[str, float | int | bool] = {}
+
+    def _reset_log_prob_cache(self) -> None:
+        self._log_prob_cache.clear()
+        self._log_prob_cache_hits = 0
+        self._log_prob_cache_misses = 0
+
+    def _cached_log_prob(self, theta: np.ndarray) -> float:
+        theta_arr = np.asarray(theta, dtype=float)
+        key = theta_arr.tobytes()
+        cached = self._log_prob_cache.get(key)
+        if cached is not None:
+            self._log_prob_cache.move_to_end(key)
+            self._log_prob_cache_hits += 1
+            return cached
+
+        value = float(self._log_prob_raw(theta_arr))
+        self._log_prob_cache_misses += 1
+        if self._log_prob_cache_size > 0:
+            self._log_prob_cache[key] = value
+            self._log_prob_cache.move_to_end(key)
+            if len(self._log_prob_cache) > self._log_prob_cache_size:
+                self._log_prob_cache.popitem(last=False)
+        return value
 
     def _fd_gradient(self, theta: np.ndarray) -> np.ndarray:
         """Finite-difference gradient approximation."""
         grad = np.zeros_like(theta)
-        f0 = self._log_prob(theta)
+        f0 = self._cached_log_prob(theta)
         for i in range(len(theta)):
             th_p = theta.copy()
             th_p[i] += self._fd_step
-            grad[i] = (self._log_prob(th_p) - f0) / self._fd_step
+            grad[i] = (self._cached_log_prob(th_p) - f0) / self._fd_step
         return grad
 
     def _joint_log_prob(self, theta: np.ndarray, r: np.ndarray) -> float:
         """Joint log-probability: log p(theta) - 0.5 * r^T r."""
-        return float(self._log_prob(theta)) - 0.5 * float(np.dot(r, r))
+        return float(self._cached_log_prob(theta)) - 0.5 * float(np.dot(r, r))
 
     def sample(
         self,
@@ -301,6 +333,7 @@ class NUTSSampler:
         """
         theta = np.asarray(init_theta, dtype=float).copy()
         n_params = len(theta)
+        self._reset_log_prob_cache()
 
         # Dual averaging parameters (Nesterov 2009 / Hoffman & Gelman 2014)
         mu = np.log(10 * init_step_size)
@@ -313,6 +346,10 @@ class NUTSSampler:
 
         samples: list[np.ndarray] = []
         total_steps = n_warmup + n_samples
+        tree_depths: list[int] = []
+        accept_stats: list[float] = []
+        max_depth_hits = 0
+        total_leaf_evals = 0
 
         for m in range(1, total_steps + 1):
             # Sample fresh momentum
@@ -354,7 +391,7 @@ class NUTSSampler:
                         v,
                         j,
                         epsilon,
-                        self._log_prob,
+                        self._cached_log_prob,
                         self._grad_log_prob,
                         self._joint_log_prob,
                         self._delta_max,
@@ -377,7 +414,7 @@ class NUTSSampler:
                         v,
                         j,
                         epsilon,
-                        self._log_prob,
+                        self._cached_log_prob,
                         self._grad_log_prob,
                         self._joint_log_prob,
                         self._delta_max,
@@ -402,10 +439,15 @@ class NUTSSampler:
                 j += 1
 
             theta = theta_m
+            if j >= self._max_tree_depth:
+                max_depth_hits += 1
+            tree_depths.append(j)
+            alpha_bar = alpha_sum / max(n_alpha, 1)
+            accept_stats.append(alpha_bar)
+            total_leaf_evals += int(n_alpha)
 
             # Dual averaging step-size adaptation during warm-up
             if m <= n_warmup:
-                alpha_bar = alpha_sum / max(n_alpha, 1)
                 h_bar = (1 - 1.0 / (m + t0)) * h_bar + (self._delta - alpha_bar) / (m + t0)
                 log_eps = mu - np.sqrt(m) / gamma * h_bar
                 log_eps_bar = m ** (-kappa) * log_eps + (1 - m ** (-kappa)) * log_eps_bar
@@ -414,6 +456,29 @@ class NUTSSampler:
                 epsilon = np.exp(log_eps_bar)
                 samples.append(theta.copy())
 
+        warmup_depths = tree_depths[:n_warmup]
+        sample_depths = tree_depths[n_warmup:]
+        warmup_accept = accept_stats[:n_warmup]
+        sample_accept = accept_stats[n_warmup:]
+        self.last_diagnostics = {
+            "n_warmup": int(n_warmup),
+            "n_samples": int(n_samples),
+            "step_size_initial": float(init_step_size),
+            "step_size_final": float(np.exp(log_eps_bar)),
+            "target_accept": float(self._delta),
+            "max_tree_depth": int(self._max_tree_depth),
+            "max_tree_depth_hit_count": int(max_depth_hits),
+            "max_tree_depth_hit_fraction": float(max_depth_hits / max(total_steps, 1)),
+            "mean_tree_depth_warmup": float(np.mean(warmup_depths)) if warmup_depths else 0.0,
+            "mean_tree_depth_sampling": float(np.mean(sample_depths)) if sample_depths else 0.0,
+            "mean_accept_stat_warmup": float(np.mean(warmup_accept)) if warmup_accept else 0.0,
+            "mean_accept_stat_sampling": float(np.mean(sample_accept)) if sample_accept else 0.0,
+            "total_leaf_evaluations": int(total_leaf_evals),
+            "used_fd_gradient": bool(self._uses_fd_gradient),
+            "log_prob_cache_hits": int(self._log_prob_cache_hits),
+            "log_prob_cache_misses": int(self._log_prob_cache_misses),
+            "unique_log_prob_evals": int(self._log_prob_cache_misses),
+        }
         return np.array(samples)
 
 
@@ -443,8 +508,16 @@ def nuts_estimate(
         seed:         Random seed.
 
     Returns:
-        Dict with keys: ``samples`` (n_samples × n_params), ``r_hat`` (ones),
-        ``n_effective`` (rough estimate), ``backend_used`` = ``'nuts'``.
+        Dict with keys:
+
+        - ``samples``: posterior draws (``n_samples × n_params``)
+        - ``r_hat``: ``NaN`` per parameter because the standalone helper is
+          single-chain and cannot compute a meaningful Gelman-Rubin diagnostic
+        - ``n_effective``: rough single-chain ESS estimate
+        - ``backend_used``: ``"nuts"``
+        - ``n_chains``: always ``1`` for this helper
+        - ``diagnostics_note``: explicit note describing the single-chain
+          diagnostic limitation
     """
     sampler = NUTSSampler(log_prob_fn, delta=delta, seed=seed)
     samples = sampler.sample(init_theta, n_samples=n_samples, n_warmup=n_warmup)
@@ -462,9 +535,16 @@ def nuts_estimate(
         neff = int(len(col) * (1 - rho) / (1 + rho))
         n_eff.append(max(neff, 1))
 
+    diagnostics_note = (
+        "Standalone nuts_estimate() runs a single chain. R-hat is undefined in this mode; "
+        "use BAYESMethod(backend='nuts', n_chains>=2) for multi-chain diagnostics."
+    )
+
     return {
         "samples": samples,
-        "r_hat": np.ones(samples.shape[1]),
+        "r_hat": np.full(samples.shape[1], np.nan),
         "n_effective": np.array(n_eff),
         "backend_used": "nuts",
+        "n_chains": 1,
+        "diagnostics_note": diagnostics_note,
     }

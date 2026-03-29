@@ -1,10 +1,9 @@
 """
 Bayesian estimation for population PK/PD models.
 
-Implements full Bayesian posterior estimation using Markov Chain Monte Carlo
-(MCMC) via PyMC (if available) or NumPyro (if JAX available).
+Implements Bayesian posterior estimation using PyMC when available, the built-in
+pure-NumPy NUTS backend otherwise, or a Laplace approximation when requested.
 
-Fallback: Laplace approximation when neither MCMC backend is available.
 The Laplace approximation runs FOCE to obtain the MAP estimate, then samples
 from a multivariate normal approximation centred at the MAP with covariance
 approximated from the inverse Hessian.
@@ -17,6 +16,7 @@ References:
 
 from __future__ import annotations
 
+from collections import OrderedDict
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -24,6 +24,7 @@ from typing import Any
 import numpy as np
 
 from openpkpd.estimation.base import EstimationMethod, EstimationResult
+from openpkpd.utils.errors import EstimationError
 
 # ---------------------------------------------------------------------------
 # Extended result dataclass
@@ -53,7 +54,7 @@ class BayesianResult(EstimationResult):
         posterior_ci_hi:   Upper bound of the posterior credible interval
                            per THETA parameter.
         backend_used:      The backend that was actually used ('pymc',
-                           'numpyro', or 'laplace').
+                           'nuts', or 'laplace').
     """
 
     # Override field defaults so BayesianResult can be constructed standalone
@@ -136,8 +137,8 @@ class BAYESMethod(EstimationMethod):
     """
     Bayesian posterior estimation via MCMC.
 
-    Uses PyMC if available, then NumPyro (with JAX), then falls back
-    to a Laplace approximation (FOCE-based).
+    Uses PyMC if available, then the built-in pure-NumPy NUTS backend, or
+    falls back to a Laplace approximation (FOCE-based) when requested.
 
     The Laplace fallback:
     1. Runs FOCE to obtain a MAP estimate.
@@ -153,9 +154,6 @@ class BAYESMethod(EstimationMethod):
     - Half-Normal prior on SIGMA.
     - Gaussian likelihood per observation.
 
-    NumPyro backend:
-    - Same model structure, implemented with JAX for GPU/TPU speed.
-
     Args:
         n_samples:       Number of posterior samples per chain (after tuning).
         n_chains:        Number of MCMC chains.
@@ -163,7 +161,7 @@ class BAYESMethod(EstimationMethod):
                          posterior samples).
         target_accept:   Target acceptance rate for NUTS sampler (0–1).
         seed:            Random seed for reproducibility.
-        backend:         'auto' (default), 'pymc', 'numpyro', or 'laplace'.
+        backend:         'auto' (default), 'pymc', 'nuts', or 'laplace'.
         prior_sd_theta:  Prior standard deviation in log-space for THETA
                          parameters when using lognormal priors.
 
@@ -175,6 +173,7 @@ class BAYESMethod(EstimationMethod):
     """
 
     method_name = "BAYES"
+    _SUPPORTED_BACKENDS = {"auto", "pymc", "nuts", "laplace"}
 
     def __init__(
         self,
@@ -221,8 +220,6 @@ class BAYESMethod(EstimationMethod):
         backend = self._select_backend()
         if backend == "pymc":
             return self._estimate_pymc(population_model, init_params)
-        elif backend == "numpyro":
-            return self._estimate_numpyro(population_model, init_params)
         elif backend == "nuts":
             return self._estimate_nuts(population_model, init_params)
         else:
@@ -241,14 +238,14 @@ class BAYESMethod(EstimationMethod):
           nuts     — built-in pure-NumPy NUTS, zero extra dependencies
           laplace  — last resort when backend='laplace' is requested explicitly
 
-        NumPyro is deliberately excluded from auto-selection because jaxlib
-        has no wheels for Intel macOS (x86_64) from version 0.5 onward.
-        Use ``backend='numpyro'`` explicitly on supported platforms
-        (Linux, Apple Silicon) only.
-
         Returns:
-            Name of the backend to use: 'pymc', 'nuts', 'numpyro', or 'laplace'.
+            Name of the backend to use: 'pymc', 'nuts', or 'laplace'.
         """
+        if self.backend not in self._SUPPORTED_BACKENDS:
+            supported = ", ".join(sorted(self._SUPPORTED_BACKENDS))
+            raise EstimationError(
+                f"Unsupported BAYES backend {self.backend!r}. Supported backends: {supported}."
+            )
         if self.backend != "auto":
             return self.backend
         import importlib.util
@@ -424,136 +421,7 @@ class BAYESMethod(EstimationMethod):
         )
 
     # ------------------------------------------------------------------
-    # NumPyro backend
-    # ------------------------------------------------------------------
-
-    def _estimate_numpyro(
-        self,
-        population_model: Any,
-        init_params: Any,
-    ) -> BayesianResult:
-        """
-        Bayesian estimation via NumPyro (JAX-based NUTS sampler).
-
-        Constructs the same model as the PyMC backend but using NumPyro
-        primitives for GPU/TPU acceleration.
-
-        Args:
-            population_model: PopulationModel instance.
-            init_params:      ParameterSet with initial values.
-
-        Returns:
-            BayesianResult with full posterior trace.
-        """
-        import jax  # type: ignore[import]
-        import jax.numpy as jnp  # type: ignore[import]
-        import numpyro  # type: ignore[import]
-        import numpyro.distributions as dist  # type: ignore[import]
-        from numpyro.infer import MCMC, NUTS  # type: ignore[import]
-
-        t0 = time.time()
-        theta_init = init_params.theta.copy()
-        n_theta = len(theta_init)
-        n_eta = init_params.omega.shape[0]
-
-        # Pre-compute predictions at theta_init for the likelihood
-        all_obs: list[float] = []
-        all_pred_mu: list[float] = []
-        for sid in population_model.subject_ids():
-            indiv = population_model.individual_model(sid)
-            subj_ev = indiv.subject_events
-            obs_mask = subj_ev.observation_mask()
-            dv = subj_ev.obs_dv[obs_mask]
-            if len(dv) == 0:
-                continue
-            try:
-                eta_zero = np.zeros(n_eta)
-                _, _, f = indiv.evaluate(
-                    theta_init,
-                    eta_zero,
-                    init_params.sigma,
-                    trans=population_model.trans,
-                )
-                f_obs = f[obs_mask]
-            except Exception:
-                f_obs = np.ones(len(dv))
-            all_obs.extend(dv.tolist())
-            all_pred_mu.extend(f_obs.tolist())
-
-        obs_np = np.array(all_obs)
-        pred_np = np.array(all_pred_mu)
-
-        log_theta_mu = np.log(np.maximum(theta_init, 1e-8))
-        sigma_init_sd = np.sqrt(np.maximum(np.diag(init_params.sigma), 1e-8))
-
-        def numpyro_model() -> None:
-            numpyro.sample(
-                "theta",
-                dist.LogNormal(
-                    jnp.array(log_theta_mu),
-                    jnp.full(n_theta, float(self.prior_sd_theta)),
-                ),
-            )
-            sigma_var = numpyro.sample(
-                "sigma_var",
-                dist.HalfNormal(jnp.array(sigma_init_sd)),
-            )
-            sigma_sd = jnp.sqrt(sigma_var[0]) if len(sigma_init_sd) > 0 else 0.1
-            numpyro.sample(
-                "likelihood",
-                dist.Normal(jnp.array(pred_np), sigma_sd),
-                obs=jnp.array(obs_np),
-            )
-
-        rng_key = jax.random.PRNGKey(self.seed)
-        kernel = NUTS(numpyro_model, target_accept_prob=self.target_accept)
-        mcmc = MCMC(
-            kernel,
-            num_warmup=self.tune,
-            num_samples=self.n_samples,
-            num_chains=self.n_chains,
-            progress_bar=False,
-        )
-        mcmc.run(rng_key)
-        # get_samples(group_by_chain=True) → dict {name: (n_chains, n_draws, …)}
-        samples_by_chain = mcmc.get_samples(group_by_chain=True)
-        samples_flat = mcmc.get_samples(group_by_chain=False)
-
-        theta_by_chain = np.array(samples_by_chain["theta"])   # (chains, draws, n_theta)
-        if theta_by_chain.ndim == 2:
-            theta_by_chain = theta_by_chain[np.newaxis, :, :]
-        theta_flat = np.array(samples_flat["theta"])
-        if theta_flat.ndim == 1:
-            theta_flat = theta_flat.reshape(-1, n_theta)
-        theta_mean = np.mean(theta_flat, axis=0)
-
-        from openpkpd.estimation.mcmc_diagnostics import compute_ess, compute_rhat
-
-        r_hat_vals = compute_rhat(theta_by_chain)
-        n_eff_vals = compute_ess(theta_by_chain)
-
-        ci_lo, ci_hi = self._compute_posterior_summary(theta_flat, ci=0.95)
-        elapsed = time.time() - t0
-
-        return BayesianResult(
-            theta_final=theta_mean,
-            omega_final=init_params.omega.copy(),
-            sigma_final=init_params.sigma.copy(),
-            ofv=float("nan"),
-            converged=bool(np.all(r_hat_vals <= 1.1)),
-            elapsed_time=elapsed,
-            method="BAYES(NumPyro)",
-            posterior_samples={"theta": theta_flat},
-            posterior_samples_by_chain={"theta": theta_by_chain},
-            r_hat=r_hat_vals,
-            n_effective=n_eff_vals,
-            posterior_ci_lo=ci_lo,
-            posterior_ci_hi=ci_hi,
-            backend_used="numpyro",
-        )
-
-    # ------------------------------------------------------------------
-    # Pure-NumPy NUTS backend (default, zero dependencies)
+    # Pure-NumPy NUTS backend (zero dependencies)
     # ------------------------------------------------------------------
 
     def _estimate_nuts(
@@ -644,39 +512,246 @@ class BAYESMethod(EstimationMethod):
             from openpkpd.estimation.foce import FOCEMethod
             from openpkpd.model.parameters import ParameterSet
 
+            subject_ids = list(population_model.subject_ids())
             # inner_maxiter=50: warm-started iterations converge faster than
             # the cold-start default (200); keeps per-step cost bounded.
             foce = FOCEMethod(inner_maxiter=50)
             foce._current_eta_hat = {
                 sid: np.zeros(n_eta)
-                for sid in population_model.subject_ids()
+                for sid in subject_ids
             }
             _omega = np.asarray(init_params.omega).copy()
             _sigma = np.asarray(init_params.sigma).copy()
+            log_prob_calls = 0
+            foce_inner_calls = 0
+            foce_outer_calls = 0
+            foce_inner_elapsed = 0.0
+            foce_outer_elapsed = 0.0
+            theta_grad_calls = 0
+            theta_grad_elapsed = 0.0
+            exact_log_prob_cache: OrderedDict[bytes, tuple[float, np.ndarray | None]] = OrderedDict()
+            exact_log_prob_cache_size = 128
+            exact_log_prob_cache_hits = 0
+            exact_log_prob_cache_misses = 0
+            supports_theta_gradient = (
+                (not foce.interaction)
+                and all(
+                    isinstance(
+                        population_model.individual_model(sid).supports_theta_data_objective_gradient(
+                            population_model.trans
+                        ),
+                        (bool, np.bool_),
+                    )
+                    and bool(
+                        population_model.individual_model(sid).supports_theta_data_objective_gradient(
+                            population_model.trans
+                        )
+                    )
+                    for sid in subject_ids
+                )
+            )
+            warm_start_cache: OrderedDict[bytes, tuple[np.ndarray, dict[int, np.ndarray]]] = (
+                OrderedDict()
+            )
+            warm_start_cache_size = 32
+            warm_start_exact_hits = 0
+            warm_start_nearest_hits = 0
+            warm_start_cold_starts = 0
+
+            def _copy_eta_hat(eta_hat: dict[int, np.ndarray]) -> dict[int, np.ndarray]:
+                return {
+                    sid: np.asarray(value, dtype=float).copy()
+                    for sid, value in eta_hat.items()
+                }
+
+            def _seed_eta_hat(theta: np.ndarray) -> dict[int, np.ndarray]:
+                nonlocal warm_start_exact_hits, warm_start_nearest_hits, warm_start_cold_starts
+                theta_arr = np.asarray(theta, dtype=float)
+                key = theta_arr.tobytes()
+                exact = warm_start_cache.get(key)
+                if exact is not None:
+                    warm_start_cache.move_to_end(key)
+                    warm_start_exact_hits += 1
+                    return _copy_eta_hat(exact[1])
+
+                if warm_start_cache:
+                    nearest_key = min(
+                        warm_start_cache,
+                        key=lambda candidate: float(
+                            np.linalg.norm(theta_arr - warm_start_cache[candidate][0])
+                        ),
+                    )
+                    warm_start_cache.move_to_end(nearest_key)
+                    warm_start_nearest_hits += 1
+                    return _copy_eta_hat(warm_start_cache[nearest_key][1])
+
+                warm_start_cold_starts += 1
+                return {
+                    sid: np.zeros(n_eta, dtype=float)
+                    for sid in subject_ids
+                }
+
+            def _store_eta_hat(theta: np.ndarray, eta_hat: dict[int, np.ndarray]) -> None:
+                key = np.asarray(theta, dtype=float).tobytes()
+                warm_start_cache[key] = (
+                    np.asarray(theta, dtype=float).copy(),
+                    _copy_eta_hat(eta_hat),
+                )
+                warm_start_cache.move_to_end(key)
+                while len(warm_start_cache) > warm_start_cache_size:
+                    warm_start_cache.popitem(last=False)
+
+            def _log_prior_grad(theta: np.ndarray) -> np.ndarray:
+                theta_arr = np.asarray(theta, dtype=float)
+                if np.any(theta_arr <= 0):
+                    return np.full_like(theta_arr, np.nan, dtype=float)
+                log_th = np.log(theta_arr)
+                return -(
+                    ((log_th - log_theta_mu) / (self.prior_sd_theta**2)) + 1.0
+                ) / theta_arr
+
+            def _theta_log_prob_grad(
+                theta: np.ndarray,
+                eta_hat: dict[int, np.ndarray],
+            ) -> np.ndarray | None:
+                nonlocal theta_grad_calls, theta_grad_elapsed
+                if not supports_theta_gradient:
+                    return None
+                theta_grad_calls += 1
+                t_grad = time.time()
+                grad = _log_prior_grad(theta)
+                for sid in subject_ids:
+                    indiv = population_model.individual_model(sid)
+                    grad -= 0.5 * np.asarray(
+                        indiv.theta_data_objective_gradient(
+                            theta,
+                            eta_hat.get(sid, np.zeros(n_eta, dtype=float)),
+                            _sigma,
+                            trans=population_model.trans,
+                        ),
+                        dtype=float,
+                    )
+                theta_grad_elapsed += time.time() - t_grad
+                return grad
 
             def log_prob(theta: np.ndarray) -> float:
                 """Log-posterior: prior + FOCE marginal log-likelihood."""
-                lp = _log_prior(theta)
+                nonlocal log_prob_calls, foce_inner_calls, foce_outer_calls
+                nonlocal foce_inner_elapsed, foce_outer_elapsed
+                nonlocal exact_log_prob_cache_hits, exact_log_prob_cache_misses
+                theta_arr = np.asarray(theta, dtype=float)
+                key = theta_arr.tobytes()
+                cached_payload = exact_log_prob_cache.get(key)
+                if cached_payload is not None:
+                    exact_log_prob_cache.move_to_end(key)
+                    exact_log_prob_cache_hits += 1
+                    return cached_payload[0]
+                exact_log_prob_cache_misses += 1
+                log_prob_calls += 1
+                lp = _log_prior(theta_arr)
                 if not np.isfinite(lp):
+                    exact_log_prob_cache[key] = (
+                        float("-inf"),
+                        np.zeros_like(theta_arr, dtype=float) if supports_theta_gradient else None,
+                    )
                     return -np.inf
-                params = ParameterSet(theta=theta, omega=_omega, sigma=_sigma)
+                params = ParameterSet(theta=theta_arr, omega=_omega, sigma=_sigma)
                 try:
+                    foce._current_eta_hat = _seed_eta_hat(theta_arr)
+                    t_inner = time.time()
                     eta_hat = foce._inner_loop(population_model, params)
-                    foce._current_eta_hat = eta_hat   # warm-start next call
+                    foce_inner_elapsed += time.time() - t_inner
+                    foce_inner_calls += 1
+                    foce._current_eta_hat = _copy_eta_hat(eta_hat)
+                    _store_eta_hat(theta_arr, eta_hat)
                     # float() converts the scalar OFV and raises TypeError on
                     # non-numeric returns (e.g. mock objects in unit tests).
+                    t_outer = time.time()
                     ofv = float(foce._outer_ofv(population_model, params, eta_hat))
+                    foce_outer_elapsed += time.time() - t_outer
+                    foce_outer_calls += 1
                 except Exception:
                     return -np.inf
                 if not np.isfinite(ofv):
                     return -np.inf
                 # OFV = -2 * log p(Y|theta,eta_hat) → log-lik = -OFV/2
-                return lp - 0.5 * ofv
+                value = lp - 0.5 * ofv
+                grad = _theta_log_prob_grad(theta_arr, eta_hat)
+                exact_log_prob_cache[key] = (value, grad)
+                exact_log_prob_cache.move_to_end(key)
+                while len(exact_log_prob_cache) > exact_log_prob_cache_size:
+                    exact_log_prob_cache.popitem(last=False)
+                return value
+
+            def grad_log_prob(theta: np.ndarray) -> np.ndarray:
+                theta_arr = np.asarray(theta, dtype=float)
+                key = theta_arr.tobytes()
+                cached_payload = exact_log_prob_cache.get(key)
+                if cached_payload is None:
+                    _ = log_prob(theta_arr)
+                    cached_payload = exact_log_prob_cache.get(key)
+                if cached_payload is None or cached_payload[1] is None:
+                    raise RuntimeError("analytic theta gradient unavailable for this theta")
+                return np.asarray(cached_payload[1], dtype=float)
 
         else:
+            log_prob_calls = 0
+            foce_inner_calls = 0
+            foce_outer_calls = 0
+            foce_inner_elapsed = 0.0
+            foce_outer_elapsed = 0.0
+            theta_grad_calls = 0
+            theta_grad_elapsed = 0.0
+            exact_log_prob_cache: OrderedDict[bytes, tuple[float, np.ndarray | None]] = OrderedDict()
+            exact_log_prob_cache_size = 128
+            exact_log_prob_cache_hits = 0
+            exact_log_prob_cache_misses = 0
+            supports_theta_gradient = True
+
+            def _log_prior_grad(theta: np.ndarray) -> np.ndarray:
+                theta_arr = np.asarray(theta, dtype=float)
+                if np.any(theta_arr <= 0):
+                    return np.full_like(theta_arr, np.nan, dtype=float)
+                log_th = np.log(theta_arr)
+                return -(
+                    ((log_th - log_theta_mu) / (self.prior_sd_theta**2)) + 1.0
+                ) / theta_arr
+
             # population_model is None — unit-test / prior-only mode
             def log_prob(theta: np.ndarray) -> float:
-                return _log_prior(theta)
+                nonlocal log_prob_calls, exact_log_prob_cache_hits, exact_log_prob_cache_misses
+                theta_arr = np.asarray(theta, dtype=float)
+                key = theta_arr.tobytes()
+                cached_payload = exact_log_prob_cache.get(key)
+                if cached_payload is not None:
+                    exact_log_prob_cache.move_to_end(key)
+                    exact_log_prob_cache_hits += 1
+                    return cached_payload[0]
+                exact_log_prob_cache_misses += 1
+                log_prob_calls += 1
+                value = _log_prior(theta_arr)
+                if not np.isfinite(value):
+                    exact_log_prob_cache[key] = (
+                        float("-inf"),
+                        np.zeros_like(theta_arr, dtype=float),
+                    )
+                    return value
+                exact_log_prob_cache[key] = (value, _log_prior_grad(theta_arr))
+                exact_log_prob_cache.move_to_end(key)
+                while len(exact_log_prob_cache) > exact_log_prob_cache_size:
+                    exact_log_prob_cache.popitem(last=False)
+                return value
+
+            def grad_log_prob(theta: np.ndarray) -> np.ndarray:
+                theta_arr = np.asarray(theta, dtype=float)
+                key = theta_arr.tobytes()
+                cached_payload = exact_log_prob_cache.get(key)
+                if cached_payload is None:
+                    _ = log_prob(theta_arr)
+                    cached_payload = exact_log_prob_cache.get(key)
+                if cached_payload is None or cached_payload[1] is None:
+                    raise RuntimeError("prior-only gradient unavailable")
+                return np.asarray(cached_payload[1], dtype=float)
 
         # -----------------------------------------------------------------
         # Multi-chain sampling
@@ -684,14 +759,21 @@ class BAYESMethod(EstimationMethod):
         rng = np.random.default_rng(self.seed)
         chain_seeds = [int(rng.integers(0, 2**31)) for _ in range(self.n_chains)]
         chains: list[np.ndarray] = []
+        chain_diagnostics: list[dict[str, float | int | bool]] = []
         for seed_c in chain_seeds:
-            sampler = NUTSSampler(log_prob, seed=seed_c, delta=self.target_accept)
+            sampler = NUTSSampler(
+                log_prob,
+                grad_log_prob_fn=grad_log_prob if supports_theta_gradient else None,
+                seed=seed_c,
+                delta=self.target_accept,
+            )
             chain_draws = sampler.sample(
                 theta_init,
                 n_samples=self.n_samples,
                 n_warmup=self.tune,
             )
             chains.append(chain_draws)
+            chain_diagnostics.append(dict(sampler.last_diagnostics))
 
         theta_by_chain = np.stack(chains)          # (n_chains, n_samples, n_theta)
         theta_flat = theta_by_chain.reshape(-1, n_theta)
@@ -710,6 +792,42 @@ class BAYESMethod(EstimationMethod):
 
         ci_lo, ci_hi = self._compute_posterior_summary(theta_flat, ci=0.95)
         elapsed = time.time() - t0
+        diagnostics = {
+            "nuts": {
+                "n_chains": int(self.n_chains),
+                "n_samples_per_chain": int(self.n_samples),
+                "n_warmup_per_chain": int(self.tune),
+                "log_prob_calls": int(log_prob_calls),
+                "foce_inner_calls": int(foce_inner_calls),
+                "foce_outer_calls": int(foce_outer_calls),
+                "foce_inner_seconds": float(foce_inner_elapsed),
+                "foce_outer_seconds": float(foce_outer_elapsed),
+                "log_prob_calls_per_posterior_draw": (
+                    float(log_prob_calls / max(theta_flat.shape[0], 1))
+                ),
+                "exact_log_prob_cache_size": int(exact_log_prob_cache_size),
+                "exact_log_prob_cache_hits": int(exact_log_prob_cache_hits),
+                "exact_log_prob_cache_misses": int(exact_log_prob_cache_misses),
+                "theta_gradient_calls": int(theta_grad_calls),
+                "theta_gradient_seconds": float(theta_grad_elapsed),
+                "used_analytic_theta_gradient": bool(supports_theta_gradient),
+                "used_population_model": bool(population_model is not None),
+                "theta_only": True,
+                "warm_start_cache_size": int(warm_start_cache_size)
+                if population_model is not None
+                else 0,
+                "warm_start_exact_hits": int(warm_start_exact_hits)
+                if population_model is not None
+                else 0,
+                "warm_start_nearest_hits": int(warm_start_nearest_hits)
+                if population_model is not None
+                else 0,
+                "warm_start_cold_starts": int(warm_start_cold_starts)
+                if population_model is not None
+                else 0,
+                "chain_diagnostics": chain_diagnostics,
+            }
+        }
 
         return BayesianResult(
             theta_final=theta_mean,
@@ -726,6 +844,7 @@ class BAYESMethod(EstimationMethod):
             posterior_ci_lo=ci_lo,
             posterior_ci_hi=ci_hi,
             backend_used="nuts",
+            diagnostics=diagnostics,
         )
 
     # ------------------------------------------------------------------

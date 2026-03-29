@@ -16,12 +16,13 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Medical Science Apps.",
 ]
 dependencies = [
-    "numpy>=2.0,<2.4",   # <2.4 keeps numba 0.62 compatible; raise when numba 0.65+ is available
+    "numpy>=2.0,<2.4", # <2.4 keeps numba 0.62 compatible; raise when numba 0.65+ is available
     "scipy>=1.13",
     "pandas>=2.2",
     "click>=8.1",
     "pydantic>=2.8",
     "pyyaml>=6.0.3",
+    "rpy2>=3.6.6",
 ]
 
 [project.urls]

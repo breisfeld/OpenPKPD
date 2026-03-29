@@ -288,9 +288,11 @@ class IndividualModel:
             return f_arr.copy(), np.maximum(w2 * s00, 1e-10)
 
         if kind == "combined_eps":
-            # Y = F+EPS[0]+F·EPS[1]  →  var = σ₀₀ + F²·σ₁₁
-            s11 = max(float(sigma[1, 1]) if sigma.size >= 4 else s00, 1e-10)
-            return f_arr.copy(), np.maximum(s00 + f_arr * f_arr * s11, 1e-10)
+            # Y = F+EPS[0]+F·EPS[1]  →  var = σ₀₀ + 2·F·σ₀₁ + F²·σ₁₁
+            # Off-diagonal term is needed when EPS(1) and EPS(2) are correlated.
+            s01 = float(sigma[0, 1]) if sigma.size >= 4 else 0.0
+            s11 = float(sigma[1, 1]) if sigma.size >= 4 else s00
+            return f_arr.copy(), np.maximum(s00 + 2.0 * s01 * f_arr + s11 * f_arr * f_arr, 1e-10)
 
         return None
 

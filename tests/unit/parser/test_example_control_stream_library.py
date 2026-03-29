@@ -25,10 +25,17 @@ EXPECTED_EXAMPLE_FILES = {
     "35_nmsim_advan13_one_compartment_des.ctl",
     "36_nmsim_saem_multi_covariate_age_weight_sex.ctl",
     "37_focei_optimizer_controls.ctl",
+    "38_prior_gaussian_subset.ctl",
+    "39_onlysimulation_subproblems.ctl",
     "10_warfarin_pk_focei.ctl",
     "11_two_compartment_iv_focei.ctl",
     "12_phenobarbital_fo.ctl",
     "13_covariates_one_cmt_focei.ctl",
+}
+
+# Files that intentionally have no $ESTIMATION block (e.g. simulation-only).
+_SIMULATION_ONLY_FILES = {
+    "39_onlysimulation_subproblems.ctl",
 }
 
 
@@ -50,7 +57,8 @@ def test_curated_control_stream_library_parses_cleanly() -> None:
         assert control_stream.theta_records, path.name
         assert control_stream.omega_records, path.name
         assert control_stream.sigma_records, path.name
-        assert control_stream.estimation_records, path.name
+        if path.name not in _SIMULATION_ONLY_FILES:
+            assert control_stream.estimation_records, path.name
 
 
 def test_transit_example_includes_des_block() -> None:

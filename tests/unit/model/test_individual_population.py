@@ -279,11 +279,11 @@ def _assert_symbolic_derivatives_match_fd(
 
     kernel = model.get_subject_derivative_kernel(trans)
     assert kernel is not None, case_name
-    assert kernel.capabilities == DerivativeKernelCapabilities(
-        eta_objective_gradient=True,
-        eta_objective_hessian=True,
-        prediction_eta_jacobian=True,
-    )
+    # Verify minimum required capabilities are present; allow additional
+    # capabilities (e.g. theta_data_objective_gradient) without failing.
+    assert kernel.capabilities.eta_objective_gradient, f"{case_name}: eta_objective_gradient"
+    assert kernel.capabilities.eta_objective_hessian, f"{case_name}: eta_objective_hessian"
+    assert kernel.capabilities.prediction_eta_jacobian, f"{case_name}: prediction_eta_jacobian"
 
     symbolic_value, symbolic_grad = model.symbolic_obj_eta_value_grad(
         eta, theta, omega, sigma, trans=trans

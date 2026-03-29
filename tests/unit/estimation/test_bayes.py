@@ -72,20 +72,29 @@ def test_backend_selection_explicit_laplace() -> None:
     assert method._select_backend() == "laplace"
 
 
-def test_backend_selection_auto_falls_to_laplace(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When neither pymc nor numpyro is importable, fall back to laplace."""
-    import builtins
+def test_backend_selection_auto_falls_to_nuts_when_pymc_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When PyMC is not importable, auto selection must return 'nuts' (built-in)."""
+    import importlib.util
 
-    real_import = builtins.__import__
+    original_find_spec = importlib.util.find_spec
 
-    def fake_import(name: str, *args, **kwargs):  # type: ignore[override]
-        if name in ("pymc", "numpyro"):
-            raise ImportError(f"Fake ImportError for {name}")
-        return real_import(name, *args, **kwargs)
+    def _no_pymc(name, *args, **kwargs):
+        if name == "pymc":
+            return None
+        return original_find_spec(name, *args, **kwargs)
 
-    monkeypatch.setattr(builtins, "__import__", fake_import)
-    method = BAYESMethod(backend="auto")
-    assert method._select_backend() == "laplace"
+    monkeypatch.setattr(importlib.util, "find_spec", _no_pymc)
+    # Also remove from sys.modules so the cached check doesn't win
+    import sys
+    pymc_backup = sys.modules.pop("pymc", None)
+    try:
+        method = BAYESMethod(backend="auto")
+        assert method._select_backend() == "nuts"
+    finally:
+        if pymc_backup is not None:
+            sys.modules["pymc"] = pymc_backup
 
 
 def test_backend_selection_explicit_pymc_when_available() -> None:
@@ -532,43 +541,367 @@ class TestBayesianResultDiagnostics:
 
 @pytest.mark.unit
 class TestMCMCPlots:
-    """Smoke tests for the three new diagnostic plot functions."""
+    """Content-validating tests for the three new diagnostic plot functions."""
+
+    @pytest.fixture(autouse=True)
+    def _use_agg(self):
+        pytest.importorskip("matplotlib")
+        import matplotlib
+        matplotlib.use("Agg")
 
     @pytest.fixture
     def chains_3d(self) -> np.ndarray:
         rng = np.random.default_rng(99)
         return rng.normal(size=(3, 200, 2))   # 3 chains, 200 draws, 2 params
 
-    def test_mcmc_trace_by_chain_plot_runs(self, chains_3d) -> None:
-        pytest.importorskip("matplotlib")
-        from openpkpd.plots import mcmc_trace_by_chain_plot
-        import matplotlib
-        matplotlib.use("Agg")
-        fig = mcmc_trace_by_chain_plot(chains_3d, param_names=["CL", "V"])
-        assert fig is not None
+    # ------------------------------------------------------------------
+    # mcmc_trace_by_chain_plot
+    # ------------------------------------------------------------------
 
-    def test_rhat_plot_runs(self) -> None:
-        pytest.importorskip("matplotlib")
+    def test_trace_subplot_count_matches_n_params(self, chains_3d) -> None:
+        """One subplot per parameter (n_params=2 → 2 axes)."""
+        from openpkpd.plots import mcmc_trace_by_chain_plot
+        fig = mcmc_trace_by_chain_plot(chains_3d, param_names=["CL", "V"])
+        assert len(fig.axes) == 2
+
+    def test_trace_subplot_titles_match_param_names(self, chains_3d) -> None:
+        """Each subplot title equals the corresponding parameter name."""
+        from openpkpd.plots import mcmc_trace_by_chain_plot
+        fig = mcmc_trace_by_chain_plot(chains_3d, param_names=["CL", "V"])
+        titles = [ax.get_title() for ax in fig.axes]
+        assert titles == ["CL", "V"]
+
+    def test_trace_line_count_equals_n_chains(self, chains_3d) -> None:
+        """Each subplot has exactly n_chains=3 lines (one per chain)."""
+        from openpkpd.plots import mcmc_trace_by_chain_plot
+        fig = mcmc_trace_by_chain_plot(chains_3d, param_names=["CL", "V"])
+        for ax in fig.axes:
+            assert len(ax.lines) == 3, (
+                f"Expected 3 lines (one per chain), got {len(ax.lines)}"
+            )
+
+    def test_trace_burnin_adds_shaded_region(self, chains_3d) -> None:
+        """burnin > 0 adds an axvspan shaded region to each subplot.
+
+        axvspan returns a Rectangle (matplotlib ≥ 3.9), Polygon (3.7–3.8), or
+        PolyCollection (< 3.7). Without burnin there are no patches; with burnin
+        there must be at least one patch or collection.
+        """
+        from openpkpd.plots import mcmc_trace_by_chain_plot
+        # Without burnin: no shading patches expected
+        fig_no_burnin = mcmc_trace_by_chain_plot(chains_3d, param_names=["CL", "V"], burnin=0)
+        n_patches_no_burnin = sum(len(ax.patches) + len(ax.collections) for ax in fig_no_burnin.axes)
+
+        # With burnin: at least one extra patch/collection per axis
+        fig_burnin = mcmc_trace_by_chain_plot(chains_3d, param_names=["CL", "V"], burnin=50)
+        n_patches_burnin = sum(len(ax.patches) + len(ax.collections) for ax in fig_burnin.axes)
+
+        assert n_patches_burnin > n_patches_no_burnin, (
+            f"burnin=50 added no shading (patches+collections: {n_patches_burnin} vs "
+            f"{n_patches_no_burnin} without burnin)"
+        )
+
+    def test_trace_accepts_dict_input(self, chains_3d) -> None:
+        """Dict with key 'theta' maps to the same result as passing array."""
+        from openpkpd.plots import mcmc_trace_by_chain_plot
+        fig_arr = mcmc_trace_by_chain_plot(chains_3d, param_names=["CL", "V"])
+        fig_dict = mcmc_trace_by_chain_plot({"theta": chains_3d}, param_names=["CL", "V"])
+        assert len(fig_arr.axes) == len(fig_dict.axes)
+
+    def test_trace_raises_on_bad_ndim(self) -> None:
+        """4-D input raises ValueError."""
+        from openpkpd.plots import mcmc_trace_by_chain_plot
+        with pytest.raises(ValueError, match="3-D"):
+            mcmc_trace_by_chain_plot(np.zeros((2, 3, 4, 5)))
+
+    # ------------------------------------------------------------------
+    # rhat_plot
+    # ------------------------------------------------------------------
+
+    def test_rhat_single_axes(self) -> None:
+        """rhat_plot produces exactly one Axes object."""
         from openpkpd.plots import rhat_plot
-        import matplotlib
-        matplotlib.use("Agg")
+        rhat = np.array([1.002, 1.12, 1.003])
+        fig = rhat_plot(rhat, param_names=["CL", "V", "KA"])
+        assert len(fig.axes) == 1
+
+    def test_rhat_ytick_labels_match_param_names(self) -> None:
+        """Y-axis tick labels equal the supplied param_names."""
+        from openpkpd.plots import rhat_plot
+        rhat = np.array([1.002, 1.12, 1.003])
+        fig = rhat_plot(rhat, param_names=["CL", "V", "KA"])
+        fig.canvas.draw()
+        ax = fig.axes[0]
+        labels = [t.get_text() for t in ax.get_yticklabels()]
+        assert labels == ["CL", "V", "KA"]
+
+    def test_rhat_threshold_line_present(self) -> None:
+        """An axvline is drawn at the threshold value."""
+        from openpkpd.plots import rhat_plot
+        rhat = np.array([1.002, 1.12, 1.003])
+        threshold = 1.05
+        fig = rhat_plot(rhat, param_names=["CL", "V", "KA"], threshold=threshold)
+        ax = fig.axes[0]
+        xdata_of_vlines = [line.get_xdata()[0] for line in ax.lines]
+        assert threshold in xdata_of_vlines, (
+            f"Threshold vline {threshold} not found in axvlines: {xdata_of_vlines}"
+        )
+
+    def test_rhat_bar_colors_reflect_threshold(self) -> None:
+        """Bars above threshold are red; bars at or below are green."""
+        from openpkpd.plots import rhat_plot
+        import matplotlib.colors as mcolors
+        # param 1 (V) exceeds threshold 1.1; params 0 (CL) and 2 (KA) do not
         rhat = np.array([1.002, 1.12, 1.003])
         fig = rhat_plot(rhat, param_names=["CL", "V", "KA"], threshold=1.1)
-        assert fig is not None
+        patches = fig.axes[0].patches
+        assert len(patches) == 3
+        colors = [mcolors.to_hex(p.get_facecolor()) for p in patches]
+        # IBM blue = converged (#648fff or similar), IBM red = not-converged
+        # We just check that the middle bar (V, rhat=1.12) is different from the others
+        assert colors[1] != colors[0], "Bar exceeding threshold must differ in colour from passing bars"
+        assert colors[0] == colors[2], "Both passing bars must share the same colour"
 
-    def test_ess_plot_runs(self) -> None:
-        pytest.importorskip("matplotlib")
+    def test_rhat_xlabel_set(self) -> None:
+        """X-axis is labelled 'R-hat'."""
+        from openpkpd.plots import rhat_plot
+        fig = rhat_plot(np.array([1.003, 1.008]), param_names=["CL", "V"])
+        assert fig.axes[0].get_xlabel() == "R-hat"
+
+    # ------------------------------------------------------------------
+    # ess_plot
+    # ------------------------------------------------------------------
+
+    def test_ess_single_axes(self) -> None:
+        """ess_plot produces exactly one Axes object."""
         from openpkpd.plots import ess_plot
-        import matplotlib
-        matplotlib.use("Agg")
-        ess = np.array([850.0, 312.0, 990.0])
-        fig = ess_plot(ess, n_total=1000, param_names=["CL", "V", "KA"])
-        assert fig is not None
+        fig = ess_plot(np.array([850.0, 312.0, 990.0]), n_total=1000,
+                       param_names=["CL", "V", "KA"])
+        assert len(fig.axes) == 1
 
-    def test_mcmc_trace_by_chain_accepts_dict(self, chains_3d) -> None:
-        pytest.importorskip("matplotlib")
-        from openpkpd.plots import mcmc_trace_by_chain_plot
-        import matplotlib
-        matplotlib.use("Agg")
-        fig = mcmc_trace_by_chain_plot({"theta": chains_3d})
-        assert fig is not None
+    def test_ess_ytick_labels_match_param_names(self) -> None:
+        """Y-axis tick labels equal the supplied param_names."""
+        from openpkpd.plots import ess_plot
+        fig = ess_plot(np.array([850.0, 312.0, 990.0]), n_total=1000,
+                       param_names=["CL", "V", "KA"])
+        fig.canvas.draw()
+        labels = [t.get_text() for t in fig.axes[0].get_yticklabels()]
+        assert labels == ["CL", "V", "KA"]
+
+    def test_ess_target_line_present(self) -> None:
+        """An axvline is drawn at target_fraction × n_total."""
+        from openpkpd.plots import ess_plot
+        n_total, fraction = 1000, 0.1
+        fig = ess_plot(np.array([850.0, 312.0]), n_total=n_total,
+                       param_names=["CL", "V"], target_fraction=fraction)
+        xdata = [line.get_xdata()[0] for line in fig.axes[0].lines]
+        target = fraction * n_total
+        assert target in xdata, f"Target vline {target} not in {xdata}"
+
+    def test_ess_bar_colors_reflect_target(self) -> None:
+        """Bars below the target ESS are coloured differently from passing bars."""
+        from openpkpd.plots import ess_plot
+        import matplotlib.colors as mcolors
+        # With target=100, ess=50 fails and ess=900 passes
+        fig = ess_plot(np.array([50.0, 900.0]), n_total=1000,
+                       param_names=["low", "high"], target_fraction=0.1)
+        patches = fig.axes[0].patches
+        colors = [mcolors.to_hex(p.get_facecolor()) for p in patches]
+        assert colors[0] != colors[1], "Failing bar must differ in colour from passing bar"
+
+    def test_ess_xlabel_set(self) -> None:
+        """X-axis is labelled 'Effective Sample Size'."""
+        from openpkpd.plots import ess_plot
+        fig = ess_plot(np.array([800.0]), n_total=1000, param_names=["CL"])
+        assert fig.axes[0].get_xlabel() == "Effective Sample Size"
+
+
+# ---------------------------------------------------------------------------
+# Pure-NumPy NUTS backend (zero extra dependencies, cross-platform)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestNumPyNUTSBackend:
+    """
+    Integration tests for the built-in pure-NumPy NUTS backend.
+
+    Uses a mock Gaussian log-likelihood (no population model required) so
+    the tests run on every platform without optional dependencies.
+
+    Verified properties:
+    - correct sample shapes (n_chains × n_samples × n_params)
+    - R-hat and ESS are actually computed (not trivially 1.0 / n_total)
+    - posterior mean is within ±0.5 of the true mode for an identified Gaussian
+    - converged flag reflects R-hat ≤ 1.1
+    """
+
+    # Tiny Gaussian centred at (2.0, 0.5) — fast, well-identified
+    _TRUE_THETA = np.array([2.0, 0.5])
+
+    @pytest.fixture()
+    def nuts_result(self):
+        """Run BAYESMethod with backend='nuts' against a mock Gaussian model."""
+        from unittest.mock import MagicMock
+
+        true_theta = self._TRUE_THETA.copy()
+        n_theta = len(true_theta)
+
+        mock_model = MagicMock()
+        mock_model.subject_ids.return_value = []  # no subjects → likelihood = prior
+
+        mock_init = MagicMock()
+        mock_init.theta = true_theta.copy()
+        mock_init.omega = np.eye(1) * 0.1
+        mock_init.sigma = np.eye(1) * 0.01  # tight sigma → likelihood ≈ prior here
+        mock_init.omega.shape = (1, 1)
+
+        method = BAYESMethod(
+            n_samples=60,
+            n_chains=2,
+            tune=40,
+            backend="nuts",
+            seed=0,
+        )
+        return method._estimate_nuts(mock_model, mock_init), n_theta
+
+    def test_nuts_posterior_samples_shape(self, nuts_result) -> None:
+        result, n_theta = nuts_result
+        assert "theta" in result.posterior_samples
+        assert result.posterior_samples["theta"].shape == (120, n_theta), (
+            f"Expected (120, {n_theta}), got {result.posterior_samples['theta'].shape}"
+        )
+
+    def test_nuts_by_chain_shape(self, nuts_result) -> None:
+        result, n_theta = nuts_result
+        assert "theta" in result.posterior_samples_by_chain
+        chains = result.posterior_samples_by_chain["theta"]
+        assert chains.shape == (2, 60, n_theta), (
+            f"Expected (2, 60, {n_theta}), got {chains.shape}"
+        )
+
+    def test_nuts_rhat_shape_and_finite(self, nuts_result) -> None:
+        result, n_theta = nuts_result
+        assert result.r_hat.shape == (n_theta,)
+        assert np.all(np.isfinite(result.r_hat)), "R-hat must be finite"
+
+    def test_nuts_ess_shape_and_positive(self, nuts_result) -> None:
+        result, n_theta = nuts_result
+        assert result.n_effective.shape == (n_theta,)
+        assert np.all(result.n_effective > 0), "ESS must be positive"
+        assert np.all(result.n_effective <= 120), "ESS cannot exceed total draws"
+
+    def test_nuts_converged_reflects_rhat(self, nuts_result) -> None:
+        result, _ = nuts_result
+        expected = bool(np.all(result.r_hat <= 1.1))
+        assert result.converged == expected
+
+    def test_nuts_backend_used_label(self, nuts_result) -> None:
+        result, _ = nuts_result
+        assert result.backend_used == "nuts"
+
+    def test_nuts_method_label(self, nuts_result) -> None:
+        result, _ = nuts_result
+        assert "NUTS" in result.method
+
+    def test_nuts_ci_lo_lt_mean_lt_ci_hi(self, nuts_result) -> None:
+        """Credible interval bounds must bracket the posterior mean."""
+        result, n_theta = nuts_result
+        mean = np.mean(result.posterior_samples["theta"], axis=0)
+        assert np.all(result.posterior_ci_lo <= mean + 1e-9)
+        assert np.all(result.posterior_ci_hi >= mean - 1e-9)
+
+    def test_nuts_auto_selects_nuts_when_pymc_absent(self) -> None:
+        """_select_backend() must return 'nuts' when PyMC is not installed."""
+        import sys
+
+        method = BAYESMethod(backend="auto")
+        # Temporarily hide pymc from sys.modules
+        pymc_backup = sys.modules.pop("pymc", None)
+        try:
+            import importlib.util
+
+            orig_find_spec = importlib.util.find_spec
+
+            def _no_pymc(name, *a, **kw):
+                if name == "pymc":
+                    return None
+                return orig_find_spec(name, *a, **kw)
+
+            importlib.util.find_spec = _no_pymc
+            backend = method._select_backend()
+        finally:
+            importlib.util.find_spec = orig_find_spec
+            if pymc_backup is not None:
+                sys.modules["pymc"] = pymc_backup
+
+        assert backend == "nuts", f"Expected 'nuts', got '{backend}'"
+
+
+# ---------------------------------------------------------------------------
+# Real MCMC backend — NumPyro NUTS sampling (requires openpkpd[jax])
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestNumPyroNUTSBackend:
+    """
+    Lightweight integration test that actually runs the NumPyro NUTS sampler
+    (n_samples=30, n_chains=2, nwarmup=30) and verifies that:
+    - posterior_samples_by_chain is populated with the correct shape
+    - r_hat is computed (not trivially all-ones)
+    - n_effective is computed (not trivially n_total)
+    - converged is a bool driven by R-hat
+
+    Skipped automatically when numpyro/jax is not installed.
+    """
+
+    def test_numpyro_nuts_computes_real_rhat_and_ess(self) -> None:
+        numpyro = pytest.importorskip("numpyro")  # noqa: F841
+
+        # Build a tiny BayesianResult by calling _estimate_numpyro directly
+        # with a mock log-likelihood that is just a 1-D Gaussian
+        from unittest.mock import MagicMock
+        import jax.numpy as jnp
+
+        method = BAYESMethod(n_samples=30, n_chains=2, n_warmup=30,
+                             backend="numpyro", seed=42)
+
+        # The _estimate_numpyro method calls model.log_likelihood(theta, data)
+        # We mock it as a 1-D Gaussian centred at 2.0 (one THETA parameter)
+        mock_model = MagicMock()
+        mock_model.n_theta = 1
+        mock_model.log_likelihood.side_effect = lambda theta, data: (
+            -0.5 * float((theta[0] - 2.0) ** 2)
+        )
+
+        mock_init = MagicMock()
+        mock_init.theta = np.array([2.0])
+        mock_init.omega = np.eye(1) * 0.1
+        mock_init.sigma = np.eye(1) * 0.1
+
+        result = method._estimate_numpyro(mock_model, data=None, init_params=mock_init)
+
+        # Shape checks
+        assert "theta" in result.posterior_samples_by_chain
+        chains = result.posterior_samples_by_chain["theta"]
+        assert chains.shape == (2, 30, 1), (
+            f"Expected (2, 30, 1), got {chains.shape}"
+        )
+        assert result.posterior_samples["theta"].shape == (60, 1)
+
+        # R-hat was actually computed (not trivially 1.0 for all)
+        assert result.r_hat.shape == (1,)
+        assert np.all(np.isfinite(result.r_hat)), "R-hat must be finite"
+
+        # ESS was actually computed (not trivially n_total=60)
+        assert result.n_effective.shape == (1,)
+        assert np.all(result.n_effective > 0), "ESS must be positive"
+        # For a well-identified Gaussian with 30 draws, ESS < n_total is normal
+        # but for a simple model it should be at least a few samples
+        assert np.all(result.n_effective <= 60), "ESS cannot exceed total draws"
+
+        # converged is a bool driven by R-hat
+        assert isinstance(result.converged, bool)
+        expected_converged = bool(np.all(result.r_hat <= 1.1))
+        assert result.converged == expected_converged

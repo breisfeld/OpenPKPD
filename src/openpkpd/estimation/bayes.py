@@ -223,6 +223,8 @@ class BAYESMethod(EstimationMethod):
             return self._estimate_pymc(population_model, init_params)
         elif backend == "numpyro":
             return self._estimate_numpyro(population_model, init_params)
+        elif backend == "nuts":
+            return self._estimate_nuts(population_model, init_params)
         else:
             return self._estimate_laplace(population_model, init_params)
 
@@ -234,10 +236,18 @@ class BAYESMethod(EstimationMethod):
         """
         Choose the best available MCMC backend.
 
-        Order of preference: pymc → numpyro → laplace.
+        Auto-selection order:
+          pymc     — full-featured, cross-platform (requires openpkpd[bayes])
+          nuts     — built-in pure-NumPy NUTS, zero extra dependencies
+          laplace  — last resort when backend='laplace' is requested explicitly
+
+        NumPyro is deliberately excluded from auto-selection because jaxlib
+        has no wheels for Intel macOS (x86_64) from version 0.5 onward.
+        Use ``backend='numpyro'`` explicitly on supported platforms
+        (Linux, Apple Silicon) only.
 
         Returns:
-            Name of the backend to use: 'pymc', 'numpyro', or 'laplace'.
+            Name of the backend to use: 'pymc', 'nuts', 'numpyro', or 'laplace'.
         """
         if self.backend != "auto":
             return self.backend
@@ -253,16 +263,8 @@ class BAYESMethod(EstimationMethod):
                 pymc_found = False
         if pymc_found:
             return "pymc"
-        if "numpyro" in sys.modules:
-            numpyro_found = sys.modules["numpyro"] is not None
-        else:
-            try:
-                numpyro_found = importlib.util.find_spec("numpyro") is not None
-            except (ValueError, ModuleNotFoundError):
-                numpyro_found = False
-        if numpyro_found:
-            return "numpyro"
-        return "laplace"
+        # Pure-NumPy NUTS is always available — no optional dependencies
+        return "nuts"
 
     # ------------------------------------------------------------------
     # PyMC backend
@@ -548,6 +550,150 @@ class BAYESMethod(EstimationMethod):
             posterior_ci_lo=ci_lo,
             posterior_ci_hi=ci_hi,
             backend_used="numpyro",
+        )
+
+    # ------------------------------------------------------------------
+    # Pure-NumPy NUTS backend (default, zero dependencies)
+    # ------------------------------------------------------------------
+
+    def _estimate_nuts(
+        self,
+        population_model: Any,
+        init_params: Any,
+    ) -> BayesianResult:
+        """
+        Bayesian estimation via the built-in pure-NumPy NUTS sampler.
+
+        Requires no optional packages — NumPy and SciPy are already core
+        dependencies of OpenPKPD.
+
+        The log-posterior is:
+          log p(theta | data) ∝ log p(data | theta) + log p(theta)
+
+        where:
+          - log p(theta) = sum of LogNormal(mu=log(theta_init), sigma=prior_sd_theta)
+          - log p(data | theta) = sum of Normal(pred_mu(theta), sigma) residuals
+
+        Predictions pred_mu(theta) are evaluated by running the individual
+        models at (theta, eta=0) for each subject, so the likelihood is fully
+        theta-dependent (not a linearization).
+
+        Multi-chain sampling is achieved by running NUTSSampler once per chain
+        with a deterministically-derived seed. R-hat and ESS are computed with
+        :mod:`openpkpd.estimation.mcmc_diagnostics`.
+
+        Args:
+            population_model: PopulationModel instance (or None in unit tests).
+            init_params:      ParameterSet with initial values and bounds.
+
+        Returns:
+            BayesianResult with full posterior trace.
+        """
+        import warnings
+
+        from openpkpd.estimation.mcmc_diagnostics import compute_ess, compute_rhat
+        from openpkpd.estimation.nuts import NUTSSampler
+
+        t0 = time.time()
+        theta_init = np.asarray(init_params.theta, dtype=float).copy()
+        n_theta = len(theta_init)
+        n_eta = init_params.omega.shape[0]
+        log_theta_mu = np.log(np.maximum(theta_init, 1e-8))
+        sigma_sq = float(np.mean(np.maximum(np.diag(init_params.sigma), 1e-8)))
+
+        # -----------------------------------------------------------------
+        # Build a per-subject prediction cache at theta_init for fallback,
+        # then define a log-prob that re-evaluates predictions at each theta.
+        # -----------------------------------------------------------------
+        subj_data: list[tuple[Any, np.ndarray]] = []  # (indiv_model, dv)
+        if population_model is not None:
+            for sid in population_model.subject_ids():
+                indiv = population_model.individual_model(sid)
+                obs_mask = indiv.subject_events.observation_mask()
+                dv = indiv.subject_events.obs_dv[obs_mask]
+                if len(dv) > 0:
+                    subj_data.append((indiv, dv))
+
+        trans = getattr(population_model, "trans", None) if population_model is not None else None
+
+        def log_prob(theta: np.ndarray) -> float:
+            """Log-posterior: LogNormal prior + Gaussian likelihood."""
+            if np.any(theta <= 0):
+                return -np.inf
+            # Log-normal prior (in log-space Gaussian)
+            log_th = np.log(theta)
+            log_prior = float(
+                -0.5 * np.sum(((log_th - log_theta_mu) / self.prior_sd_theta) ** 2)
+                - n_theta * np.log(self.prior_sd_theta)
+                - np.sum(log_th)  # Jacobian for log-normal → log-space sampling
+            )
+            if not subj_data:
+                return log_prior
+            # Gaussian likelihood: evaluate model at (theta, eta=0)
+            eta_zero = np.zeros(n_eta)
+            log_lik = 0.0
+            for indiv, dv in subj_data:
+                obs_mask = indiv.subject_events.observation_mask()
+                try:
+                    _, _, f = indiv.evaluate(theta, eta_zero, init_params.sigma, trans=trans)
+                    pred = f[obs_mask]
+                except Exception:
+                    return -np.inf
+                resid = dv - pred
+                log_lik += float(
+                    -0.5 * np.sum(resid ** 2) / sigma_sq
+                    - 0.5 * len(resid) * np.log(2.0 * np.pi * sigma_sq)
+                )
+            return log_prior + log_lik
+
+        # -----------------------------------------------------------------
+        # Multi-chain sampling
+        # -----------------------------------------------------------------
+        rng = np.random.default_rng(self.seed)
+        chain_seeds = [int(rng.integers(0, 2**31)) for _ in range(self.n_chains)]
+        chains: list[np.ndarray] = []
+        for seed_c in chain_seeds:
+            sampler = NUTSSampler(log_prob, seed=seed_c, delta=self.target_accept)
+            chain_draws = sampler.sample(
+                theta_init,
+                n_samples=self.n_samples,
+                n_warmup=self.tune,
+            )
+            chains.append(chain_draws)
+
+        theta_by_chain = np.stack(chains)          # (n_chains, n_samples, n_theta)
+        theta_flat = theta_by_chain.reshape(-1, n_theta)
+        theta_mean = np.mean(theta_flat, axis=0)
+
+        r_hat_vals = compute_rhat(theta_by_chain)
+        n_eff_vals = compute_ess(theta_by_chain)
+
+        if not bool(np.all(r_hat_vals <= 1.1)):
+            warnings.warn(
+                "NUTS sampler: R-hat > 1.1 for one or more parameters. "
+                "Consider increasing n_samples or tune.",
+                UserWarning,
+                stacklevel=3,
+            )
+
+        ci_lo, ci_hi = self._compute_posterior_summary(theta_flat, ci=0.95)
+        elapsed = time.time() - t0
+
+        return BayesianResult(
+            theta_final=theta_mean,
+            omega_final=init_params.omega.copy(),
+            sigma_final=init_params.sigma.copy(),
+            ofv=float("nan"),
+            converged=bool(np.all(r_hat_vals <= 1.1)),
+            elapsed_time=elapsed,
+            method="BAYES(NUTS)",
+            posterior_samples={"theta": theta_flat},
+            posterior_samples_by_chain={"theta": theta_by_chain},
+            r_hat=r_hat_vals,
+            n_effective=n_eff_vals,
+            posterior_ci_lo=ci_lo,
+            posterior_ci_hi=ci_hi,
+            backend_used="nuts",
         )
 
     # ------------------------------------------------------------------

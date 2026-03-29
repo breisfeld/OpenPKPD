@@ -43,7 +43,7 @@ from openpkpd_gui.widgets.responsive_layout import install_responsive_splitters
 from openpkpd_gui.widgets.scrollable_page import build_scrollable_page
 from openpkpd_gui.widgets.table_headers import configure_resizable_table_columns
 
-ESTIMATION_METHODS = ("FO", "FOCE", "FOCEI", "LAPLACIAN", "SAEM", "IMP")
+ESTIMATION_METHODS = ("FO", "FOCE", "FOCEI", "LAPLACIAN", "SAEM", "IMP", "BAYES")
 
 _NAMED_MODELS: tuple[tuple[str, int, int], ...] = (
     ("1-compartment IV bolus  (ADVAN1 / TRANS1)", 1, 1),
@@ -67,6 +67,7 @@ _ESTIMATION_METHODS_DISPLAY: tuple[tuple[str, str], ...] = (
     ("SAEM", "SAEM — Stochastic approximation EM (nonlinear / complex models)"),
     ("IMP", "IMP — Importance sampling"),
     ("LAPLACIAN", "Laplacian — Laplace approximation"),
+    ("BAYES", "BAYES — Full Bayesian NUTS (PyMC / NumPyro)"),
 )
 
 _ESTIMATION_HELP_TEXT = (
@@ -76,7 +77,12 @@ _ESTIMATION_HELP_TEXT = (
     "FO: First-order approximation. Fastest but least accurate; suitable for screening.\n\n"
     "SAEM: Stochastic Approximation EM. Best for complex/multimodal models.\n\n"
     "IMP: Importance sampling — alternative to SAEM for complex posteriors.\n\n"
-    "Laplacian: Laplace approximation, similar accuracy to FOCE."
+    "Laplacian: Laplace approximation, similar accuracy to FOCE.\n\n"
+    "BAYES: Full Bayesian posterior sampling via NUTS (No-U-Turn Sampler). "
+    "Returns the full posterior distribution, credible intervals, R-hat convergence "
+    "diagnostics, and effective sample size. Requires 'openpkpd[bayes]' (PyMC) or "
+    "'openpkpd[jax]' (NumPyro). Slower than FOCE/SAEM but provides uncertainty "
+    "quantification without linearisation assumptions."
 )
 _ADVAN_HELP_TEXT = (
     "ADVAN selects the PK structural model (compartment structure).\n"

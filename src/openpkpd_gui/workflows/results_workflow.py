@@ -64,12 +64,20 @@ _ARTIFACT_ROLE_ANALYSIS_TYPES = {
     "design_fim": "Advanced",
     "design_expected_se": "Advanced",
     "npde_table": "Fit",
+    "mcmc_rhat_table": "Fit",
+    "mcmc_ess_table": "Fit",
+    "posterior_summary_table": "Fit",
 }
 _ARTIFACT_PLOT_ANALYSIS_TYPES = {
     "vpc": "Advanced",
     "simulation_panel": "Advanced",
     "prediction_interval_plot": "Advanced",
     "npde_plot": "Fit",
+    "mcmc_trace_by_chain": "Fit",
+    "rhat_plot": "Fit",
+    "ess_plot": "Fit",
+    "posterior_density": "Fit",
+    "posterior_forest": "Fit",
 }
 
 
@@ -510,6 +518,12 @@ _PLOT_TYPE_LABELS: dict[str, str] = {
     "nca_boxplot": "NCA — Boxplot",
     "vpc": "VPC",
     "npde_plot": "NPDE",
+    # Bayesian / MCMC
+    "mcmc_trace_by_chain": "Bayesian — Trace by chain",
+    "rhat_plot": "Bayesian — R-hat",
+    "ess_plot": "Bayesian — ESS",
+    "posterior_density": "Bayesian — Posterior densities",
+    "posterior_forest": "Bayesian — Posterior forest",
 }
 _ROLE_LABELS: dict[str, str] = {
     "report": "HTML Report",
@@ -518,6 +532,9 @@ _ROLE_LABELS: dict[str, str] = {
     "nca_summary": "NCA summary (CSV)",
     "vpc_summary": "VPC summary (CSV)",
     "bootstrap_summary": "Bootstrap summary (CSV)",
+    "posterior_summary_table": "Posterior summary (CSV)",
+    "mcmc_rhat_table": "R-hat table (CSV)",
+    "mcmc_ess_table": "ESS table (CSV)",
 }
 ARTIFACT_TYPE_FILTER_ALL = "All types"
 
@@ -606,11 +623,19 @@ FIT_REVIEW_PLOT_GROUPS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ),
     ("profiles", "Profiles", ("spaghetti_plot", "mean_profile")),
     ("eta", "ETA", ("eta_histograms", "eta_pairs")),
+    (
+        "bayesian",
+        "Bayesian",
+        ("mcmc_trace_by_chain", "rhat_plot", "ess_plot", "posterior_density", "posterior_forest"),
+    ),
 )
 
 FIT_REVIEW_TABLE_ROLES: tuple[tuple[str, str], ...] = (
     ("diagnostics_table", "Diagnostics table"),
     ("npde_table", "NPDE table"),
+    ("posterior_summary_table", "Posterior summary"),
+    ("mcmc_rhat_table", "R-hat table"),
+    ("mcmc_ess_table", "ESS table"),
 )
 
 
@@ -885,11 +910,15 @@ def build_results_workflow(
     open_profile_action = qt_gui.QAction("Profiles", review_menu)
     open_profile_action.setObjectName("results-open-profile-review-button")
     open_profile_action.setEnabled(False)
+    open_bayesian_action = qt_gui.QAction("Bayesian diagnostics", review_menu)
+    open_bayesian_action.setObjectName("results-open-bayesian-review-button")
+    open_bayesian_action.setEnabled(False)
     review_menu.addAction(open_convergence_action)
     review_menu.addAction(open_gof_action)
     review_menu.addAction(open_residual_action)
     review_menu.addAction(open_eta_action)
     review_menu.addAction(open_profile_action)
+    review_menu.addAction(open_bayesian_action)
     review_menu.addSeparator()
     open_latest_report_action = qt_gui.QAction("Latest report", review_menu)
     open_latest_report_action.setObjectName("results-open-latest-report-button")
@@ -1099,6 +1128,7 @@ def build_results_workflow(
                     open_residual_action,
                     open_eta_action,
                     open_profile_action,
+                    open_bayesian_action,
                     open_latest_report_action,
                     open_latest_plot_action,
                     open_diagnostics_action,
@@ -1200,6 +1230,7 @@ def build_results_workflow(
             open_residual_action.setEnabled(False)
             open_eta_action.setEnabled(False)
             open_profile_action.setEnabled(False)
+            open_bayesian_action.setEnabled(False)
             open_diagnostics_action.setEnabled(False)
             open_npde_table_action.setEnabled(False)
         else:
@@ -1230,6 +1261,12 @@ def build_results_workflow(
             open_profile_action.setEnabled(
                 bool(
                     (artifact := latest_artifact_for_plot_group(current_artifacts, "profiles"))
+                    and artifact.path
+                )
+            )
+            open_bayesian_action.setEnabled(
+                bool(
+                    (artifact := latest_artifact_for_plot_group(current_artifacts, "bayesian"))
                     and artifact.path
                 )
             )

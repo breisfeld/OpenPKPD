@@ -59,6 +59,7 @@ class BayesianResult(EstimationResult):
     # Override field defaults so BayesianResult can be constructed standalone
     # All EstimationResult required fields are satisfied by the parent @dataclass.
     posterior_samples: dict[str, np.ndarray] = field(default_factory=dict)
+    posterior_samples_by_chain: dict[str, np.ndarray] = field(default_factory=dict)
     r_hat: np.ndarray = field(default_factory=lambda: np.array([]))
     n_effective: np.ndarray = field(default_factory=lambda: np.array([]))
     posterior_ci_lo: np.ndarray = field(default_factory=lambda: np.array([]))
@@ -412,6 +413,7 @@ class BAYESMethod(EstimationMethod):
             elapsed_time=elapsed,
             method="BAYES(PyMC)",
             posterior_samples={"theta": theta_flat},
+            posterior_samples_by_chain={"theta": theta_samples},  # (chains, draws, n_theta)
             r_hat=r_hat_vals,
             n_effective=n_eff_vals,
             posterior_ci_lo=ci_lo,
@@ -511,12 +513,22 @@ class BAYESMethod(EstimationMethod):
             progress_bar=False,
         )
         mcmc.run(rng_key)
-        samples = mcmc.get_samples()
+        # get_samples(group_by_chain=True) → dict {name: (n_chains, n_draws, …)}
+        samples_by_chain = mcmc.get_samples(group_by_chain=True)
+        samples_flat = mcmc.get_samples(group_by_chain=False)
 
-        theta_flat = np.array(samples["theta"])
+        theta_by_chain = np.array(samples_by_chain["theta"])   # (chains, draws, n_theta)
+        if theta_by_chain.ndim == 2:
+            theta_by_chain = theta_by_chain[np.newaxis, :, :]
+        theta_flat = np.array(samples_flat["theta"])
         if theta_flat.ndim == 1:
             theta_flat = theta_flat.reshape(-1, n_theta)
         theta_mean = np.mean(theta_flat, axis=0)
+
+        from openpkpd.estimation.mcmc_diagnostics import compute_ess, compute_rhat
+
+        r_hat_vals = compute_rhat(theta_by_chain)
+        n_eff_vals = compute_ess(theta_by_chain)
 
         ci_lo, ci_hi = self._compute_posterior_summary(theta_flat, ci=0.95)
         elapsed = time.time() - t0
@@ -526,12 +538,13 @@ class BAYESMethod(EstimationMethod):
             omega_final=init_params.omega.copy(),
             sigma_final=init_params.sigma.copy(),
             ofv=float("nan"),
-            converged=True,
+            converged=bool(np.all(r_hat_vals <= 1.1)),
             elapsed_time=elapsed,
             method="BAYES(NumPyro)",
             posterior_samples={"theta": theta_flat},
-            r_hat=np.ones(n_theta),
-            n_effective=np.full(n_theta, self.n_samples * self.n_chains),
+            posterior_samples_by_chain={"theta": theta_by_chain},
+            r_hat=r_hat_vals,
+            n_effective=n_eff_vals,
             posterior_ci_lo=ci_lo,
             posterior_ci_hi=ci_hi,
             backend_used="numpyro",

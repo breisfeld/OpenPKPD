@@ -16,9 +16,12 @@ Usage:
 
 from openpkpd.plots import simulation
 from openpkpd.plots.bayesian import (
+    ess_plot,
+    mcmc_trace_by_chain_plot,
     mcmc_trace_plot,
     posterior_density_plot,
     posterior_forest_plot,
+    rhat_plot,
 )
 from openpkpd.plots.bootstrap import (
     bootstrap_ci_plot,
@@ -135,8 +138,11 @@ __all__ = [
     "cumulative_probability_plot",
     "count_frequency_plot",
     "markov_transition_heatmap",
-    # Bayesian
+    # Bayesian / MCMC diagnostics
     "mcmc_trace_plot",
+    "mcmc_trace_by_chain_plot",
+    "rhat_plot",
+    "ess_plot",
     "posterior_density_plot",
     "posterior_forest_plot",
     # Simulation-based

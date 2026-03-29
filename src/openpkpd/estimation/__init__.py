@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from openpkpd.estimation.base import EstimationMethod, EstimationResult
-from openpkpd.estimation.bayes import BayesianResult, BAYESMethod
+from openpkpd.estimation.bayes import BAYESMethod, BayesianResult
+from openpkpd.estimation import mcmc_diagnostics
 from openpkpd.estimation.fo import FOMethod
 from openpkpd.estimation.foce import FOCEMethod
 from openpkpd.estimation.imp import IMPMethod
@@ -77,6 +78,7 @@ __all__ = [
     "IMPMethod",
     "BAYESMethod",
     "BayesianResult",
+    "mcmc_diagnostics",
     "NonparametricMethod",
     "NonparametricResult",
     "get_estimation_method",

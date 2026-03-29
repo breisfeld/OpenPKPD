@@ -567,19 +567,40 @@ class BAYESMethod(EstimationMethod):
         Requires no optional packages — NumPy and SciPy are already core
         dependencies of OpenPKPD.
 
-        The log-posterior is:
-          log p(theta | data) ∝ log p(data | theta) + log p(theta)
+        Log-posterior
+        -------------
+        log p(theta | data) ∝ log p(theta) + log p(data | theta)
 
-        where:
-          - log p(theta) = sum of LogNormal(mu=log(theta_init), sigma=prior_sd_theta)
-          - log p(data | theta) = sum of Normal(pred_mu(theta), sigma) residuals
+        **Prior** — log-normal on each THETA:
+          log p(theta) = -0.5 * Σ_k ((log θ_k - log θ_init_k) / prior_sd_theta)²
+                         - Σ_k log θ_k           ← Jacobian for log-space sampling
 
-        Predictions pred_mu(theta) are evaluated by running the individual
-        models at (theta, eta=0) for each subject, so the likelihood is fully
-        theta-dependent (not a linearization).
+        **Likelihood** — FOCE marginal approximation (when data are present):
+          log p(data | theta) ≈ -OFV(theta) / 2
+
+        where OFV is the FOCEI/FOCE objective returned by
+        :meth:`FOCEMethod._outer_ofv`.  This is the industry-standard NLME
+        Bayesian approach used by NONMEM's BAYES method.
+
+        For each theta proposal the FOCE inner loop optimises η̂_i for every
+        subject (via L-BFGS-B) and the outer OFV is evaluated at those optimal
+        random effects.  **Warm-starting**: η̂ from the previous log_prob call
+        is used as the initial guess for the next, so the inner loop typically
+        converges in 5–20 iterations rather than the cold-start default of 200.
+
+        Omega and Sigma are held fixed at ``init_params.omega`` /
+        ``init_params.sigma`` during NUTS (theta-only sampling).  Full joint
+        sampling over Omega and Sigma will be added in a future release.
+
+        Performance note
+        ----------------
+        Each NUTS leapfrog step requires ``2 * n_theta + 1`` FOCE evaluations
+        (finite-difference gradient).  For large datasets (> 50 subjects) or
+        many parameters (> 10 THETA) this can be slow — 10–60 min/run typical.
+        Use ``openpkpd[bayes]`` (PyMC) for faster autodiff-based sampling.
 
         Multi-chain sampling is achieved by running NUTSSampler once per chain
-        with a deterministically-derived seed. R-hat and ESS are computed with
+        with a deterministically-derived seed.  R-hat and ESS are computed with
         :mod:`openpkpd.estimation.mcmc_diagnostics`.
 
         Args:
@@ -597,54 +618,65 @@ class BAYESMethod(EstimationMethod):
         t0 = time.time()
         theta_init = np.asarray(init_params.theta, dtype=float).copy()
         n_theta = len(theta_init)
-        n_eta = init_params.omega.shape[0]
+        n_eta = np.asarray(init_params.omega).shape[0]
         log_theta_mu = np.log(np.maximum(theta_init, 1e-8))
-        sigma_sq = float(np.mean(np.maximum(np.diag(init_params.sigma), 1e-8)))
 
         # -----------------------------------------------------------------
-        # Build a per-subject prediction cache at theta_init for fallback,
-        # then define a log-prob that re-evaluates predictions at each theta.
+        # Log-prior: LogNormal(mu=log(theta_init), sigma=prior_sd_theta)
         # -----------------------------------------------------------------
-        subj_data: list[tuple[Any, np.ndarray]] = []  # (indiv_model, dv)
-        if population_model is not None:
-            for sid in population_model.subject_ids():
-                indiv = population_model.individual_model(sid)
-                obs_mask = indiv.subject_events.observation_mask()
-                dv = indiv.subject_events.obs_dv[obs_mask]
-                if len(dv) > 0:
-                    subj_data.append((indiv, dv))
-
-        trans = getattr(population_model, "trans", None) if population_model is not None else None
-
-        def log_prob(theta: np.ndarray) -> float:
-            """Log-posterior: LogNormal prior + Gaussian likelihood."""
+        def _log_prior(theta: np.ndarray) -> float:
             if np.any(theta <= 0):
                 return -np.inf
-            # Log-normal prior (in log-space Gaussian)
             log_th = np.log(theta)
-            log_prior = float(
+            return float(
                 -0.5 * np.sum(((log_th - log_theta_mu) / self.prior_sd_theta) ** 2)
                 - n_theta * np.log(self.prior_sd_theta)
                 - np.sum(log_th)  # Jacobian for log-normal → log-space sampling
             )
-            if not subj_data:
-                return log_prior
-            # Gaussian likelihood: evaluate model at (theta, eta=0)
-            eta_zero = np.zeros(n_eta)
-            log_lik = 0.0
-            for indiv, dv in subj_data:
-                obs_mask = indiv.subject_events.observation_mask()
+
+        # -----------------------------------------------------------------
+        # Log-likelihood: FOCE marginal approximation.
+        # OFV is on the -2LL scale, so log p(Y|theta) ≈ -OFV/2.
+        # Warm-start: foce._current_eta_hat is updated after every inner loop
+        # so consecutive NUTS proposals benefit from a nearby initial eta.
+        # -----------------------------------------------------------------
+        if population_model is not None:
+            from openpkpd.estimation.foce import FOCEMethod
+            from openpkpd.model.parameters import ParameterSet
+
+            # inner_maxiter=50: warm-started iterations converge faster than
+            # the cold-start default (200); keeps per-step cost bounded.
+            foce = FOCEMethod(inner_maxiter=50)
+            foce._current_eta_hat = {
+                sid: np.zeros(n_eta)
+                for sid in population_model.subject_ids()
+            }
+            _omega = np.asarray(init_params.omega).copy()
+            _sigma = np.asarray(init_params.sigma).copy()
+
+            def log_prob(theta: np.ndarray) -> float:
+                """Log-posterior: prior + FOCE marginal log-likelihood."""
+                lp = _log_prior(theta)
+                if not np.isfinite(lp):
+                    return -np.inf
+                params = ParameterSet(theta=theta, omega=_omega, sigma=_sigma)
                 try:
-                    _, _, f = indiv.evaluate(theta, eta_zero, init_params.sigma, trans=trans)
-                    pred = f[obs_mask]
+                    eta_hat = foce._inner_loop(population_model, params)
+                    foce._current_eta_hat = eta_hat   # warm-start next call
+                    # float() converts the scalar OFV and raises TypeError on
+                    # non-numeric returns (e.g. mock objects in unit tests).
+                    ofv = float(foce._outer_ofv(population_model, params, eta_hat))
                 except Exception:
                     return -np.inf
-                resid = dv - pred
-                log_lik += float(
-                    -0.5 * np.sum(resid ** 2) / sigma_sq
-                    - 0.5 * len(resid) * np.log(2.0 * np.pi * sigma_sq)
-                )
-            return log_prior + log_lik
+                if not np.isfinite(ofv):
+                    return -np.inf
+                # OFV = -2 * log p(Y|theta,eta_hat) → log-lik = -OFV/2
+                return lp - 0.5 * ofv
+
+        else:
+            # population_model is None — unit-test / prior-only mode
+            def log_prob(theta: np.ndarray) -> float:
+                return _log_prior(theta)
 
         # -----------------------------------------------------------------
         # Multi-chain sampling

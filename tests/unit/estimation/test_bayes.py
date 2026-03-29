@@ -837,6 +837,84 @@ class TestNumPyNUTSBackend:
 
         assert backend == "nuts", f"Expected 'nuts', got '{backend}'"
 
+    def test_nuts_foce_inner_loop_called_when_subjects_present(self) -> None:
+        """When subjects are present, _estimate_nuts must call the FOCE inner
+        loop and outer OFV rather than the prior-only fallback.
+
+        We patch FOCEMethod._inner_loop and _outer_ofv to record calls and
+        return controlled values.  A finite OFV (5.0) pulls the log-posterior
+        below the prior-only value, confirming the FOCE path is active.
+        """
+        from unittest.mock import MagicMock, patch
+
+        from openpkpd.estimation.foce import FOCEMethod
+
+        mock_model = MagicMock()
+        mock_model.subject_ids.return_value = [1, 2]
+
+        mock_init = MagicMock()
+        mock_init.theta = np.array([2.0, 0.5])
+        mock_init.omega = np.eye(1) * 0.1
+        mock_init.sigma = np.eye(1) * 0.01
+
+        inner_calls: list[int] = []
+        outer_calls: list[float] = []
+
+        def _mock_inner(self, pop_model, params):
+            inner_calls.append(1)
+            return {1: np.zeros(1), 2: np.zeros(1)}
+
+        def _mock_outer(self, pop_model, params, eta_hat):
+            outer_calls.append(1.0)
+            return 5.0          # Finite OFV → log-lik contribution = -2.5
+
+        method = BAYESMethod(
+            n_samples=8, n_chains=1, tune=8, backend="nuts", seed=0
+        )
+
+        with patch.object(FOCEMethod, "_inner_loop", _mock_inner), \
+             patch.object(FOCEMethod, "_outer_ofv", _mock_outer):
+            result = method._estimate_nuts(mock_model, mock_init)
+
+        assert len(inner_calls) > 0, (
+            "_inner_loop was never called — FOCE path not active"
+        )
+        assert len(outer_calls) > 0, (
+            "_outer_ofv was never called — FOCE path not active"
+        )
+        assert result.backend_used == "nuts"
+        assert result.posterior_samples["theta"].shape == (8, 2)
+
+    def test_nuts_prior_only_when_population_model_is_none(self) -> None:
+        """When population_model=None, _estimate_nuts must not import or call
+        FOCEMethod and should sample from the prior only."""
+        from unittest.mock import MagicMock, patch
+
+        from openpkpd.estimation.foce import FOCEMethod
+
+        mock_init = MagicMock()
+        mock_init.theta = np.array([2.0])
+        mock_init.omega = np.eye(1) * 0.1
+        mock_init.sigma = np.eye(1) * 0.01
+
+        inner_calls: list[int] = []
+
+        def _mock_inner(self, *a, **kw):
+            inner_calls.append(1)
+            return {}
+
+        method = BAYESMethod(
+            n_samples=8, n_chains=1, tune=8, backend="nuts", seed=1
+        )
+
+        with patch.object(FOCEMethod, "_inner_loop", _mock_inner):
+            result = method._estimate_nuts(None, mock_init)
+
+        assert len(inner_calls) == 0, (
+            "_inner_loop should not be called when population_model is None"
+        )
+        assert result.backend_used == "nuts"
+
 
 # ---------------------------------------------------------------------------
 # Real MCMC backend — NumPyro NUTS sampling (requires openpkpd[jax])

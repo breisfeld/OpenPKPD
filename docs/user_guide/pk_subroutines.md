@@ -110,6 +110,111 @@ The current router does **not** expose the following as built-in selectors:
 For many use cases that would otherwise require those selectors, the practical
 alternative today is a custom `$DES` model through `ADVAN6/8/13`.
 
+## ODE solver tuning (ADVAN6 / ADVAN8)
+
+### JIT acceleration tiers
+
+ADVAN6 exposes a `jit=` parameter that selects the ODE integration backend.
+The default (`'scipy'`) is the safest choice and preserves exact backward
+compatibility. Opt in to faster tiers when you need higher throughput for
+population fitting or large simulations.
+
+| `jit=` | Backend | Typical speedup | Extra required |
+|--------|---------|----------------|----------------|
+| `'scipy'` | `scipy.integrate.solve_ivp` | 1× (baseline) | — |
+| `'numpy'` | Pure-NumPy Dormand-Prince RK45 | ~1.3–1.8× | — |
+| `'numba'` | Numba `@njit` DES + NumPy RK45 | ~1.3–2× | `openpkpd[jit]` |
+| `'llc'` | Numba RK45 + Numba DES — zero Python overhead per step | **10–30×** | `openpkpd[jit]` |
+| `'auto'` | Picks `'llc'` when numba is available, else `'numpy'` | best available | — |
+
+```python
+# Install the JIT extra:
+pip install "openpkpd[jit]"    # or: uv add "openpkpd[jit]"
+
+from openpkpd.pk.ode.advan6 import ADVAN6
+
+# Maximum throughput — uses native Numba RK45 + Numba DES
+advan = ADVAN6(n_compartments=2, jit="auto")
+
+# Explicit fastest tier (requires numba)
+advan = ADVAN6(n_compartments=2, jit="llc")
+```
+
+Measured speedups over 500-subject populations vs. the scipy baseline:
+
+| Model | `'numpy'` | `'numba'` | `'llc'` |
+|-------|:---------:|:---------:|:-------:|
+| 1-cmt IV bolus | 1.3× | 1.2× | **11.6×** |
+| 2-cmt IV bolus | 1.1× | 1.5× | **19.4×** |
+| 1-cmt oral | 1.2× | 1.3× | **30.3×** |
+| MM nonlinear | 1.8× | 1.5× | **9.1×** |
+
+The LLC tier compiles both the RK45 integrator loop and the `$DES` right-hand
+side to native LLVM machine code via Numba, so no Python↔native boundary is
+crossed during integration. JIT compilation happens once per model on first
+call; subsequent calls reuse the compiled code.
+
+### Stiff ODEs
+
+A PK ODE is *stiff* when its state variables evolve on widely separated time
+scales, forcing explicit solvers to take very small steps. Examples:
+
+- **Large inter-compartment rates**: K12 ≫ K10, K21 (fast distribution,
+  slow elimination)
+- **PBPK / multi-organ models**: organ clearances span several orders of
+  magnitude
+- **Receptor binding / TMDD**: fast association/dissociation paired with slow
+  PK
+
+#### Automatic fallback
+
+If an explicit-RK45 tier (`numpy`, `numba`, or `llc`) exceeds `max_steps`
+without reaching the end of the integration interval, OpenPKPD:
+
+1. Emits a `UserWarning` identifying the problem and the affected segment
+2. Retries automatically using `scipy.integrate.solve_ivp` with the
+   `method` configured on the solver instance
+
+This means **you never get silently wrong results** — the fallback always
+produces a correct answer, just without the JIT speedup for that segment.
+
+```
+UserWarning: ODE step-limit exceeded (likely stiff ODE): …
+Falling back to scipy solve_ivp (method='RK45').
+Consider setting method='Radau' or method='BDF' on your ADVAN6/ADVAN8 instance.
+```
+
+#### What to do when stiffness is detected
+
+```python
+from openpkpd.pk.ode.advan6 import ADVAN6
+from openpkpd.pk.ode.advan8 import ADVAN8
+
+# Option 1 — ADVAN8 with LSODA (automatic stiff/nonstiff detection)
+advan = ADVAN8(n_compartments=2)                          # default method='LSODA'
+
+# Option 2 — ADVAN6 with an implicit stiff solver
+advan = ADVAN6(n_compartments=2, method="Radau", jit="scipy")   # L-stable
+advan = ADVAN6(n_compartments=2, method="BDF",   jit="scipy")   # Gear's method
+
+# Option 3 — ADVAN6 with JIT + implicit fallback
+# Tries LLC (fast), falls back to LSODA if step limit is hit
+advan = ADVAN6(n_compartments=2, jit="auto", method="LSODA")
+
+# Option 4 — increase max_steps for mildly stiff cases
+advan = ADVAN6(n_compartments=2, jit="numpy", max_steps=500_000)
+```
+
+#### Solver selection guide
+
+| Scenario | Recommended |
+|----------|-------------|
+| Standard PK — want maximum speed | `ADVAN6(jit='auto')` |
+| Known non-stiff, no numba | `ADVAN6(jit='numpy')` |
+| Known stiff (PBPK, receptor binding) | `ADVAN8()` or `ADVAN6(method='Radau', jit='scipy')` |
+| Uncertain — want safety + speed | `ADVAN6(jit='auto', method='LSODA')` |
+| Exact reproducibility required | `ADVAN6(jit='scipy')` (default) |
+
 ## ADVAN5 — General N-Compartment Linear Model
 
 ADVAN5 analytically solves an arbitrary N-compartment linear system of ODEs

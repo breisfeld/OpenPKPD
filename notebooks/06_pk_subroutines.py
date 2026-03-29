@@ -247,7 +247,7 @@ def _(mo):
         \"\"\")
         ```
 
-        The ODE routes also expose solver controls directly:
+        The ODE classes also expose solver controls directly:
 
         ```python
         from openpkpd.pk.ode.advan6 import ADVAN6
@@ -256,6 +256,79 @@ def _(mo):
         advan6 = ADVAN6(n_compartments=2, rtol=1e-7, atol=1e-9, method="RK45")
         advan8 = ADVAN8(n_compartments=2, rtol=1e-7, atol=1e-10, method="Radau")
         ```
+
+        ### JIT acceleration
+
+        ADVAN6 supports four solver tiers selected by the `jit=` parameter:
+
+        | `jit=` | Backend | Speedup | Requires |
+        |--------|---------|---------|----------|
+        | `'scipy'` | `scipy.integrate.solve_ivp` | 1× (baseline) | — |
+        | `'numpy'` | Pure-NumPy Dormand-Prince RK45 | ~1.3–1.8× | — |
+        | `'numba'` | Numba `@njit` DES + NumPy RK45 | ~1.3–2× | `numba` |
+        | `'llc'` | Numba RK45 + Numba DES — zero Python overhead | **10–30×** | `numba` |
+        | `'auto'` | `'llc'` if numba installed, else `'numpy'` | best available | — |
+
+        ```python
+        # Install the JIT extra once:
+        #   pip install "openpkpd[jit]"   (or: uv add "openpkpd[jit]")
+
+        advan_fast = ADVAN6(n_compartments=2, jit="auto")   # picks best available
+        advan_llc  = ADVAN6(n_compartments=2, jit="llc")    # explicit Numba native
+        ```
+
+        Benchmarks on 500-subject populations (measured speedup vs. scipy baseline):
+
+        | Model | `jit='numpy'` | `jit='numba'` | `jit='llc'` |
+        |-------|:---:|:---:|:---:|
+        | 1-cmt IV | 1.3× | 1.2× | **11.6×** |
+        | 2-cmt IV | 1.1× | 1.5× | **19.4×** |
+        | 1-cmt oral | 1.2× | 1.3× | **30.3×** |
+        | MM nonlinear | 1.8× | 1.5× | **9.1×** |
+
+        The LLC tier compiles the entire RK45 loop **and** the DES right-hand side
+        to native LLVM code, so no Python boundary is crossed during integration.
+
+        > **Note**: `jit='scipy'` is the default to preserve exact numeric
+        > reproducibility with existing workflows. Set `jit='auto'` (or `jit='llc'`)
+        > when you need maximum throughput for population fitting or simulation.
+
+        ### Stiff ODEs
+
+        A PK ODE is *stiff* when its rate constants span widely separated time
+        scales (e.g. fast distribution K12 >> slow elimination K10), which forces
+        explicit solvers to take extremely small steps. Common PK examples include
+        PBPK systems, receptor-binding models, and target-mediated drug disposition.
+
+        **Automatic safety net**: if the explicit-RK45 tiers (`numpy`/`numba`/`llc`)
+        hit the step limit, they automatically fall back to `scipy.solve_ivp` using
+        `self.method` and emit a `UserWarning`:
+
+        ```
+        UserWarning: ODE step-limit exceeded (likely stiff ODE): …
+        Falling back to scipy solve_ivp (method='RK45').
+        Consider setting method='Radau' or method='BDF' on your ADVAN6/ADVAN8 instance.
+        ```
+
+        **What to do if you see this warning**:
+
+        ```python
+        # Option 1 — switch to ADVAN8 (LSODA, automatic stiff/nonstiff switching)
+        advan8 = ADVAN8(n_compartments=2)        # default method='LSODA'
+
+        # Option 2 — use ADVAN6 with an implicit solver
+        advan6_stiff = ADVAN6(n_compartments=2, method="Radau", jit="scipy")
+
+        # Option 3 — increase max_steps for mildly stiff models
+        advan6 = ADVAN6(n_compartments=2, jit="numpy", max_steps=500_000)
+        ```
+
+        | Scenario | Recommended setup |
+        |----------|-------------------|
+        | Standard PK (nonstiff) | `ADVAN6(jit='auto')` |
+        | Mildly stiff, want JIT speed | `ADVAN6(jit='auto', method='LSODA')` — JIT tries first, falls back |
+        | Known stiff (PBPK, receptor binding) | `ADVAN8()` or `ADVAN6(method='Radau', jit='scipy')` |
+        | Unknown — want a safe default | `ADVAN6(jit='scipy')` — scipy handles stiffness detection automatically |
 
         ### Direct ADVAN6 usage
         """
@@ -412,8 +485,12 @@ def _(mo):
         Practical guidance:
 
         - Start with **ADVAN6 / RK45** for smooth non-stiff systems.
+        - Add `jit='auto'` (or `jit='llc'` with `openpkpd[jit]` installed) for
+          **10–30× speedup** during population fitting and simulation.
         - Prefer **ADVAN8 / LSODA or Radau** when the state scales differ
           sharply or the solver needs tighter tolerances for stable integration.
+        - If you see a `UserWarning: ODE step-limit exceeded`, your model is
+          likely stiff — switch to `ADVAN8()` or `ADVAN6(method='Radau', jit='scipy')`.
         - Tighten `rtol` / `atol` when you need closer agreement between
           numerical and analytical reference paths.
         """

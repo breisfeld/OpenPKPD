@@ -12,6 +12,7 @@ NONMEM-style control-stream support, a CLI, and a Qt desktop GUI.
 
 - **Estimation methods**: FO, FOCE/FOCEI, Laplacian, SAEM, IMP/IMPMAP, `BAYES`, and nonparametric estimation
 - **PK subroutines**: analytical `ADVAN1–4`, `ADVAN11`, `ADVAN12`; numerical `ADVAN6/8/10/13`; DDE support via `ADVAN16`
+- **ODE JIT acceleration**: 10–30× speedup for `$DES` ODE models via optional Numba JIT compilation (`openpkpd[jit]`); explicit stiff-ODE fallback to scipy/Radau when step limits are hit
 - **NM-TRAN compiler**: `$PK`, `$DES`, and `$ERROR` blocks compiled to Python callables
 - **Interfaces**: fluent `ModelBuilder`, NONMEM-style control streams, CLI, and a scenario-based Qt desktop GUI
 - **Simulation and diagnostics**: replicate simulation, VPC/pcVPC, NPC, NPDE, GOF plots, residual plots, and ETA panels
@@ -27,6 +28,7 @@ NONMEM-style control-stream support, a CLI, and a Qt desktop GUI.
 pip install openpkpd                   # core library + CLI
 pip install "openpkpd[plots]"          # + matplotlib plotting/diagnostics
 pip install "openpkpd[gui]"            # + Qt desktop GUI + matplotlib plot output
+pip install "openpkpd[jit]"            # + Numba JIT (10–30× ODE speedup)
 pip install "openpkpd[bayes]"          # + PyMC backend for BAYES
 pip install "openpkpd[notebooks]"      # + marimo notebook runtime
 pip install "openpkpd[r]"             # + rpy2 R integration bridge
@@ -39,6 +41,7 @@ With [uv](https://docs.astral.sh/uv/):
 uv add openpkpd
 uv add "openpkpd[plots]"
 uv add "openpkpd[gui]"                 # GUI + plotting support
+uv add "openpkpd[jit]"                 # Numba JIT — 10–30× ODE speedup
 uv add "openpkpd[notebooks]"           # marimo notebooks
 ```
 
@@ -410,7 +413,7 @@ NONMEM-style control-stream parsing and an in-process estimation/simulation stac
 
 ### Where OpenPKPD trails
 
-- **Speed**: Pure-Python inner loops are slower than compiled C++ (mrgsolve) or Julia (Pumas) for large simulations.
+- **Speed**: Pure-Python inner loops are slower than compiled C++ (mrgsolve) or Julia (Pumas) for large simulations. The optional `openpkpd[jit]` extra closes much of this gap for ODE models (10–30× speedup via Numba LLC tier), but estimation outer loops and analytical ADVAN subroutines remain Python-speed.
 - **SAEM convergence**: functional but less mature than specialized SAEM software; Monolix and Pumas have deeper convergence diagnostics and tuning options.
 - **GUI scope**: OpenPKPD ships a working desktop GUI, but it is narrower and less mature than the commercial GUI-first workflows in WinNonLin and Monolix.
 - **Regulatory validation**: NONMEM and WinNonLin are GxP-validated commercial products; OpenPKPD is research-grade.

@@ -470,17 +470,114 @@ def _(mo):
         The result contains a support grid and probability weights instead
         of an $\Omega$ matrix.
 
-        ## 7. Bayesian Estimation
+        ## 7. Bayesian Estimation (NUTS / MCMC)
 
-        OpenPKPD interfaces with **PyMC** or **NumPyro** for full Bayesian
-        posterior sampling (MCMC):
+        OpenPKPD interfaces with **PyMC** (default) or **NumPyro** for full
+        Bayesian posterior sampling via the No-U-Turn Sampler (NUTS).
 
-        ```python
-        .estimation(method="BAYES", nsamples=2000, nchains=4, seed=42)
+        ```bash
+        pip install "openpkpd[bayes]"   # PyMC backend (recommended)
+        pip install "openpkpd[jax]"     # NumPyro backend (GPU-friendly)
         ```
 
-        Requires `pip install openpkpd[jax]` (for NumPyro) or `openpkpd[bayes]`
-        (for PyMC).  See notebook `11_advanced.py` for a worked Bayesian example.
+        ### Configuring the sampler
+
+        ```python
+        model = (
+            ModelBuilder()
+            .problem("Theophylline — Bayesian")
+            .data("examples/shared_data/theophylline/theophylline.csv")
+            .subroutines(advan=2, trans=2)
+            .pk(\"\"\"
+                KA = THETA(1) * EXP(ETA(1))
+                V  = THETA(2) * EXP(ETA(2)) * WT
+                CL = THETA(3) * EXP(ETA(3)) * WT
+            \"\"\")
+            .error("Y = F + (THETA(4) + THETA(5)*F)*EPS(1)")
+            .theta([(0, 1.53, None), (0, 0.456, None), (0, 0.0402, None),
+                    (0, 0.3, None), (0, 0.1, None)])
+            .omega([0.45**2, 0.26**2, 0.33**2])
+            .sigma([1.0])
+            .estimation(
+                method="BAYES",
+                nsamples=1000,   # posterior draws per chain (after warm-up)
+                nchains=4,       # independent Markov chains
+                nwarmup=500,     # NUTS warm-up / step-size adaptation
+                backend="pymc",  # or "numpyro"
+                seed=42,
+            )
+        )
+
+        result = fit(model)   # returns BayesianResult
+        ```
+
+        ### Inspecting the posterior
+
+        ```python
+        # Posterior summary — mean, SD, 95% CrI, R-hat, ESS
+        print(result.posterior_summary())
+
+        # Point estimates (posterior means)
+        print(result.theta_final)
+
+        # Full posterior samples  (n_total × n_theta)
+        samples = result.posterior_samples["theta"]   # shape (4000, 5)
+
+        # Per-chain samples for convergence diagnostics  (chains × draws × params)
+        chains = result.posterior_samples_by_chain["theta"]  # shape (4, 1000, 5)
+        ```
+
+        ### MCMC convergence diagnostics
+
+        ```python
+        from openpkpd.plots import (
+            mcmc_trace_by_chain_plot,
+            rhat_plot,
+            ess_plot,
+            posterior_density_plot,
+            posterior_forest_plot,
+        )
+
+        param_names = ["KA", "V", "CL", "a_err", "b_err"]
+
+        # 1. Trace plots — coloured by chain; look for overlapping caterpillars
+        fig_trace = mcmc_trace_by_chain_plot(
+            chains, param_names=param_names, burnin=0
+        )
+
+        # 2. R-hat bar chart — all bars should be < 1.01 (green)
+        fig_rhat = rhat_plot(result.r_hat, param_names=param_names, threshold=1.01)
+
+        # 3. ESS bar chart — each bar should exceed 10% of total draws
+        total_draws = 4 * 1000
+        fig_ess = ess_plot(result.n_effective, total_draws, param_names=param_names)
+
+        # 4. Marginal posterior densities (violin + 95% CrI)
+        fig_density = posterior_density_plot(
+            result, param_names=param_names,
+            ci_lo=result.posterior_ci_lo, ci_hi=result.posterior_ci_hi
+        )
+
+        # 5. Forest plot — population parameters with credible intervals
+        fig_forest = posterior_forest_plot(result, param_names=param_names)
+        ```
+
+        ### Interpreting convergence
+
+        | Diagnostic | Good | Investigate | Poor (re-run) |
+        |------------|------|-------------|---------------|
+        | R-hat | ≤ 1.01 | 1.01 – 1.1 | > 1.1 |
+        | ESS | > 400 | 100 – 400 | < 100 |
+        | Trace plot | Chains overlap, stationary | One chain drifts | Chains separated |
+
+        If chains diverge, try:
+        - More warm-up (`nwarmup=1000`)
+        - Tighter initial values (`.theta(...)`)
+        - `target_accept=0.95` for NUTS step-size tuning
+        - Switch to a more informative prior on `omega`
+
+        > **Tip**: `result.converged` is `True` when all R-hat values ≤ 1.1.
+        > Check `result.r_hat` for per-parameter details.
 
         ## Summary
 
@@ -492,7 +589,7 @@ def _(mo):
         | IMP | `"IMP"` | `isample`, `seed` |
         | Laplacian | `"LAPLACIAN"` | `maxeval` |
         | Nonparametric | `"NONPARAMETRIC"` | `support_size` |
-        | Bayesian | `"BAYES"` | `nsamples`, `nchains`, `seed` |
+        | Bayesian / NUTS | `"BAYES"` | `nsamples`, `nchains`, `nwarmup`, `backend`, `seed` |
         """
     )
     return

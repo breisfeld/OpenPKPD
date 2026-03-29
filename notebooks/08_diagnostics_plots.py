@@ -454,8 +454,133 @@ def _(mo):
         | OFV history | `ofv_history(result)` | `plots.model_perf` |
         | VPC | `vpc_plot(vpc_result)` | `plots.simulation` |
         | NPDE | `npde_plot(npde_result)` | `plots.simulation` |
+        | MCMC trace (by chain) | `mcmc_trace_by_chain_plot(chains)` | `plots.bayesian` |
+        | R-hat | `rhat_plot(result.r_hat)` | `plots.bayesian` |
+        | ESS | `ess_plot(result.n_effective, n_total)` | `plots.bayesian` |
+        | Posterior density | `posterior_density_plot(result)` | `plots.bayesian` |
+        | Posterior forest | `posterior_forest_plot(result)` | `plots.bayesian` |
 
         **Next:** `09_covariate_modeling.py` — SCM and covariate effects.
+        """
+    )
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(
+        r"""
+        ## 7. MCMC Diagnostic Plots (Bayesian Estimation)
+
+        When a run uses `.estimation(method="BAYES")`, the result is a
+        `BayesianResult` that carries per-chain posterior samples, R-hat,
+        and effective sample size (ESS).  Three dedicated plot functions
+        give a full convergence picture.
+
+        ### Data layout
+
+        ```python
+        # result.posterior_samples_by_chain["theta"]
+        # shape: (n_chains, n_draws, n_params)
+        chains = result.posterior_samples_by_chain["theta"]  # e.g. (4, 1000, 5)
+
+        # Flattened (all chains together)
+        flat = result.posterior_samples["theta"]             # (4000, 5)
+
+        param_names = ["KA", "V", "CL", "a_err", "b_err"]
+        ```
+
+        ### Per-chain trace plot
+
+        ```python
+        from openpkpd.plots import mcmc_trace_by_chain_plot
+
+        fig = mcmc_trace_by_chain_plot(
+            chains,
+            param_names=param_names,
+            burnin=0,     # shade warm-up iterations if kept in samples
+            n_cols=2,
+        )
+        ```
+
+        Each subplot shows all chains overlaid in distinct colours.
+        Well-mixed chains look like overlapping "hairy caterpillars".
+        Separated or drifting chains indicate poor convergence.
+
+        ### R-hat bar chart
+
+        ```python
+        from openpkpd.plots import rhat_plot
+
+        fig = rhat_plot(
+            result.r_hat,
+            param_names=param_names,
+            threshold=1.01,   # strict threshold; 1.1 is the standard minimum
+        )
+        ```
+
+        Bars are coloured **green** (R-hat ≤ threshold) or **red** (> threshold).
+        The annotation shows how many parameters are not yet converged.
+
+        | R-hat | Interpretation |
+        |-------|----------------|
+        | ≤ 1.01 | Excellent convergence |
+        | 1.01 – 1.05 | Acceptable for most purposes |
+        | 1.05 – 1.1 | Marginal — run more iterations |
+        | > 1.1 | Not converged — do not use estimates |
+
+        ### ESS bar chart
+
+        ```python
+        from openpkpd.plots import ess_plot
+
+        n_total = 4 * 1000   # n_chains × n_draws
+        fig = ess_plot(
+            result.n_effective,
+            n_total,
+            param_names=param_names,
+            target_fraction=0.1,   # flag if ESS < 10% of total
+        )
+        ```
+
+        Bars below the target line (dashed) indicate high autocorrelation
+        — increase `nsamples` or thin the chain.
+
+        ### Standalone diagnostic functions
+
+        ```python
+        from openpkpd.estimation.mcmc_diagnostics import (
+            compute_rhat,
+            compute_ess,
+            compute_autocorr,
+        )
+
+        # chains: shape (n_chains, n_draws, n_params)
+        rhat  = compute_rhat(chains)          # shape (n_params,)
+        ess   = compute_ess(chains)            # shape (n_params,)
+
+        # Autocorrelation at each lag for chain 0, parameter 0
+        acf = compute_autocorr(chains[0, :, 0], max_lag=50)  # shape (51,)
+        ```
+
+        Both `compute_rhat` and `compute_ess` implement the **split-R-hat**
+        method of Vehtari et al. (2021) with rank normalisation, so they work
+        without ArviZ on any backend (NumPyro, PyMC, or custom chains).
+
+        ### Marginal posteriors and forest plot
+
+        ```python
+        from openpkpd.plots import posterior_density_plot, posterior_forest_plot
+
+        # Violin + 95% credible interval per parameter
+        fig_density = posterior_density_plot(
+            result, param_names=param_names,
+            ci_lo=result.posterior_ci_lo, ci_hi=result.posterior_ci_hi,
+        )
+
+        # Forest plot — population θ with credible intervals
+        fig_forest = posterior_forest_plot(result, param_names=param_names)
+        ```
         """
     )
     return

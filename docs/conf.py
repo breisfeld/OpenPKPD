@@ -58,7 +58,7 @@ autosummary_generate = True
 # Packages that are optional at runtime — mock them so autodoc doesn't fail
 # if they aren't installed in the docs build environment.
 autodoc_mock_imports = [
-    "jax", "jaxlib", "diffrax", "numpyro", "pymc",
+    "pymc",
     "optimagic", "dask", "sympy",
 ]
 

@@ -1,11 +1,4 @@
-"""
-Unified ODE solver wrapper for openpkpd.
-
-Wraps scipy (BDF/Radau) as the primary solver and diffrax (JAX-native)
-as the secondary solver for gradient-compatible ODE solving.
-
-Used by ADVAN6, ADVAN8, ADVAN13 and other ODE-based models.
-"""
+"""Unified SciPy-based ODE solver wrapper for OpenPKPD."""
 
 from __future__ import annotations
 

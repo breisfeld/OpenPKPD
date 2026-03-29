@@ -63,10 +63,6 @@ Notes on Full MCMC Sampling
     pip install pymc
     BAYESMethod(backend='pymc', n_samples=2000, n_chains=4)
 
-  NumPyro (JAX-based, faster on GPU/TPU):
-    pip install numpyro jax jaxlib
-    BAYESMethod(backend='numpyro', n_samples=2000, n_chains=4)
-
   Key advantages of full MCMC over Laplace:
     - Properly samples from the true posterior (not a Gaussian approx)
     - Provides R-hat and effective sample size diagnostics

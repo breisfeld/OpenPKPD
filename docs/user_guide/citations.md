@@ -148,15 +148,11 @@ a textbook result:
 
 ### ODE solvers (ADVAN6/8/13)
 
-The underlying solvers are from SciPy and diffrax:
+The underlying solvers are from SciPy:
 
 27. Virtanen P, Gommers R, Oliphant TE, et al. (2020). SciPy 1.0:
     fundamental algorithms for scientific computing in Python.
     *Nat Methods* **17**(3):261–272.
-
-28. Kidger P (2021). On neural differential equations. PhD thesis,
-    University of Oxford. *(diffrax library, used for adjoint-based ODE
-    gradients in ADVAN13.)*
 
 ### Delay differential equations (ADVAN16-style DDE)
 

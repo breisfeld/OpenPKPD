@@ -3,10 +3,10 @@ Example 15: Bayesian Estimation via MAP and Laplace Posterior Approximation.
 
 Demonstrates:
   - Fitting a 1-compartment oral PK model with Bayesian estimation
-  - Using the Laplace approximation fallback (works without PyMC/NumPyro)
+  - Using the Laplace approximation fallback (works without PyMC)
   - Displaying posterior credible intervals for each THETA parameter
   - Comparing FOCE (MAP) and Bayesian (Laplace) estimates side by side
-  - Note on enabling true MCMC sampling via PyMC or NumPyro backends
+  - Note on enabling true MCMC sampling via the built-in NUTS backend or PyMC
 
 Dataset: Embedded theophylline-like data (3 subjects, simulated).
 
@@ -16,10 +16,13 @@ The Bayesian method implemented here:
      with covariance computed from the numerical Hessian of the objective.
   3. Samples from this approximate posterior to produce credible intervals.
 
-For full MCMC sampling with NUTS (No-U-Turn Sampler), install PyMC:
+For full MCMC sampling with NUTS (No-U-Turn Sampler), OpenPKPD ships a built-in
+pure-NumPy backend:
+    BAYESMethod(backend='nuts', n_samples=1000, n_chains=4)
+
+Optional external backend:
     pip install pymc
-or NumPyro (JAX-based):
-    pip install numpyro jax jaxlib
+    BAYESMethod(backend='pymc', n_samples=2000, n_chains=4)
 """
 
 from __future__ import annotations
@@ -202,22 +205,32 @@ V  = THETA(3)*EXP(ETA(3))
     print("=" * 70)
     print("""
   The Laplace approximation is a fast, practical fallback that works
-  without any additional dependencies. For production-quality Bayesian
-  inference with proper uncertainty quantification, use the MCMC backends:
+  without any additional dependencies. For true posterior sampling, use one
+  of the MCMC backends:
+
+  Built-in pure-NumPy NUTS:
+    BAYESMethod(backend='nuts', n_samples=1000, n_chains=4)
+    - no optional dependency required
+    - best for small-to-moderate models where runtime is acceptable
+    - multi-chain diagnostics come from BAYESMethod, not the standalone
+      nuts_estimate() helper
 
   PyMC (recommended for general use):
     pip install pymc
     BAYESMethod(backend='pymc', n_samples=2000, n_chains=4)
-
-  NumPyro (JAX-based, faster on GPU/TPU):
-    pip install numpyro jax jaxlib
-    BAYESMethod(backend='numpyro', n_samples=2000, n_chains=4)
 
   Key advantages of full MCMC over Laplace:
     - Properly samples from the true posterior (not a Gaussian approx)
     - Provides R-hat and effective sample size diagnostics
     - Handles multimodal or skewed posterior distributions
     - Required for hierarchical population PK/PD models with >5 subjects
+
+  Current OpenPKPD Bayesian limitations:
+    - the built-in NUTS backend currently samples THETA only; OMEGA and SIGMA
+      remain fixed at their starting values
+    - finite-difference gradients can be slow on larger ODE-heavy models
+    - use benchmarked workflows and diagnostics before implying parity with
+      mature Bayesian engines such as Monolix or Pumas
 """)
 
     print("Done.")

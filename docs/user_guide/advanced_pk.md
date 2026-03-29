@@ -101,7 +101,7 @@ sol = solver.solve(
   interpolated history buffer.  For systems requiring very long history queries
   relative to the observation window, ensure `rtol` and `atol` are tight
   enough.
-- JAX/diffrax adjoint sensitivity (ADVAN13) is separate from DDE support.
+- ADVAN13 forward sensitivity is separate from DDE support.
 
 ---
 

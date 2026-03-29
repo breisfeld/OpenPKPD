@@ -9,6 +9,20 @@ simulation paths used by the application. I did not run profilers or large
 benchmarks, so the recommendations below are prioritized by code structure,
 algorithmic complexity, and per-call overhead visible in the implementation.
 
+For measured profiling and benchmark runs, use:
+
+```bash
+just profile-analysis
+just benchmark-estimation
+just benchmark-estimation --workloads imp impmap
+```
+
+When comparing raw `IMP` and `IMPMAP`, treat `IMPMAP` as the costlier but more
+robust path because it includes a FOCEI warm start before the IMP outer pass.
+
+and compare with the profiling report in
+`docs/user_guide/performance_profiling_report.md`.
+
 ### Executive summary
 
 The biggest speed opportunities are concentrated in four places:

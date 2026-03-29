@@ -5,7 +5,7 @@ Algorithm:
   Inner loop (per subject, parallelizable):
     η̂_i = argmin_η { -2 log p(y_i|η,θ) + η^T Ω^{-1} η }
     Optimizer: L-BFGS-B via scipy
-    Gradient: numerical FD (Stage 1) or JAX (Stage 2)
+    Gradient: numerical FD or native symbolic derivatives when available
 
   Outer loop (population parameters):
     OFV_FOCE = Σ_i [ log|C_i(η̂_i)| + (y-f-Rη̂)^T C_i^{-1} (y-f-Rη̂) + η̂^T Ω^{-1} η̂ ]

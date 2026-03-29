@@ -9,7 +9,7 @@ where:
     H_i = d²[-2 log p(y_i,η)] / d(η)²  evaluated at η = η̂_i
         = d²[-2 log p(y_i|η) + η^T Ω^{-1} η] / d(η)²
 
-The Hessian is computed numerically (FD) in Stage 1 and via jax.hessian in Stage 2.
+The Hessian is computed numerically by finite differences.
 """
 
 from __future__ import annotations

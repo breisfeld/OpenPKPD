@@ -68,7 +68,8 @@ or runs empirical cross-tool fits on the Boeckmann theophylline dataset
 joint `warfarin` PK/PD benchmark (`nlmixr2`), a broader 6-subject second-tier
 mixed-endpoint `warfarin` PK/PD benchmark (`nlmixr2`), and Pharmpy's bundled
 phenobarbital `pheno` example to check that openpkpd follows the same estimator
-trends and fitted parameter values. The fast subgroup now also includes a public
+trends, fitted parameter values, and the current nonparametric support-point
+envelope. The fast subgroup now also includes a public
 PKNCA/Phoenix-style theophylline NCA parity check and a published WinNonlin-
 backed Indometh NCA benchmark.
 
@@ -94,6 +95,10 @@ command is:
 
 Use `python -m pytest` here rather than the bare `pytest` console script so the
 ephemeral `pharmpy-core` environment is visible to the test runner.
+
+To run only the new nonparametric empirical Pharmpy benchmark, use:
+
+`uv run --with pharmpy-core python -m pytest -q tests/external_validation/test_vs_pharmpy.py -k NonparametricVsPharmpyPheno -n0`
 
 To regenerate the bundled warfarin `nlmixr2` references after provisioning the R
 packages in a repo-local library such as `.r-lib`, run:
@@ -212,7 +217,6 @@ that best describes their purpose.
 | IMP / IMPMAP | 9 | — | 8 | 4 | **21** |
 | Bayesian / NUTS | 15 | — | 5 | 2 | **22** |
 | Nonparametric (NPML / NPEM) | 11 | — | 7 | 1 | **19** |
-| JAX-FOCE | 10 | — | — | — | **10** |
 | EstimationResult (shrinkage, AIC, BIC) | 33 | — | — | 5 | **38** |
 | Parameter specifications (Θ, Ω, Σ) | 21 | — | — | — | **21** |
 | **PK subroutines** | | | | | |
@@ -284,7 +288,7 @@ The external-validation tier references the following independent implementation
 | Reference | Used for |
 |---|---|
 | **nlmixr2** (R) | FOCE/FOCEI and FO parameter estimates on Boeckmann theophylline; FO parameter and residual-variance checks on the PK-only `warfarin` subset; reduced 4-subject and second-tier 6-subject mixed-endpoint joint `warfarin` PK/PD FO checks on the real ODE + `DVID`-routed path; OFV sign and direction; cross-method FO→FOCE ratio checks; OMEGA convergence |
-| **Pharmpy** (Python) | ETA shrinkage formula and FOCEI parameter-estimate comparison on Pharmpy's phenobarbital (`pheno`) example |
+| **Pharmpy** (Python) | ETA shrinkage formula, FOCEI parameter-estimate comparison, and nonparametric empirical support-point benchmark on Pharmpy's phenobarbital (`pheno`) example |
 | **scipy.stats** | LRT p-values (`chi2.sf`), TOST p-values (`t.sf` / `t.cdf`), BE power (`nct.sf`), survival functions (`expon.sf`, `weibull_min.sf`), count PMFs (`nbinom.pmf`) |
 | **scipy.linalg** | Matrix exponential (`expm`) for CTMC transition probabilities |
 | **scipy.integrate** | ODE reference solutions via `odeint` for ADVAN1/2/3 post-infusion cross-validation |

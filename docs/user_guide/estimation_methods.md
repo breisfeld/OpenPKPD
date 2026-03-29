@@ -116,19 +116,23 @@ IMP refines the marginal likelihood through importance sampling.
 .estimation(method="IMP", maxeval=9999)
 ```
 
-`IMPMAP` is also routed by the estimator registry:
+`IMPMAP` runs the same IMP outer objective, but first uses a short FOCEI warm
+start to seed the population parameters into a better basin before the IMP
+optimization:
 
 ```python
 .estimation(method="IMPMAP", maxeval=9999)
 ```
+
+In practice, prefer `IMPMAP` over raw `IMP` when the model is basin-sensitive
+or when a direct IMP run tends to stick near the initial THETA values.
 
 ## Bayesian estimation
 
 `BAYES` uses the best available backend in this order:
 
 1. PyMC if `openpkpd[bayes]` is installed
-2. NumPyro/JAX if `openpkpd[jax]` is installed
-3. Laplace approximation fallback otherwise
+2. built-in pure-NumPy NUTS otherwise
 
 ```python
 .estimation(method="BAYES", n_samples=1000, n_chains=2, tune=500)
@@ -138,9 +142,48 @@ You can also request a backend explicitly:
 
 ```python
 .estimation(method="BAYES", backend="pymc")
-.estimation(method="BAYES", backend="numpyro")
+.estimation(method="BAYES", backend="nuts")
 .estimation(method="BAYES", backend="laplace")
 ```
+
+Passing any other backend name now raises a hard error instead of silently
+falling back to a different path.
+
+Backend guidance:
+
+| Backend | Current role | Notes |
+|---------|--------------|-------|
+| `"pymc"` | best-supported full MCMC backend | strongest diagnostics and most complete posterior workflow |
+| `"nuts"` | built-in second-tier MCMC backend | multi-chain diagnostics are available through `BAYESMethod`; currently samples THETA only and empirical population-model runs can be slow |
+| `"laplace"` | fast approximation fallback | MAP + Hessian-based Gaussian posterior approximation |
+
+Important current limitations:
+
+- the built-in NUTS backend currently samples **THETA only**; `OMEGA` and
+  `SIGMA` remain fixed at their starting values
+- the built-in NUTS path now uses the cached symbolic analytical theta-gradient
+  path on the supported analytical PK subset, but still falls back outside that
+  envelope and can be slow on larger ODE-heavy models
+- NUTS runs now expose sampler and posterior-evaluation diagnostics in
+  `result.diagnostics["nuts"]`, including log-probability call counts,
+  exact-cache hit/miss counts, warm-start hit counts, FOCE inner/outer call
+  counts, step-size summaries, acceptance statistics, and tree-depth summaries
+- on a bounded synthetic 6-subject oral-PK probe (`n_samples=12`, `tune=8`,
+  `n_chains=2`), the compiled symbolic path now takes about `8.5 s`, but the
+  empirical theophylline benchmark still needs a larger budget (`24/16`) and
+  about `28 s` to bring max `R-hat` down to roughly `1.19`, so it should still
+  be treated as a dependency-free second-tier path rather than the default
+  empirical benchmark route
+- the standalone low-level helper `nuts_estimate()` is **single-chain only** and
+  therefore does **not** return meaningful `R-hat`; use
+  `.estimation(method="BAYES", backend="nuts", n_chains>=2)` when you want
+  multi-chain diagnostics
+- Laplace is useful for fast Bayesian summaries, but should not be described as
+  equivalent to full MCMC on difficult posterior geometries
+- `IMP` results expose optimizer-stop and final effective-sample-size details in
+  `result.diagnostics`, which is the intended surface for telling apart
+  iteration-budget exhaustion, plateauing, and poor importance-sampling
+  coverage
 
 ## Nonparametric estimation
 
@@ -151,6 +194,16 @@ OpenPKPD also exposes a nonparametric support-point estimator.
 ```
 
 This runs a base parametric fit first, then optimizes support-point weights.
+
+Current support note:
+
+- the operationally strongest current path is `base_method="FOCEI"` on
+  population PK models with a modest number of ETAs
+- the repository now includes an empirical phenobarbital benchmark against
+  Pharmpy's bundled `pheno` dataset and a runnable example in
+  `examples/32_nonparametric_support_points.py`
+- external validation is still narrower than the FO/FOCEI surface, so treat
+  nonparametric estimation as a real but still selectively benchmarked path
 
 ## Common options
 

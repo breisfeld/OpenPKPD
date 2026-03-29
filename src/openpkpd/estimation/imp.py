@@ -29,6 +29,7 @@ from scipy.optimize import minimize
 from scipy.stats import multivariate_normal
 
 from openpkpd.estimation.base import EstimationMethod, EstimationResult
+from openpkpd.estimation.foce import FOCEMethod
 from openpkpd.math.matrix import numerical_hessian, repair_pd
 from openpkpd.model.parameters import ParameterSet
 from openpkpd.utils.constants import Method
@@ -71,7 +72,9 @@ class IMPMethod(EstimationMethod):
         self.rng = np.random.default_rng(seed)
         self._iter = 0
         self._ofv_history: list[float] = []
-        self._subj_rngs: dict[int, np.random.Generator] = {}
+        self._subj_seeds: dict[int, int] = {}
+        self._last_ess_by_subject: dict[int, float] = {}
+        self._warm_start_diagnostics: dict[str, Any] = {}
         # Populated during estimate(): list of (subj_id, ess) for low-ESS subjects
         self._low_ess_subjects: list[tuple[int, float]] = []
         if is_map:
@@ -92,16 +95,24 @@ class IMPMethod(EstimationMethod):
 
         self._iter = 0
         self._ofv_history = []
+        self._last_ess_by_subject = {}
+        self._warm_start_diagnostics = {}
         self._low_ess_subjects = []
 
-        # One RNG per subject — independent streams, thread-safe for parallel eval
-        def _child_rng() -> np.random.Generator:
-            try:
-                return np.random.default_rng(int(self.rng.integers(0, 2**31)))
-            except AttributeError:
-                return self.rng  # type: ignore[return-value]
+        if self.is_map:
+            params = self._warm_start_with_focei(population_model, params)
 
-        self._subj_rngs = {sid: _child_rng() for sid in population_model.subject_ids()}
+        # One deterministic seed per subject.  Recreating the generator inside
+        # _importance_sample keeps the Monte Carlo objective stable across
+        # repeated optimizer evaluations (common random numbers) instead of
+        # drifting as RNG state advances.
+        def _child_seed() -> int:
+            try:
+                return int(self.rng.integers(0, 2**31))
+            except AttributeError:
+                return 42
+
+        self._subj_seeds = {sid: _child_seed() for sid in population_model.subject_ids()}
 
         x0 = params.to_vector()
 
@@ -142,6 +153,8 @@ class IMPMethod(EstimationMethod):
             elapsed_time=elapsed,
             method=self.method_name,
             message=getattr(result, "message", ""),
+            diagnostics=self._build_diagnostics(result, final_ofv),
+            n_function_evals=int(getattr(result, "nfev", 0) or 0),
         )
 
         # ── WARN_006: low effective sample size ──────────────────────────────
@@ -162,6 +175,97 @@ class IMPMethod(EstimationMethod):
         res.compute_shrinkage()
         return res
 
+    def _build_diagnostics(self, result: Any, final_ofv: float) -> dict[str, Any]:
+        """Summarize optimizer stop conditions and final IMP sampling quality."""
+        ess_values = np.asarray(list(self._last_ess_by_subject.values()), dtype=float)
+        ess_threshold = self.ESS_WARN_FRACTION * self.isample
+        optimizer_message = str(getattr(result, "message", ""))
+        iterations = int(getattr(result, "nit", 0) or 0)
+        function_evals = int(getattr(result, "nfev", 0) or 0)
+        maxeval_reached = (
+            (not bool(getattr(result, "success", False)) and "ITERATIONS REACHED LIMIT" in optimizer_message.upper())
+            or iterations >= self.maxeval
+        )
+        diagnostics: dict[str, Any] = {
+            "optimizer": {
+                "method": "L-BFGS-B",
+                "success": bool(getattr(result, "success", False)),
+                "status": int(getattr(result, "status", 0) or 0),
+                "message": optimizer_message,
+                "iterations": iterations,
+                "function_evals": function_evals,
+                "maxeval": int(self.maxeval),
+                "maxeval_reached": bool(maxeval_reached),
+            },
+            "objective": {
+                "initial_ofv": float(self._ofv_history[0]) if self._ofv_history else None,
+                "final_ofv": float(final_ofv),
+                "delta_ofv": (
+                    float(self._ofv_history[0] - final_ofv) if self._ofv_history else None
+                ),
+                "history_length": len(self._ofv_history),
+            },
+            "importance_sampling": {
+                "isample": int(self.isample),
+                "ess_warning_threshold": float(ess_threshold),
+                "final_eval_ess_by_subject": {
+                    int(sid): float(ess) for sid, ess in sorted(self._last_ess_by_subject.items())
+                },
+                "final_eval_min_ess": float(np.min(ess_values)) if ess_values.size else None,
+                "final_eval_median_ess": float(np.median(ess_values)) if ess_values.size else None,
+                "final_eval_mean_ess": float(np.mean(ess_values)) if ess_values.size else None,
+                "final_eval_n_below_warn_threshold": int(np.sum(ess_values < ess_threshold)),
+            },
+        }
+        if self._warm_start_diagnostics:
+            diagnostics["warm_start"] = dict(self._warm_start_diagnostics)
+        return diagnostics
+
+    def _warm_start_with_focei(
+        self,
+        population_model: Any,
+        init_params: ParameterSet,
+    ) -> ParameterSet:
+        """Use a short FOCEI pass to seed IMPMAP in a better population basin."""
+        warm_maxeval = max(10, min(50, self.maxeval * 4))
+        focei = FOCEMethod(
+            interaction=True,
+            maxeval=warm_maxeval,
+            n_parallel=self.n_parallel,
+        )
+        try:
+            warm = focei.estimate(population_model, init_params)
+        except Exception as exc:
+            self._warm_start_diagnostics = {
+                "enabled": True,
+                "method": "FOCEI",
+                "attempted": True,
+                "used": False,
+                "maxeval": int(warm_maxeval),
+                "error": str(exc),
+            }
+            logger.warning(f"IMPMAP warm start failed; falling back to direct IMP: {exc}")
+            return init_params
+
+        self._warm_start_diagnostics = {
+            "enabled": True,
+            "method": "FOCEI",
+            "attempted": True,
+            "used": True,
+            "maxeval": int(warm_maxeval),
+            "converged": bool(warm.converged),
+            "message": str(getattr(warm, "message", "")),
+            "ofv": float(getattr(warm, "ofv", np.nan)),
+        }
+        return ParameterSet(
+            theta=np.asarray(warm.theta_final, dtype=float),
+            omega=np.asarray(warm.omega_final, dtype=float),
+            sigma=np.asarray(warm.sigma_final, dtype=float),
+            theta_specs=init_params.theta_specs,
+            omega_specs=init_params.omega_specs,
+            sigma_specs=init_params.sigma_specs,
+        ).apply_bounds()
+
     def _compute_imp_ofv(
         self,
         population_model: Any,
@@ -173,6 +277,7 @@ class IMPMethod(EstimationMethod):
         where p̂_i is estimated via importance sampling.
         Subjects are evaluated in parallel when n_parallel > 1.
         """
+        self._ensure_subject_seeds(population_model)
         subject_ids = population_model.subject_ids()
 
         def _eval_subject(subj_id: int) -> float:
@@ -190,6 +295,20 @@ class IMPMethod(EstimationMethod):
             for result in pool.map(_eval_subject, subject_ids):
                 ofv += result
         return ofv
+
+    def _ensure_subject_seeds(self, population_model: Any) -> None:
+        """Initialize deterministic per-subject seeds once per subject set."""
+        subject_ids = tuple(population_model.subject_ids())
+        if set(self._subj_seeds) == set(subject_ids):
+            return
+
+        def _child_seed() -> int:
+            try:
+                return int(self.rng.integers(0, 2**31))
+            except AttributeError:
+                return 42
+
+        self._subj_seeds = {sid: _child_seed() for sid in subject_ids}
 
     def _importance_sample(
         self,
@@ -251,8 +370,10 @@ class IMPMethod(EstimationMethod):
         except Exception:
             V_prop = params.omega.copy()
 
-        # Draw samples from proposal — use per-subject RNG if available (thread-safe)
-        rng = self._subj_rngs.get(subj_id, self.rng)
+        # Draw samples from a deterministic per-subject stream so that the
+        # same parameter vector sees the same Monte Carlo noise across outer
+        # objective evaluations.
+        rng = np.random.default_rng(self._subj_seeds.get(subj_id, 42))
         samples = rng.multivariate_normal(eta_map, V_prop, size=self.isample)
 
         # Compute unnormalized importance weights
@@ -297,6 +418,7 @@ class IMPMethod(EstimationMethod):
         else:
             ess = 0.0
         threshold = self.ESS_WARN_FRACTION * self.isample
+        self._last_ess_by_subject[subj_id] = float(ess)
         if ess < threshold:
             logger.debug(f"  Subject {subj_id}: low ESS={ess:.1f} (threshold={threshold:.0f})")
             # Thread-safe append — Python list.append is GIL-protected

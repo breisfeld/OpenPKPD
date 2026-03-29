@@ -36,6 +36,10 @@ install-plots:
 install-docs:
     uv sync --extra docs --extra dev
 
+# Install symbolic-kernel dev/test dependencies explicitly
+install-symbolic:
+    uv sync --extra dev --extra symbolic
+
 # Install local R packages used by external-validation tests
 install-r-test-deps:
     Rscript --vanilla scripts/install_r_test_deps.R
@@ -74,6 +78,10 @@ run-tests-cov:
 #        just test-only -k "test_peak"
 run-test-only *args:
     {{uv_dev}} pytest {{ args }}
+
+# Compile/load the symbolic analytical-kernel cache files into the local cache dir
+prewarm-symbolic-caches:
+    {{uv_dev}} python scripts/prewarm_symbolic_caches.py
 
 # ---------------------------------------------------------------------------
 # Linting and formatting
@@ -129,6 +137,13 @@ parse-json ctl:
 #        just profile-analysis --workloads diagnostics_covariate --covariate-subjects 140
 profile-analysis *args:
     {{uv_base}} python scripts/profile_analysis.py {{ args }}
+
+# Benchmark representative estimation workloads and write JSON baseline output
+# Usage: just benchmark-estimation
+#        just benchmark-estimation --workloads focei imp impmap bayes_laplace
+#        just benchmark-estimation --n-subjects 8 --bayes-samples 80 --bayes-tune 40
+benchmark-estimation *args:
+    {{uv_base}} python scripts/benchmark_estimation.py {{ args }}
 
 # ---------------------------------------------------------------------------
 # Examples

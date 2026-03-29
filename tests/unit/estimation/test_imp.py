@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
 from openpkpd.estimation import get_estimation_method
 from openpkpd.estimation.imp import IMPMethod
+from openpkpd.model.parameters import OmegaSpec, ParameterSet, SigmaSpec, ThetaSpec
 from openpkpd.utils.constants import Method
 from openpkpd.utils.errors import WarningCode
 
@@ -56,6 +59,21 @@ class _GaussianPopulationModel:
 
     def subject_ids(self):
         return [1]
+
+    def individual_model(self, sid):
+        return self._indiv[sid]
+
+
+class _MultiSubjectGaussianPopulationModel:
+    trans = 2
+
+    def __init__(self, dvs: list[float]) -> None:
+        self._indiv = {
+            sid: _GaussianIndividualModel(dv) for sid, dv in enumerate(dvs, start=1)
+        }
+
+    def subject_ids(self):
+        return list(self._indiv)
 
     def individual_model(self, sid):
         return self._indiv[sid]
@@ -183,6 +201,171 @@ def test_imp_error_decreases_with_larger_sample() -> None:
     assert err_large <= err_small + 0.01
 
 
+@pytest.mark.unit
+def test_imp_objective_is_repeatable_with_fixed_subject_seeds() -> None:
+    """Common-random-number streams must stabilize repeated OFV evaluations."""
+    pop = _MultiSubjectGaussianPopulationModel([0.5, -1.25, 2.0])
+    params = _GaussianParams(omega_var=0.4, sigma_var=0.6)
+
+    imp = IMPMethod(isample=300, seed=123)
+    imp._subj_seeds = {1: 101, 2: 202, 3: 303}
+
+    ofv_first = imp._compute_imp_ofv(pop, params)
+    ofv_second = imp._compute_imp_ofv(pop, params)
+
+    assert ofv_first == pytest.approx(ofv_second, abs=1e-12)
+
+
+@pytest.mark.unit
+def test_imp_objective_matches_between_serial_and_parallel_with_fixed_subject_seeds() -> None:
+    """Parallel subject evaluation must preserve the same CRN-based objective."""
+    pop = _MultiSubjectGaussianPopulationModel([0.5, -1.25, 2.0, 0.75])
+    params = _GaussianParams(omega_var=0.4, sigma_var=0.6)
+    subj_seeds = {1: 101, 2: 202, 3: 303, 4: 404}
+
+    serial = IMPMethod(isample=300, seed=123, n_parallel=1)
+    serial._subj_seeds = subj_seeds.copy()
+    parallel = IMPMethod(isample=300, seed=123, n_parallel=2)
+    parallel._subj_seeds = subj_seeds.copy()
+
+    ofv_serial = serial._compute_imp_ofv(pop, params)
+    ofv_parallel = parallel._compute_imp_ofv(pop, params)
+
+    assert ofv_serial == pytest.approx(ofv_parallel, abs=1e-12)
+
+
+@pytest.mark.unit
+def test_imp_estimate_reports_optimizer_and_ess_diagnostics() -> None:
+    pop = _MultiSubjectGaussianPopulationModel([0.5, -1.25, 2.0])
+    params = ParameterSet.from_specs(
+        [ThetaSpec(init=0.0, fixed=True)],
+        [OmegaSpec(block_size=1, values=[0.4])],
+        [SigmaSpec(block_size=1, values=[0.6], fixed=True)],
+    )
+
+    result = IMPMethod(isample=80, maxeval=3, seed=123).estimate(pop, params)
+
+    optimizer = result.diagnostics["optimizer"]
+    objective = result.diagnostics["objective"]
+    importance = result.diagnostics["importance_sampling"]
+
+    assert optimizer["method"] == "L-BFGS-B"
+    assert optimizer["iterations"] >= 0
+    assert optimizer["function_evals"] == result.n_function_evals
+    assert optimizer["maxeval"] == 3
+    assert isinstance(optimizer["maxeval_reached"], bool)
+
+    assert objective["history_length"] == len(result.ofv_history)
+    assert objective["final_ofv"] == pytest.approx(result.ofv)
+    assert objective["initial_ofv"] is not None
+    assert objective["delta_ofv"] is not None
+
+    assert importance["isample"] == 80
+    assert importance["ess_warning_threshold"] == pytest.approx(8.0)
+    assert set(importance["final_eval_ess_by_subject"]) == {1, 2, 3}
+    assert importance["final_eval_min_ess"] is not None
+    assert importance["final_eval_min_ess"] > 0.0
+    assert importance["final_eval_mean_ess"] is not None
+    assert importance["final_eval_median_ess"] is not None
+    assert importance["final_eval_n_below_warn_threshold"] >= 0
+
+
+@pytest.mark.unit
+def test_impmap_uses_focei_warm_start(monkeypatch: pytest.MonkeyPatch) -> None:
+    pop = _MultiSubjectGaussianPopulationModel([0.5, -1.25, 2.0])
+    params = ParameterSet.from_specs(
+        [ThetaSpec(init=0.4, lower=0.01, upper=10.0)],
+        [OmegaSpec(block_size=1, values=[0.4])],
+        [SigmaSpec(block_size=1, values=[0.6], fixed=True)],
+    )
+    warm_theta = np.array([0.75])
+    warm_omega = np.array([[0.2]])
+    warm_sigma = np.array([[0.6]])
+    calls: list[tuple[str, object]] = []
+
+    class _FakeFOCE:
+        def __init__(self, **kwargs):
+            calls.append(("ctor", kwargs))
+
+        def estimate(self, population_model, init_params):
+            calls.append(("estimate", init_params.theta.copy()))
+            return SimpleNamespace(
+                theta_final=warm_theta,
+                omega_final=warm_omega,
+                sigma_final=warm_sigma,
+                converged=True,
+                message="warm-start-ok",
+                ofv=12.3,
+            )
+
+    def _fake_minimize(objective, x0, method=None, options=None):
+        calls.append(("x0", np.asarray(x0, dtype=float).copy()))
+        objective(np.asarray(x0, dtype=float))
+        return SimpleNamespace(
+            x=np.asarray(x0, dtype=float),
+            success=True,
+            status=0,
+            message="ok",
+            nit=1,
+            nfev=1,
+        )
+
+    monkeypatch.setattr("openpkpd.estimation.imp.FOCEMethod", _FakeFOCE)
+    monkeypatch.setattr("openpkpd.estimation.imp.minimize", _fake_minimize)
+    monkeypatch.setattr(IMPMethod, "_compute_imp_ofv", lambda self, pop_model, p: 1.0)
+    monkeypatch.setattr(IMPMethod, "_map_etas", lambda self, pop_model, p: {})
+
+    result = IMPMethod(isample=10, maxeval=2, seed=123, is_map=True).estimate(pop, params)
+
+    assert any(tag == "estimate" for tag, _payload in calls)
+    warm_x0 = next(payload for tag, payload in calls if tag == "x0")
+    expected_x0 = ParameterSet(
+        theta=warm_theta,
+        omega=warm_omega,
+        sigma=warm_sigma,
+        theta_specs=params.theta_specs,
+        omega_specs=params.omega_specs,
+        sigma_specs=params.sigma_specs,
+    ).apply_bounds().to_vector()
+    np.testing.assert_allclose(warm_x0, expected_x0)
+    assert result.diagnostics["warm_start"]["used"] is True
+    assert result.diagnostics["warm_start"]["method"] == "FOCEI"
+
+
+@pytest.mark.unit
+def test_imp_does_not_use_focei_warm_start(monkeypatch: pytest.MonkeyPatch) -> None:
+    pop = _MultiSubjectGaussianPopulationModel([0.5, -1.25, 2.0])
+    params = ParameterSet.from_specs(
+        [ThetaSpec(init=0.4, lower=0.01, upper=10.0)],
+        [OmegaSpec(block_size=1, values=[0.4])],
+        [SigmaSpec(block_size=1, values=[0.6], fixed=True)],
+    )
+
+    class _UnexpectedFOCE:
+        def __init__(self, **kwargs):
+            raise AssertionError("FOCE warm start should not be used for raw IMP")
+
+    def _fake_minimize(objective, x0, method=None, options=None):
+        objective(np.asarray(x0, dtype=float))
+        return SimpleNamespace(
+            x=np.asarray(x0, dtype=float),
+            success=True,
+            status=0,
+            message="ok",
+            nit=1,
+            nfev=1,
+        )
+
+    monkeypatch.setattr("openpkpd.estimation.imp.FOCEMethod", _UnexpectedFOCE)
+    monkeypatch.setattr("openpkpd.estimation.imp.minimize", _fake_minimize)
+    monkeypatch.setattr(IMPMethod, "_compute_imp_ofv", lambda self, pop_model, p: 1.0)
+    monkeypatch.setattr(IMPMethod, "_map_etas", lambda self, pop_model, p: {})
+
+    result = IMPMethod(isample=10, maxeval=2, seed=123, is_map=False).estimate(pop, params)
+
+    assert "warm_start" not in result.diagnostics
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # P0.4 — is_map parameter, method name, WARN_006, routing
 # ─────────────────────────────────────────────────────────────────────────────
@@ -246,8 +429,6 @@ class TestIMPWarn006:
 
     def test_warn006_emitted_when_ess_low(self):
         """Force low ESS by using a mismatched proposal distribution."""
-        from openpkpd.model.parameters import OmegaSpec, ParameterSet, SigmaSpec, ThetaSpec
-
         pop = self._ConcentratedPop()
         params = ParameterSet.from_specs(
             [],

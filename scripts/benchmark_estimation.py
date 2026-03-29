@@ -3,7 +3,8 @@
 Estimation method benchmark.
 
 Measures wall-clock time, per-stage timing, and hot function call profiles
-for FO, FOCE, FOCEI, and SAEM on a standard 1-compartment oral PK dataset.
+for FO, FOCE, FOCEI, SAEM, IMP, IMPMAP, and Bayesian backends on a standard
+1-compartment oral PK dataset.
 
 The results are saved as JSON and are intended as the *performance baseline*
 against which future optimisations (e.g. the PyO3 obj_eta extension) are
@@ -12,7 +13,7 @@ compared.
 Usage
 -----
     uv run python scripts/benchmark_estimation.py
-    uv run python scripts/benchmark_estimation.py --workloads fo foce focei saem
+    uv run python scripts/benchmark_estimation.py --workloads fo foce focei saem imp impmap bayes_laplace bayes_nuts
     uv run python scripts/benchmark_estimation.py \\
         --json-out artifacts/profiling/estimation_baseline.json
 
@@ -56,13 +57,16 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from profile_pipelines import build_small_pk_dataset, profile_workload  # noqa: E402
 
+from openpkpd import ModelBuilder  # noqa: E402
+from openpkpd.estimation.bayes import BAYESMethod  # noqa: E402
 from openpkpd.estimation.fo import FOMethod  # noqa: E402
 from openpkpd.estimation.foce import FOCEMethod  # noqa: E402
+from openpkpd.estimation.imp import IMPMethod  # noqa: E402
+from openpkpd.estimation.nuts import NUTSSampler  # noqa: E402
 from openpkpd.estimation.saem import SAEMMethod  # noqa: E402
 from openpkpd.model.individual import IndividualModel  # noqa: E402
-from openpkpd.model.parameters import OmegaSpec, ParameterSet, SigmaSpec, ThetaSpec  # noqa: E402
+from openpkpd.model.parameters import ParameterSet  # noqa: E402
 from openpkpd.model.population import PopulationModel  # noqa: E402
-from openpkpd.pk.analytical.advan2 import ADVAN2  # noqa: E402
 
 # ── default workload parameters ───────────────────────────────────────────────
 # These values are chosen so that:
@@ -78,28 +82,30 @@ _FOCE_MAXEVAL = 300        # FOCE (no interaction)
 _FOCEI_MAXEVAL = 200       # FOCEI (with interaction, more expensive)
 _SAEM_K1 = 150             # SAEM stochastic phase iterations
 _SAEM_K2 = 100             # SAEM convergence phase iterations
+_IMP_ISAMPLE = 80
+_IMP_MAXEVAL = 8
+_BAYES_N_SAMPLES = 150
+_BAYES_TUNE = 75
 
 _DEFAULT_JSON_OUT = Path("artifacts/profiling/estimation_baseline.json")
 
 # ── dataset / model helpers ───────────────────────────────────────────────────
 
 def _build_population_model(n_subjects: int, seed: int) -> tuple[PopulationModel, ParameterSet]:
-    """1-compartment oral PK (ADVAN2/TRANS2) with proportional error."""
-    dataset = build_small_pk_dataset(n_subjects=n_subjects, seed=seed)
-    theta_specs = [
-        ThetaSpec(init=1.5, lower=0.01, upper=8.0),   # KA (hr⁻¹)
-        ThetaSpec(init=2.8, lower=0.01, upper=15.0),  # CL (L/hr)
-        ThetaSpec(init=32.9, lower=1.0, upper=80.0),  # V  (L)
-    ]
-    omega_specs = [
-        OmegaSpec(block_size=1, values=[0.04]),  # ω²_KA
-        OmegaSpec(block_size=1, values=[0.02]),  # ω²_CL
-        OmegaSpec(block_size=1, values=[0.02]),  # ω²_V
-    ]
-    sigma_specs = [SigmaSpec(block_size=1, values=[0.01])]
-    params = ParameterSet.from_specs(theta_specs, omega_specs, sigma_specs)
-    pop = PopulationModel(dataset=dataset, pk_subroutine=ADVAN2(), params=params, trans=2, advan=2)
-    return pop, params
+    """1-compartment oral PK (ADVAN2/TRANS2) with compiled callables."""
+    built = (
+        ModelBuilder()
+        .problem("Benchmark oral PK workload")
+        .dataset(build_small_pk_dataset(n_subjects=n_subjects, seed=seed))
+        .subroutines(advan=2, trans=2)
+        .pk("KA = THETA(1)*EXP(ETA(1))\nCL = THETA(2)*EXP(ETA(2))\nV = THETA(3)*EXP(ETA(3))")
+        .error("Y = F*(1 + EPS(1))")
+        .theta([(0.01, 1.5, 8.0), (0.01, 2.8, 15.0), (1.0, 32.9, 80.0)])
+        .omega([0.04, 0.02, 0.02])
+        .sigma(0.01)
+        .build()
+    )
+    return built.population_model, built.population_model.params
 
 
 def _result_summary(res: Any, n_subjects: int) -> dict[str, Any]:
@@ -188,17 +194,135 @@ def run_saem(n_subjects: int, seed: int, k1: int, k2: int, top_fn: int) -> dict[
     )
 
 
+def run_imp(n_subjects: int, seed: int, isample: int, maxeval: int, top_fn: int) -> dict[str, Any]:
+    pop, params = _build_population_model(n_subjects, seed)
+    method = IMPMethod(isample=isample, maxeval=maxeval, seed=seed, n_parallel=1)
+    return profile_workload(
+        "imp",
+        lambda: _result_summary(method.estimate(pop, params), n_subjects),
+        [
+            (IMPMethod, "_compute_imp_ofv", "imp.compute_imp_ofv"),
+            (IMPMethod, "_importance_sample", "imp.importance_sample"),
+            (IndividualModel, "obj_eta", "individual.obj_eta"),
+            (IndividualModel, "evaluate_observation_model", "individual.evaluate_observation_model"),
+        ],
+        top_fn,
+    )
+
+
+def run_impmap(
+    n_subjects: int,
+    seed: int,
+    isample: int,
+    maxeval: int,
+    top_fn: int,
+) -> dict[str, Any]:
+    pop, params = _build_population_model(n_subjects, seed)
+    method = IMPMethod(
+        isample=isample,
+        maxeval=maxeval,
+        seed=seed,
+        n_parallel=1,
+        is_map=True,
+    )
+    return profile_workload(
+        "impmap",
+        lambda: _result_summary(method.estimate(pop, params), n_subjects),
+        [
+            (IMPMethod, "_warm_start_with_focei", "imp.warm_start_with_focei"),
+            (IMPMethod, "_compute_imp_ofv", "imp.compute_imp_ofv"),
+            (IMPMethod, "_importance_sample", "imp.importance_sample"),
+            (FOCEMethod, "_inner_loop", "foce.inner_loop"),
+            (FOCEMethod, "_outer_ofv", "foce.outer_ofv"),
+            (IndividualModel, "obj_eta", "individual.obj_eta"),
+            (IndividualModel, "evaluate_observation_model", "individual.evaluate_observation_model"),
+        ],
+        top_fn,
+    )
+
+
+def run_bayes_laplace(
+    n_subjects: int, seed: int, n_samples: int, top_fn: int
+) -> dict[str, Any]:
+    pop, params = _build_population_model(n_subjects, seed)
+    method = BAYESMethod(
+        backend="laplace",
+        n_samples=n_samples,
+        n_chains=1,
+        seed=seed,
+        prior_sd_theta=2.0,
+        maxeval=30,
+    )
+    return profile_workload(
+        "bayes_laplace",
+        lambda: {
+            **_result_summary(method.estimate(pop, params), n_subjects),
+            "backend_used": "laplace",
+        },
+        [
+            (BAYESMethod, "_estimate_laplace", "bayes.estimate_laplace"),
+            (FOCEMethod, "_inner_loop", "foce.inner_loop"),
+            (FOCEMethod, "_outer_ofv", "foce.outer_ofv"),
+            (IndividualModel, "evaluate_observation_model", "individual.evaluate_observation_model"),
+        ],
+        top_fn,
+    )
+
+
+def run_bayes_nuts(
+    n_subjects: int,
+    seed: int,
+    n_samples: int,
+    tune: int,
+    top_fn: int,
+) -> dict[str, Any]:
+    pop, params = _build_population_model(n_subjects, seed)
+    method = BAYESMethod(
+        backend="nuts",
+        n_samples=n_samples,
+        n_chains=2,
+        tune=tune,
+        seed=seed,
+        prior_sd_theta=2.0,
+    )
+    return profile_workload(
+        "bayes_nuts",
+        lambda: {
+            **_result_summary((result := method.estimate(pop, params)), n_subjects),
+            "backend_used": "nuts",
+            "diagnostics": result.diagnostics,
+        },
+        [
+            (BAYESMethod, "_estimate_nuts", "bayes.estimate_nuts"),
+            (NUTSSampler, "sample", "nuts.sample"),
+            (FOCEMethod, "_inner_loop", "foce.inner_loop"),
+            (FOCEMethod, "_outer_ofv", "foce.outer_ofv"),
+        ],
+        top_fn,
+    )
+
+
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Benchmark FO / FOCE / FOCEI / SAEM estimation methods."
+        description="Benchmark FO / FOCE / FOCEI / SAEM / IMP / IMPMAP estimation methods."
     )
     p.add_argument(
         "--workloads",
         nargs="+",
         default=["all"],
-        choices=["all", "fo", "foce", "focei", "saem"],
+        choices=[
+            "all",
+            "fo",
+            "foce",
+            "focei",
+            "saem",
+            "imp",
+            "impmap",
+            "bayes_laplace",
+            "bayes_nuts",
+        ],
     )
     p.add_argument("--n-subjects", type=int, default=_DEFAULT_N_SUBJECTS)
     p.add_argument("--seed", type=int, default=_DEFAULT_SEED)
@@ -207,6 +331,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument("--focei-maxeval", type=int, default=_FOCEI_MAXEVAL)
     p.add_argument("--saem-k1", type=int, default=_SAEM_K1)
     p.add_argument("--saem-k2", type=int, default=_SAEM_K2)
+    p.add_argument("--imp-isample", type=int, default=_IMP_ISAMPLE)
+    p.add_argument("--imp-maxeval", type=int, default=_IMP_MAXEVAL)
+    p.add_argument("--bayes-samples", type=int, default=_BAYES_N_SAMPLES)
+    p.add_argument("--bayes-tune", type=int, default=_BAYES_TUNE)
     p.add_argument("--top-functions", type=int, default=_DEFAULT_TOP_FN)
     p.add_argument("--json-out", type=Path, default=_DEFAULT_JSON_OUT)
     return p.parse_args(argv)
@@ -215,7 +343,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     workloads: set[str] = (
-        {"fo", "foce", "focei", "saem"} if "all" in args.workloads else set(args.workloads)
+        {"fo", "foce", "focei", "saem", "imp", "impmap", "bayes_laplace", "bayes_nuts"}
+        if "all" in args.workloads else set(args.workloads)
     )
 
     results: dict[str, Any] = {
@@ -230,6 +359,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "focei_maxeval": int(args.focei_maxeval),
                 "saem_k1": int(args.saem_k1),
                 "saem_k2": int(args.saem_k2),
+                "imp_isample": int(args.imp_isample),
+                "imp_maxeval": int(args.imp_maxeval),
+                "bayes_samples": int(args.bayes_samples),
+                "bayes_tune": int(args.bayes_tune),
                 "top_functions": int(args.top_functions),
                 "model": "1-cmt oral PK (ADVAN2/TRANS2), proportional error",
                 "pk_params": "KA=1.5, CL=2.8, V=32.9 (pop), 7 obs/subject",
@@ -263,6 +396,57 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         results["saem"] = run_saem(
             args.n_subjects, args.seed, args.saem_k1, args.saem_k2, args.top_functions
+        )
+
+    if "imp" in workloads:
+        print(
+            f"[imp]   running IMP (N={args.n_subjects}, isample={args.imp_isample}, maxeval={args.imp_maxeval})…",
+            file=sys.stderr,
+        )
+        results["imp"] = run_imp(
+            args.n_subjects,
+            args.seed,
+            args.imp_isample,
+            args.imp_maxeval,
+            args.top_functions,
+        )
+
+    if "impmap" in workloads:
+        print(
+            f"[impmap] running IMPMAP (N={args.n_subjects}, isample={args.imp_isample}, maxeval={args.imp_maxeval})…",
+            file=sys.stderr,
+        )
+        results["impmap"] = run_impmap(
+            args.n_subjects,
+            args.seed,
+            args.imp_isample,
+            args.imp_maxeval,
+            args.top_functions,
+        )
+
+    if "bayes_laplace" in workloads:
+        print(
+            f"[bayes_laplace] running BAYES(Laplace) (N={args.n_subjects}, samples={args.bayes_samples})…",
+            file=sys.stderr,
+        )
+        results["bayes_laplace"] = run_bayes_laplace(
+            args.n_subjects,
+            args.seed,
+            args.bayes_samples,
+            args.top_functions,
+        )
+
+    if "bayes_nuts" in workloads:
+        print(
+            f"[bayes_nuts] running BAYES(NUTS) (N={args.n_subjects}, samples={args.bayes_samples}, tune={args.bayes_tune})…",
+            file=sys.stderr,
+        )
+        results["bayes_nuts"] = run_bayes_nuts(
+            args.n_subjects,
+            args.seed,
+            args.bayes_samples,
+            args.bayes_tune,
+            args.top_functions,
         )
 
     args.json_out.parent.mkdir(parents=True, exist_ok=True)

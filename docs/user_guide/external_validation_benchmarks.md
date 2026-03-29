@@ -3,6 +3,24 @@
 This note records the current **cross-tool benchmark fixtures** that are bundled
 with the repository and exercised by `tests/external_validation/`.
 
+## Validated estimator envelope
+
+The table below is the quickest summary of what currently has **empirical**
+external validation in-tree. Treat it as a release-facing support summary, not
+as a claim of blanket parity with commercial tools.
+
+| Estimator family | Empirical external anchors in-tree | Current interpretation |
+|---|---|---|
+| FO / FOCE / FOCEI | `nlmixr2`, `NONMEM`, `Pharmpy`, Bauer tutorial workflows, covariate models | strongest cross-tool evidence in the repository |
+| SAEM | `Monolix` theophylline; `nlmixr2` warfarin PK | credible on current benchmark slices, but not yet broad enough for blanket parity claims |
+| BAYES(Laplace) | `nlmixr2` theophylline and warfarin PK basins; `NONMEM` 402 empirical basin | useful weak-prior Bayesian summary path; still an approximation, not full MCMC parity |
+| BAYES(NUTS) | internal statistical validation, bounded synthetic benchmark, and second-tier empirical theophylline benchmark | real implementation, but currently a second-tier empirical path rather than a primary release-gated benchmark surface |
+| IMP / IMPMAP | theophylline and warfarin PK empirical basin checks; analytic Gaussian-reference tests | numerically credible on the current empirical slices, but still narrower than FO/FOCEI validation; benchmark budgets matter materially |
+| Nonparametric | Pharmpy `pheno` empirical benchmark plus regression/exact reference tests | credible on one real dataset now, but still thin relative to FO/FOCEI coverage |
+
+When adding new claims to README or migration docs, prefer the wording in this
+table over generic statements like "validated" or "production-ready".
+
 ## Monolix: theophylline SAEM
 
 - **Reference source:** public Monolix theophylline project parameters exposed by
@@ -28,6 +46,110 @@ Reference values on the natural scale are approximately:
 
 Current OpenPKPD results land within a few percent of those public Monolix
 values with a fixed seed and a moderate SAEM schedule (`200 + 100` iterations).
+
+## Advanced estimators: empirical benchmark notes
+
+### SAEM
+
+- **Anchors:** public Monolix theophylline SAEM reference and `nlmixr2`
+  warfarin PK SAEM reference
+- **Tests:** `tests/external_validation/test_vs_monolix.py`,
+  `tests/external_validation/test_saem_reference.py`
+- **Current interpretation:** SAEM is no longer validated only on one public
+  example. It now has both a Monolix-backed theophylline path and an
+  `nlmixr2`-backed warfarin PK path, but broader mixed-endpoint and PBPK-style
+  empirical coverage is still missing.
+
+### BAYES(Laplace)
+
+- **Anchors:** `nlmixr2` FOCEI basins for theophylline and warfarin PK, plus
+  the `NONMEM` 402 two-compartment IV empirical basin
+- **Tests:** `tests/external_validation/test_bayes_empirical_reference.py`,
+  `tests/external_validation/test_bayes_nonmem_402_diagnostics.py`
+- **Current interpretation:** the weak-prior Laplace path stays near validated
+  empirical basins and produces stable posterior summaries, but it remains a
+  Gaussian approximation rather than a full MCMC benchmark.
+- **Measured benchmark expansion (2026-03-29):**
+  - the `NONMEM` 402 BAYES(Laplace) benchmark passes on the current local 402
+    fixture (`4 passed` in `129.43s`)
+  - this adds a second model family beyond the 1-compartment oral PK empirical
+    slices and makes BAYES(Laplace) less dependent on one narrow benchmark shape
+
+### BAYES(NUTS)
+
+- **Anchors:** exact Gaussian-reference tests, bounded synthetic runtime /
+  diagnostic probes on small oral-PK workloads, and an empirical theophylline
+  benchmark against the `nlmixr2` FOCEI basin
+- **Tests:** `tests/external_validation/test_advanced_estimators_reference.py`,
+  `tests/external_validation/test_bayes_empirical_reference.py`,
+  `tests/unit/estimation/test_nuts.py`, `tests/unit/estimation/test_bayes.py`
+- **Current interpretation:** the built-in NUTS backend is real and scientifically
+  useful, but today it is a second-tier empirical path. It is not yet broad or
+  cheap enough to serve as a primary release-gated cross-tool benchmark on
+  realistic population models.
+- **Measured probes (2026-03-29):**
+  - on the bounded synthetic 6-subject oral-PK workload with `n_samples=12`,
+    `tune=8`, and `n_chains=2`, the compiled symbolic path took about `8.53s`,
+    with `used_analytic_theta_gradient=true` and `used_fd_gradient=false` on
+    both chains
+  - on the empirical theophylline benchmark with `n_samples=24`, `tune=16`,
+    and `n_chains=2`, built-in `BAYES(NUTS)` took about `28.08s`, landed close
+    to the `nlmixr2` FOCEI basin (`KA/CL/V` relative errors about
+    `1.33% / 0.50% / 1.16%`), and reduced max `R-hat` to about `1.19`
+  - `OMEGA` and `SIGMA` remained fixed at their starting values, which is the
+    current documented theta-only contract
+  - practical recommendation: use `BAYES(Laplace)` for fast weak-prior Bayesian
+    summaries and prefer `PyMC` or another stronger backend for primary MCMC
+    workflows when full posterior credibility matters
+
+### IMP
+
+- **Anchors:** `nlmixr2` FOCEI basins for theophylline and warfarin PK plus
+  exact Gaussian marginal references for the IMP objective
+- **Tests:** `tests/external_validation/test_imp_empirical_reference.py`,
+  `tests/external_validation/test_saem_reference.py`
+- **Current interpretation:** IMP now has both analytic validation and a
+  two-dataset empirical sanity envelope. It is no longer "toy only", but its
+  empirical coverage is still thinner than the core FO/FOCEI path.
+- **Measured benchmark envelope (2026-03-29):**
+  - theophylline reaches the validated `nlmixr2` basin with a fixed-seed
+    budget of `isample=150, maxeval=12`
+  - the earlier short budget `isample=40, maxeval=4` is numerically stable but
+    does not reliably converge into the acceptance envelope
+  - warfarin is now release-gated through the MAP-style path:
+    `IMPMAP(isample=60, maxeval=12)` converges and stays in the validated
+    basin for `KA`/`CL`/`V`
+  - raw `IMP` remains more basin-sensitive on warfarin and is not the
+    recommended practical path there
+  - measured recommendation-test runtime for the warfarin comparison
+    (`raw IMP` plus `IMPMAP`) is about `259 s` on the current test machine, so
+    the warm-started path should be treated as a higher-confidence, higher-cost
+    validation surface rather than a quick smoke check
+
+### Nonparametric
+
+- **Anchors:** Pharmpy's bundled `pheno` empirical dataset and fit results,
+  plus exact EM-weight references for the core NPML optimizer
+- **Tests:** `tests/external_validation/test_vs_pharmpy.py`,
+  `tests/external_validation/test_advanced_estimators_reference.py`
+- **Current interpretation:** the nonparametric path is no longer validated
+  only on exact toy likelihood matrices. On Pharmpy's empirical
+  phenobarbital dataset it converges, preserves a non-degenerate support
+  distribution, and keeps the fixed-effects / residual-scale surface close to
+  the Pharmpy benchmark basin.
+- **Measured benchmark envelope (2026-03-29):**
+  - `NONPARAMETRIC(base_method="FOCEI", maxeval=300, max_iter=80)` on Pharmpy's
+    `pheno` dataset converged successfully
+  - fixed effects landed near the Pharmpy fit:
+    `POP_CL=0.00469994`, `POP_VC=0.985239`, `COVAPGR=0.157775`
+  - residual variance remained close to the Pharmpy reference:
+    `sigma=0.013416` vs `0.013241`
+  - the final support distribution did not collapse:
+    `59` support points retained, largest weight about `0.086`, and `27`
+    support points above `1%` mass
+  - this is a real empirical operational benchmark, but it is still anchored
+    to Pharmpy's FOCEI basin rather than a separate external nonparametric
+    reference implementation
 
 ## PKNCA / Phoenix-style NCA: theophylline
 

@@ -4,9 +4,78 @@ Date: 2026-03-16
 
 Raw profile output: `artifacts/profiling/profile_pipelines.json`
 Harness: `scripts/profile_pipelines.py`
+Entry points:
+
+- `just profile-analysis`
+- `just benchmark-estimation`
 
 For the contributor-facing workflow on how to turn profiling output into safe
 optimizations, see the {doc}`developer performance guide </developer_performance>`.
+
+## Reproducing the current profiling and benchmark suite
+
+Representative commands:
+
+```bash
+just profile-analysis
+just profile-analysis --workloads vpc npde --sim-subjects 24 --vpc-replicates 500
+just benchmark-estimation
+just benchmark-estimation --workloads focei imp impmap bayes_laplace bayes_nuts
+```
+
+The current benchmark harness covers:
+
+- `FO`
+- `FOCE`
+- `FOCEI`
+- `SAEM`
+- `IMP`
+- `IMPMAP`
+- `BAYES(Laplace)`
+- `BAYES(NUTS)`
+
+`BAYES(NUTS)` runs now expose sampler and posterior-evaluation counters in
+`result.diagnostics["nuts"]`, including log-probability call counts, FOCE
+inner/outer call counts for population-backed runs, step-size adaptation
+summaries, and tree-depth / acceptance summaries per chain.
+
+Treat these runs as comparative engineering baselines, not as marketing-style
+speed claims versus `NONMEM`, `Monolix`, `nlmixr2`, or `Pumas`. Environment,
+dataset size, and parameterization must be reported alongside any quoted
+numbers.
+
+`IMPMAP` should be read as a higher-confidence, higher-cost workload than raw
+`IMP`, because its runtime now includes a FOCEI warm start before the IMP outer
+optimization.
+
+Measured bounded NUTS benchmark on 2026-03-29 (`uv run --extra dev python
+scripts/benchmark_estimation.py --workloads bayes_nuts --n-subjects 6
+--bayes-samples 12 --bayes-tune 8`):
+
+- wall time: `18.99 s`
+- wall time: `17.33 s`
+- convergence: `false`
+- `log_prob_calls`: `872`
+- `foce_inner_calls`: `796`
+- `foce_inner_seconds`: `16.51 s`
+- exact-cache reuse inside NUTS:
+  `log_prob_cache_hits=1328`, `log_prob_cache_misses=872`
+- warm-start reuse for unique theta proposals:
+  `warm_start_exact_hits=4`, `warm_start_nearest_hits=791`, `warm_start_cold_starts=1`
+
+On that workload, the dominant cost is still FOCE-backed posterior evaluation,
+not NUTS tree-building overhead. Any compiled follow-up should therefore target
+objective / gradient evaluation before sampler-control mechanics.
+
+Measured paired benchmark on 2026-03-29 (`just benchmark-estimation --workloads imp impmap --imp-isample 60 --imp-maxeval 12`):
+
+- `IMP`: `38.74 s`, not converged on the benchmark model, OFV `163.35`
+- `IMPMAP`: `65.89 s`, converged, OFV `160.43`
+- incremental warm-start overhead: about `25.18 s` in `imp.warm_start_with_focei`
+
+On this representative small-PK workload, `IMPMAP` is about `1.70x` the wall
+time of raw `IMP`, with most of the difference explained by the FOCEI warm
+start rather than the IMP outer pass itself.
 
 ### Workloads profiled
 

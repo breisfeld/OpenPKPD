@@ -26,7 +26,8 @@ JSON artefacts under `artifacts/profiling/`.
 
 | Script | What it covers | Output file |
 |--------|---------------|-------------|
-| `scripts/benchmark_estimation.py` | FO, FOCE, FOCEI, SAEM estimation | `artifacts/profiling/estimation_baseline.json` |
+| `scripts/benchmark_estimation.py` | FO, FOCE, FOCEI, SAEM, IMP, IMPMAP, Bayes estimation | `artifacts/profiling/estimation_baseline.json` |
+| `scripts/benchmark_estimation.py --workloads bayes_nuts --n-subjects 6 --bayes-samples 12 --bayes-tune 8` | bounded native NUTS diagnostic baseline | `artifacts/profiling/estimation_nuts_bounded_2026-03-29.json` |
 | `scripts/profile_pipelines.py` | FOCE (quick), VPC, NPDE, symbolic | `artifacts/profiling/profile_pipelines.json` |
 | `scripts/profile_analysis.py` | Diagnostics, NPDE, VPC, NCA | `artifacts/profiling/analysis_baseline_current.json` |
 
@@ -49,6 +50,41 @@ Default parameters (stored in the JSON `metadata` block):
 | `saem_k1` | 150 | Stochastic exploration phase |
 | `saem_k2` | 100 | Convergence phase |
 | `model` | ADVAN2/TRANS2, proportional error | KA=1.5, CL=2.8, V=32.9 (pop truth) |
+
+### Reproducing the bounded NUTS baseline
+
+```bash
+uv run python scripts/benchmark_estimation.py \
+    --workloads bayes_nuts \
+    --n-subjects 6 \
+    --bayes-samples 12 \
+    --bayes-tune 8 \
+    --json-out artifacts/profiling/estimation_nuts_bounded_2026-03-29.json
+```
+
+This bounded run is intentionally small. It is a support-boundary artifact, not
+an accuracy benchmark. Its purpose is to capture runtime shape and the NUTS
+diagnostic surface (`log_prob_calls`, FOCE call counts/timings, per-chain tree
+depth / step size summaries) on a reproducible workload. As of the
+2026-03-29 refresh, the benchmark helper uses compiled `ModelBuilder`
+callables so the standard oral-PK workload can exercise the cached symbolic
+ADVAN2 derivative path when it is available.
+
+Current bounded `bayes_nuts` baseline (`n_subjects=6`, `n_samples=12`,
+`tune=8`, `n_chains=2`):
+
+| Metric | Value |
+|--------|-------|
+| Wall time | 8.53 s |
+| Converged | Yes |
+| `log_prob_calls` | 327 |
+| `foce_inner_calls` | 326 |
+| `foce_inner_seconds` | 6.98 s |
+| `theta_gradient_calls` | 326 |
+| `used_analytic_theta_gradient` | `true` |
+
+This replaces the older finite-difference-backed bounded probe. Both chains now
+report `used_fd_gradient=false`.
 
 ---
 

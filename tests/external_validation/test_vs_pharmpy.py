@@ -13,7 +13,8 @@ B. Phenobarbital population fit (requires pharmpy, slow):
    Pharmpy bundles a pre-computed NONMEM reference fit for its
    `pheno` example (phenobarbital in 59 neonates).  We compare the
    ETA shrinkage computed by openpkpd against Pharmpy's output on the
-   same ETAs.
+   same ETAs, and we use the same empirical dataset as a benchmark
+   surface for FOCEI and nonparametric estimation.
 
 Shrinkage definition (Karlsson & Sheiner 1993 / NONMEM):
     shrinkage_k = 1 - SD(η̂_ik, i=1..N) / √ω_kk
@@ -241,6 +242,45 @@ def _extract_pharmpy_iiv_diag(results) -> np.ndarray:
     return omega_diag
 
 
+def _build_openpkpd_pheno_model(method: str, **estimation_kwargs):
+    """Build the shared phenobarbital benchmark model on Pharmpy's pheno dataset."""
+    from openpkpd import ModelBuilder
+    from openpkpd.data.dataset import NONMEMDataset
+
+    model, _results = _load_pharmpy_pheno()
+    dataset = NONMEMDataset.from_dataframe(model.dataset.copy())
+
+    return (
+        ModelBuilder()
+        .problem(f"Pharmpy pheno {method} cross-check")
+        .dataset(dataset)
+        .covariates(["WGT", "APGR"])
+        .subroutines(advan=1, trans=2)
+        .pk(
+            """
+            TVCL = THETA(1) * WGT
+            TVV = THETA(2) * WGT
+            IF (APGR .LT. 5) TVV = TVV * (1 + THETA(3))
+            CL = TVCL * EXP(ETA(1))
+            V = TVV * EXP(ETA(2))
+            S1 = V
+            """
+        )
+        .error("Y = F + F * EPS(1)")
+        .theta(
+            [
+                (0.0, 0.00469307, 0.05),
+                (0.0, 1.00916, 10.0),
+                (-0.99, 0.1, 5.0),
+            ]
+        )
+        .omega([0.0309626, 0.031128])
+        .sigma([0.0130865])
+        .estimation(method=method, **estimation_kwargs)
+        .build()
+    )
+
+
 @_pharmpy_required
 @pytest.mark.external_validation
 @pytest.mark.slow
@@ -360,41 +400,7 @@ class TestEstimatorVsPharmpyPheno:
     def openpkpd_result(self, pharmpy_results):
         import warnings
 
-        from openpkpd import ModelBuilder
-        from openpkpd.data.dataset import NONMEMDataset
-
-        model, _results = pharmpy_results
-        dataset = NONMEMDataset.from_dataframe(model.dataset.copy())
-
-        built = (
-            ModelBuilder()
-            .problem("Pharmpy pheno estimator cross-check")
-            .dataset(dataset)
-            .covariates(["WGT", "APGR"])
-            .subroutines(advan=1, trans=2)
-            .pk(
-                """
-                TVCL = THETA(1) * WGT
-                TVV = THETA(2) * WGT
-                IF (APGR .LT. 5) TVV = TVV * (1 + THETA(3))
-                CL = TVCL * EXP(ETA(1))
-                V = TVV * EXP(ETA(2))
-                S1 = V
-                """
-            )
-            .error("Y = F + F * EPS(1)")
-            .theta(
-                [
-                    (0.0, 0.00469307, 0.05),
-                    (0.0, 1.00916, 10.0),
-                    (-0.99, 0.1, 5.0),
-                ]
-            )
-            .omega([0.0309626, 0.031128])
-            .sigma([0.0130865])
-            .estimation(method="FOCEI", maxeval=300)
-            .build()
-        )
+        built = _build_openpkpd_pheno_model("FOCEI", maxeval=300)
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -444,3 +450,73 @@ class TestEstimatorVsPharmpyPheno:
         assert np.isfinite(openpkpd_result.ofv)
         assert openpkpd_result.ofv > 0.0
         assert openpkpd_result.ofv < 5000.0
+
+
+@_pharmpy_required
+@pytest.mark.external_validation
+@pytest.mark.slow
+class TestNonparametricVsPharmpyPheno:
+    """Empirical nonparametric benchmark on Pharmpy's phenobarbital pheno dataset."""
+
+    @pytest.fixture(scope="class")
+    def pharmpy_results(self):
+        return _load_pharmpy_pheno()
+
+    @pytest.fixture(scope="class")
+    def openpkpd_result(self):
+        import warnings
+
+        built = _build_openpkpd_pheno_model(
+            "NONPARAMETRIC",
+            base_method="FOCEI",
+            maxeval=300,
+            max_iter=80,
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return built.fit()
+
+    def test_nonparametric_converges_and_preserves_support_geometry(self, openpkpd_result):
+        assert openpkpd_result.converged, openpkpd_result.message
+        assert len(openpkpd_result.support_weights) == len(openpkpd_result.support_points) == 59
+        assert float(openpkpd_result.support_weights.sum()) == pytest.approx(1.0, abs=1e-12)
+        assert np.all(np.isfinite(openpkpd_result.support_weights))
+        assert np.all(openpkpd_result.support_weights >= 0.0)
+
+    def test_nonparametric_keeps_fixed_effects_near_pharmpy_basin(
+        self, pharmpy_results, openpkpd_result
+    ):
+        _model, results = pharmpy_results
+        ref = dict(results.parameter_estimates.items())
+
+        assert openpkpd_result.theta_final[0] == pytest.approx(ref["POP_CL"], rel=0.08)
+        assert openpkpd_result.theta_final[1] == pytest.approx(ref["POP_VC"], rel=0.08)
+        assert openpkpd_result.theta_final[2] == pytest.approx(ref["COVAPGR"], rel=0.15)
+
+    def test_nonparametric_sigma_and_empirical_variance_remain_plausible(
+        self, pharmpy_results, openpkpd_result
+    ):
+        _model, results = pharmpy_results
+        ref = dict(results.parameter_estimates.items())
+        empirical_var = openpkpd_result.empirical_variance()
+
+        np.testing.assert_allclose(
+            np.diag(openpkpd_result.sigma_final),
+            [ref["SIGMA"]],
+            rtol=0.10,
+            atol=1e-5,
+            err_msg="Nonparametric pheno residual variance drifted too far from Pharmpy's fit",
+        )
+        assert empirical_var.shape == (2,)
+        assert np.all(np.isfinite(empirical_var))
+        assert np.all(empirical_var > 0.0)
+        assert empirical_var[0] == pytest.approx(ref["IIV_CL"], rel=0.50)
+        assert empirical_var[1] == pytest.approx(ref["IIV_VC"], rel=0.25)
+
+    def test_nonparametric_support_distribution_is_not_degenerate(self, openpkpd_result):
+        weights = openpkpd_result.support_weights
+        assert float(weights.max()) < 0.20
+        assert int(np.sum(weights > 0.01)) >= 20
+
+    def test_nonparametric_empirical_eta_mean_stays_near_zero(self, openpkpd_result):
+        np.testing.assert_allclose(openpkpd_result.empirical_mean(), np.zeros(2), atol=0.05)

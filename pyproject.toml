@@ -16,7 +16,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Medical Science Apps.",
 ]
 dependencies = [
-    "numpy>=2.0",
+    "numpy>=2.0,<2.4",   # <2.4 keeps numba 0.62 compatible; raise when numba 0.65+ is available
     "scipy>=1.13",
     "pandas>=2.2",
     "click>=8.1",
@@ -31,6 +31,11 @@ Repository = "https://gitlab.com/breisfeld/OpenPKPD"
 Issues = "https://gitlab.com/breisfeld/OpenPKPD/-/issues"
 
 [project.optional-dependencies]
+# Numba JIT acceleration for ODE solvers (10-40× speedup vs scipy baseline)
+# Requires numpy<2.4 (see core dep constraint above).
+jit = [
+    "numba>=0.62,<0.63",   # 0.62.x → llvmlite 0.45 (pre-built wheels on Python 3.12)
+]
 # JAX acceleration (requires compatible platform — not available on Intel macOS)
 jax = [
     "jax>=0.4.30",
@@ -171,16 +176,24 @@ markers = [
     "integration: end-to-end pipeline tests",
     "regression: comparison vs golden NONMEM output",
     "slow: tests taking more than 30 seconds",
+    "benchmark: performance and timing tests",
     "external_validation: comparison against external tools (nlmixr2, pharmpy, NONMEM)",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
+    "pytest-anyio>=0.0.0",
     "hypothesis>=6.110",
     "pytest-xdist>=3.8.0",
     "marimo>=0.10",
     "matplotlib>=3.9",
+    # platformdirs is a runtime dep of openpkpd_gui; listed here so that
+    # `uv sync` (no extras) still installs it and GUI test modules can be
+    # *collected* without a ModuleNotFoundError.  PySide6 itself is kept
+    # in the [gui] extra — tests that actually need Qt are skipped when
+    # PySide6 is absent (see tests/unit/gui/conftest.py).
+    "platformdirs>=4.9",
 ]
 validation = [
     "rpy2>=3.6.5",

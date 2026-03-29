@@ -389,6 +389,128 @@ class TestADVAN8:
         )
 
 
+# ── Stiff ODE robustness ──────────────────────────────────────────────────────
+
+
+@pytest.mark.unit
+class TestStiffODERobustness:
+    """
+    Tests that verify correct behaviour for stiff ODEs and the step-limit
+    fallback mechanism.
+
+    Key behaviours:
+    * ``jit='scipy'`` with method='LSODA' or 'Radau' always handles stiff ODEs
+    * ``jit='numpy'`` (explicit RK45) raises RuntimeError when ``max_steps``
+      is exceeded; the solver catches this, emits a UserWarning, and retries
+      via scipy with ``self.method``  — no silent wrong answers
+    * The fallback result matches the ADVAN8/LSODA oracle
+    """
+
+    @pytest.fixture
+    def stiff_des(self):
+        """Compile a 2-cmt DES (K12 >> K21, creating large eigenvalue separation)."""
+        compiler = NMTRANCompiler()
+        return compiler.compile_des(
+            "DADT(1)=-(K10+K12)*A(1)+K21*A(2)\nDADT(2)=K12*A(1)-K21*A(2)",
+            n_compartments=2,
+        )
+
+    @pytest.fixture
+    def stiff_params(self):
+        return {"K10": 0.05, "K12": 50.0, "K21": 0.01, "V1": 10.0}
+
+    @pytest.fixture
+    def stiff_dose(self):
+        return [DoseEvent(time=0.0, amount=100.0)]
+
+    @pytest.fixture
+    def stiff_times(self):
+        return np.array([0.01, 0.05, 0.1, 0.5, 1.0, 4.0, 8.0, 24.0])
+
+    def _advan8_oracle(self, stiff_params, stiff_dose, stiff_times, stiff_des):
+        """Reference solution using ADVAN8 (LSODA stiff solver)."""
+        return ADVAN8(n_compartments=2, rtol=1e-10, atol=1e-12).solve(
+            stiff_params, stiff_dose, stiff_times, des_callable=stiff_des
+        )
+
+    def test_scipy_lsoda_succeeds_on_stiff_ode(
+        self, stiff_params, stiff_dose, stiff_times, stiff_des
+    ):
+        """jit='scipy' with method='LSODA' must solve stiff ODEs without error."""
+        sol = ADVAN6(n_compartments=2, method="LSODA", jit="scipy").solve(
+            stiff_params, stiff_dose, stiff_times, des_callable=stiff_des
+        )
+        oracle = self._advan8_oracle(stiff_params, stiff_dose, stiff_times, stiff_des)
+        np.testing.assert_allclose(sol.amounts, oracle.amounts, rtol=1e-4, atol=1e-6)
+
+    def test_scipy_radau_succeeds_on_stiff_ode(
+        self, stiff_params, stiff_dose, stiff_times, stiff_des
+    ):
+        """jit='scipy' with method='Radau' must solve stiff ODEs without error."""
+        sol = ADVAN6(n_compartments=2, method="Radau", jit="scipy").solve(
+            stiff_params, stiff_dose, stiff_times, des_callable=stiff_des
+        )
+        oracle = self._advan8_oracle(stiff_params, stiff_dose, stiff_times, stiff_des)
+        np.testing.assert_allclose(sol.amounts, oracle.amounts, rtol=1e-4, atol=1e-6)
+
+    def test_numpy_rk45_raises_on_step_limit(self, stiff_des):
+        """numpy_rk45_solve must raise RuntimeError when max_steps is exhausted.
+
+        This tests the error mechanism directly with a deliberately small
+        max_steps=10 so the test is fast and independent of physical stiffness.
+        """
+        from openpkpd.pk.ode.jit import numpy_rk45_solve
+
+        # Any non-trivial ODE will fail to integrate over 24 h in only 10 steps
+        rhs = lambda t, y: np.array([-0.1 * y[0]])  # noqa: E731
+        y0 = np.array([100.0])
+        t_eval = np.array([24.0])
+        with pytest.raises(RuntimeError, match="max_steps"):
+            numpy_rk45_solve(rhs, 0.0, 24.0, y0, t_eval, rtol=1e-6, atol=1e-8, max_steps=10)
+
+    def test_numpy_tier_warns_and_falls_back_when_step_limit_hit(
+        self, stiff_params, stiff_dose, stiff_times, stiff_des
+    ):
+        """jit='numpy' with a tiny max_steps must emit a UserWarning and still
+        return a correct result via the scipy fallback — not silently wrong data.
+
+        max_steps=10 forces the fallback for any ODE (not relying on stiffness).
+        """
+        advan = ADVAN6(n_compartments=2, method="LSODA", jit="numpy", max_steps=10)
+        with pytest.warns(UserWarning, match="step-limit exceeded"):
+            sol = advan.solve(stiff_params, stiff_dose, stiff_times, des_callable=stiff_des)
+        oracle = self._advan8_oracle(stiff_params, stiff_dose, stiff_times, stiff_des)
+        # The scipy LSODA fallback must give a result consistent with the oracle
+        np.testing.assert_allclose(sol.amounts, oracle.amounts, rtol=1e-4, atol=1e-6)
+
+    def test_no_silent_wrong_answer_when_step_limit_hit(
+        self, stiff_params, stiff_dose, stiff_times, stiff_des
+    ):
+        """After the fallback, IPRED must be physiologically sensible
+        (positive, decreasing) — the old silent-fill bug would produce a
+        constant plateau or zeroes for the unfilled eval points."""
+        advan = ADVAN6(n_compartments=2, method="LSODA", jit="numpy", max_steps=10)
+        with pytest.warns(UserWarning, match="step-limit exceeded"):
+            sol = advan.solve(stiff_params, stiff_dose, stiff_times, des_callable=stiff_des)
+        assert np.all(sol.ipred >= 0), "IPRED has negative values — wrong answer"
+        # Concentrations must decline over 24 h (no constant plateau or zero fill)
+        assert sol.ipred[-1] < sol.ipred[0], "IPRED plateau suggests silent fill bug"
+
+    def test_normal_ode_no_warning_no_fallback(self, stiff_times):
+        """A non-stiff ODE with default max_steps must complete without warning."""
+        compiler = NMTRANCompiler()
+        simple_des = compiler.compile_des("DADT(1) = -K * A(1)", n_compartments=1)
+        params = {"K": 0.1, "V": 20.0}
+        dose = [DoseEvent(time=0.0, amount=100.0)]
+        advan = ADVAN6(n_compartments=1, jit="numpy")
+        import warnings as _w
+        with _w.catch_warnings():
+            _w.simplefilter("error", UserWarning)
+            # Should complete without raising (i.e. no step-limit warning)
+            sol = advan.solve(params, dose, stiff_times, des_callable=simple_des)
+        assert np.all(sol.ipred >= 0)
+
+
 # ── ADVAN10 ───────────────────────────────────────────────────────────────────
 
 

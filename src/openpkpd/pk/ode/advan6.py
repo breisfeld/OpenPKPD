@@ -14,6 +14,7 @@ pk_params as 'V', 'V1', 'V2', or 1.0 (if not specified).
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable
 
 import numpy as np
@@ -64,6 +65,8 @@ class ADVAN6(PKSubroutine):
         rtol: float = 1e-6,
         atol: float = 1e-8,
         method: str = "RK45",
+        jit: str = "scipy",
+        max_steps: int = 100_000,
     ) -> None:
         """
         Initialize the ODE solver settings.
@@ -72,12 +75,30 @@ class ADVAN6(PKSubroutine):
             n_compartments: Number of ODE compartments.
             rtol:           Relative tolerance.
             atol:           Absolute tolerance.
-            method:         scipy solve_ivp integration method.
+            method:         scipy solve_ivp integration method (used when
+                            jit='scipy' or as fallback).
+            jit:            JIT acceleration tier.  Default is ``'scipy'`` for
+                            full backward compatibility.  Opt-in to faster tiers:
+                            ``'numpy'``  — pure-NumPy Dormand-Prince RK45 (no new deps).
+                            ``'numba'``  — Numba @njit DES + NumPy-RK45; requires numba.
+                            ``'llc'``    — Pure-Numba RK45 + @njit DES; both the
+                                           integrator and RHS run as native code
+                                           with zero Python overhead per step.
+                                           Fastest option; requires numba.
+                            ``'auto'``   — ``'llc'`` if numba installed, else ``'numpy'``.
+            max_steps:      Maximum number of RK45 steps per integration segment
+                            for the explicit tiers (numpy/numba/llc).  If exceeded,
+                            a warning is issued and the solver falls back to
+                            ``scipy.integrate.solve_ivp`` with ``self.method``.
+                            Has no effect on the ``'scipy'`` tier (which uses
+                            scipy's own step limit).  Default 100,000.
         """
         self.n_compartments = n_compartments
         self.rtol = rtol
         self.atol = atol
         self.method = method
+        self.jit = jit
+        self.max_steps = max_steps
 
     def solve(
         self,
@@ -133,6 +154,9 @@ class ADVAN6(PKSubroutine):
                 "ADVAN6 requires a compiled $DES callable. "
                 "Provide des_callable=... in solve() call."
             )
+
+        # Resolve effective JIT tier once per solve() call
+        jit_tier = self._resolve_jit(des_callable, pk_params)
 
         if len(obs_times) == 0:
             empty = np.zeros((0, self.n_compartments))
@@ -243,49 +267,24 @@ class ADVAN6(PKSubroutine):
                 # Build RHS for this interval (with active infusions)
                 rhs = _make_rhs(des_callable, pk_params, active_infusions, self.n_compartments)
 
-                if eval_times_in_interval:
-                    t_eval = np.array(eval_times_in_interval)
-                    try:
-                        unique_t_eval, inverse = np.unique(t_eval, return_inverse=True)
-                        sol = solve_ivp(
-                            rhs,
-                            (t_interval_start, t_interval_end),
-                            y_current.copy(),
-                            method=self.method,
-                            t_eval=unique_t_eval,
-                            rtol=self.rtol,
-                            atol=self.atol,
-                            dense_output=False,
-                        )
-                        if not sol.success:
-                            raise PKError(f"ODE solver failed: {sol.message}")
-                        # Store results at eval times
+                t_eval_arr = (
+                    np.array(eval_times_in_interval) if eval_times_in_interval
+                    else np.array([t_interval_end])
+                )
+                try:
+                    y_seg = self._integrate_segment(
+                        rhs, t_interval_start, t_interval_end,
+                        y_current.copy(), t_eval_arr, jit_tier,
+                        des_callable, pk_params, active_infusions,
+                    )
+                    if eval_times_in_interval:
                         for k, orig_idx in enumerate(eval_indices):
-                            y_out[orig_idx, :] = sol.y[:, inverse[k]]
-                        y_current = sol.y[:, -1].copy()
-                    except Exception as exc:
-                        if not isinstance(exc, PKError):
-                            raise PKError(f"ADVAN6 ODE integration failed: {exc}") from exc
-                        raise
-                else:
-                    # Integrate to end of interval (no obs to record)
-                    try:
-                        sol = solve_ivp(
-                            rhs,
-                            (t_interval_start, t_interval_end),
-                            y_current.copy(),
-                            method=self.method,
-                            t_eval=np.array([t_interval_end]),
-                            rtol=self.rtol,
-                            atol=self.atol,
-                        )
-                        if not sol.success:
-                            raise PKError(f"ODE solver failed: {sol.message}")
-                        y_current = sol.y[:, -1].copy()
-                    except Exception as exc:
-                        if not isinstance(exc, PKError):
-                            raise PKError(f"ADVAN6 ODE integration failed: {exc}") from exc
-                        raise
+                            y_out[orig_idx, :] = y_seg[k]
+                    y_current = y_seg[-1].copy()
+                except PKError:
+                    raise
+                except Exception as exc:
+                    raise PKError(f"ADVAN6 ODE integration failed: {exc}") from exc
 
             # Apply dose events and infusion state changes at breakpoint bp
             for d in active_doses:
@@ -325,6 +324,134 @@ class ADVAN6(PKSubroutine):
             amounts=y_out,
             ipred=ipred,
         )
+
+
+    # ── JIT helpers ────────────────────────────────────────────────────────────
+
+    def _resolve_jit(self, des_callable: Any, pk_params: dict[str, float]) -> str:
+        """Return the effective JIT tier string for this solve."""
+        from openpkpd.pk.ode.jit import NUMBA_AVAILABLE  # noqa: PLC0415
+
+        tier = self.jit
+        if tier == "auto":
+            # 'llc' (cfunc + LowLevelCallable) is the fastest numba path
+            return "llc" if NUMBA_AVAILABLE else "numpy"
+        if tier in ("numba", "llc") and not NUMBA_AVAILABLE:
+            raise ImportError(
+                f"jit={tier!r} requested but numba is not installed. "
+                "Run: pip install numba"
+            )
+        return tier
+
+    def _integrate_segment(
+        self,
+        rhs: Any,
+        t0: float,
+        tf: float,
+        y0: np.ndarray,
+        t_eval: np.ndarray,
+        jit_tier: str,
+        des_callable: Any,
+        pk_params: dict[str, float],
+        active_infusions: dict[int, tuple[float, float]],
+    ) -> np.ndarray:
+        """Integrate one piecewise segment; returns shape (len(t_eval), n_cmt)."""
+        from openpkpd.pk.ode.jit import (  # noqa: PLC0415
+            make_llc_rhs,
+            make_numba_rhs,
+            numpy_rk45_solve,
+        )
+
+        # ── Tier 3: pure-Numba RK45 + njit DES (zero Python per RHS call) ────────
+        if jit_tier == "llc":
+            solver = make_llc_rhs(
+                des_callable, pk_params, active_infusions, self.n_compartments
+            )
+            if solver is not None:
+                unique_t, inv = np.unique(t_eval, return_inverse=True)
+                try:
+                    return solver(t0, tf, y0, unique_t, self.rtol, self.atol)[inv]
+                except RuntimeError as exc:
+                    return self._stiff_fallback(rhs, t0, tf, y0, t_eval, exc)
+            # DES compilation failed — fall through to njit path
+            jit_tier = "numba"
+
+        # ── Tier 2: @njit DES + NumPy-RK45 ────────────────────────────────────────
+        if jit_tier == "numba":
+            nb_result = make_numba_rhs(des_callable, pk_params, active_infusions, self.n_compartments)
+            if nb_result is not None:
+                rhs_nb, _, _ = nb_result
+                unique_t, inv = np.unique(t_eval, return_inverse=True)
+                try:
+                    return numpy_rk45_solve(
+                        rhs_nb, t0, tf, y0, unique_t, self.rtol, self.atol, self.max_steps
+                    )[inv]
+                except RuntimeError as exc:
+                    return self._stiff_fallback(rhs, t0, tf, y0, t_eval, exc)
+            # @njit compilation failed — fall through to numpy path
+            jit_tier = "numpy"
+
+        # ── Tier 1: pure-NumPy RK45 ────────────────────────────────────────────────
+        if jit_tier == "numpy":
+            unique_t, inv = np.unique(t_eval, return_inverse=True)
+            try:
+                return numpy_rk45_solve(
+                    rhs, t0, tf, y0, unique_t, self.rtol, self.atol, self.max_steps
+                )[inv]
+            except RuntimeError as exc:
+                return self._stiff_fallback(rhs, t0, tf, y0, t_eval, exc)
+
+        # ── Tier 0: scipy solve_ivp (baseline) ─────────────────────────────────────
+        return self._scipy_solve(rhs, t0, tf, y0, t_eval)
+
+    def _scipy_solve(
+        self,
+        rhs: Any,
+        t0: float,
+        tf: float,
+        y0: np.ndarray,
+        t_eval: np.ndarray,
+    ) -> np.ndarray:
+        """Run scipy solve_ivp with self.method and return shape (n_eval, n_cmt)."""
+        unique_t, inv = np.unique(t_eval, return_inverse=True)
+        sol = solve_ivp(
+            rhs, (t0, tf), y0,
+            method=self.method, t_eval=unique_t,
+            rtol=self.rtol, atol=self.atol, dense_output=False,
+        )
+        if not sol.success:
+            raise PKError(f"ODE solver failed: {sol.message}")
+        return sol.y[:, inv].T  # shape (n_eval, n_cmt)
+
+    def _stiff_fallback(
+        self,
+        rhs: Any,
+        t0: float,
+        tf: float,
+        y0: np.ndarray,
+        t_eval: np.ndarray,
+        exc: RuntimeError,
+    ) -> np.ndarray:
+        """
+        Called when an explicit-RK45 tier hits its step limit.
+
+        Issues a :class:`UserWarning` advising the user that the ODE may be stiff,
+        then retries with ``scipy.integrate.solve_ivp`` using ``self.method``.
+        If ``self.method`` is still ``'RK45'``, the warning also suggests switching
+        to ``'Radau'`` or ``'BDF'``.
+        """
+        method_hint = (
+            " Consider setting method='Radau' or method='BDF' on your ADVAN6/ADVAN8 "
+            "instance for stiff models."
+            if self.method == "RK45"
+            else ""
+        )
+        warnings.warn(
+            f"ODE step-limit exceeded (likely stiff ODE): {exc}. "
+            f"Falling back to scipy solve_ivp (method={self.method!r}).{method_hint}",
+            stacklevel=4,
+        )
+        return self._scipy_solve(rhs, t0, tf, y0, t_eval)
 
 
 def _prepare_doses(

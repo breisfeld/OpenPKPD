@@ -12,16 +12,12 @@ Verifies that solve_with_sensitivity() produces:
 
 from __future__ import annotations
 
-import sys
-import types
-
 import numpy as np
 import pytest
 from scipy.linalg import expm
 
 from openpkpd.data.event_processor import DoseEvent
 from openpkpd.pk.base import PKSolution
-from openpkpd.pk.ode.advan8 import ADVAN8
 from openpkpd.pk.ode.advan13 import ADVAN13
 
 # ── Shared fixtures ────────────────────────────────────────────────────────────
@@ -99,7 +95,7 @@ class TestPKSolutionSensitivity:
 class TestSolveWithSensitivityInterface:
     @pytest.fixture()
     def advan13(self):
-        return ADVAN13(n_compartments=1, rtol=1e-8, atol=1e-10, force_scipy=True)
+        return ADVAN13(n_compartments=1, rtol=1e-8, atol=1e-10)
 
     def test_returns_pk_solution(self, advan13):
         obs_times = np.array([1.0, 2.0, 4.0])
@@ -187,9 +183,9 @@ class TestSolveWithSensitivityInterface:
 
 
 class TestADVAN13Solve:
-    def test_force_scipy_matches_stiff_linear_multi_dose_oracle(self):
-        """ADVAN13 scipy fallback should solve a stiff linear multi-dose system accurately."""
-        advan13 = ADVAN13(n_compartments=2, rtol=1e-9, atol=1e-11, force_scipy=True)
+    def test_matches_stiff_linear_multi_dose_oracle(self):
+        """ADVAN13 should solve a stiff linear multi-dose system accurately."""
+        advan13 = ADVAN13(n_compartments=2, rtol=1e-9, atol=1e-11)
         pk_params = {"K10": 0.1, "K12": 40.0, "K21": 0.02, "V": 10.0}
         dose_events = [
             _make_dose_event(100.0, time=0.0),
@@ -211,76 +207,6 @@ class TestADVAN13Solve:
             sol.ipred, expected_amounts[:, 0] / pk_params["V"], rtol=2e-5, atol=1e-8
         )
 
-    def test_fake_jax_path_uses_compiled_des_signature_without_scipy_fallback(self, monkeypatch):
-        """The JAX path should call DES as des(t, a, pk_params, theta, eta)."""
-        fake_jax = types.ModuleType("jax")
-        fake_jnp = types.ModuleType("jax.numpy")
-        fake_jnp.zeros = lambda n: np.zeros(n, dtype=float)
-        fake_jnp.array = lambda values, dtype=float: np.array(values, dtype=dtype)
-        fake_jax.numpy = fake_jnp
-
-        fake_diffrax = types.ModuleType("diffrax")
-
-        class _FakeODETerm:
-            def __init__(self, vector_field):
-                self.vector_field = vector_field
-
-        class _FakeSaveAt:
-            def __init__(self, ts):
-                self.ts = np.array(ts, dtype=float)
-
-        class _FakePIDController:
-            def __init__(self, rtol, atol):
-                self.rtol = rtol
-                self.atol = atol
-
-        class _FakeKvaerno5:
-            pass
-
-        class _FakeAdjoint:
-            pass
-
-        def _fake_diffeqsolve(
-            term, solver, t0, t1, dt0, y0, saveat, stepsize_controller, adjoint, max_steps
-        ):
-            ys = []
-            y = np.array(y0, dtype=float)
-            for t in saveat.ts:
-                term.vector_field(float(t), y, None)
-                ys.append(y.copy())
-            return types.SimpleNamespace(ys=np.array(ys))
-
-        fake_diffrax.ODETerm = _FakeODETerm
-        fake_diffrax.SaveAt = _FakeSaveAt
-        fake_diffrax.PIDController = _FakePIDController
-        fake_diffrax.Kvaerno5 = _FakeKvaerno5
-        fake_diffrax.Adjoint = _FakeAdjoint
-        fake_diffrax.diffeqsolve = _fake_diffeqsolve
-
-        monkeypatch.setitem(sys.modules, "jax", fake_jax)
-        monkeypatch.setitem(sys.modules, "jax.numpy", fake_jnp)
-        monkeypatch.setitem(sys.modules, "diffrax", fake_diffrax)
-
-        def _unexpected_fallback(*args, **kwargs):
-            raise AssertionError("unexpected scipy fallback")
-
-        monkeypatch.setattr(ADVAN8, "solve", _unexpected_fallback)
-
-        advan13 = ADVAN13(n_compartments=1, rtol=1e-8, atol=1e-10, force_scipy=False)
-        obs_times = np.array([0.25, 1.0])
-
-        sol = advan13.solve(
-            {"K": 0.1, "V": 10.0},
-            [],
-            obs_times,
-            None,
-            _one_cmt_des_callable,
-        )
-
-        np.testing.assert_array_equal(sol.ipred, np.zeros_like(obs_times))
-        assert sol.amounts.shape == (len(obs_times), 1)
-
-
 # ── Numerical accuracy: compare to FD ─────────────────────────────────────────
 
 
@@ -295,7 +221,7 @@ class TestSensitivityAccuracy:
 
     @pytest.fixture()
     def advan13(self):
-        return ADVAN13(n_compartments=1, rtol=1e-9, atol=1e-11, force_scipy=True)
+        return ADVAN13(n_compartments=1, rtol=1e-9, atol=1e-11)
 
     def _analytical_sensitivity_K(self, t, dose, k, v):
         """∂IPRED/∂K = -t * dose/v * exp(-k*t)."""
@@ -363,7 +289,7 @@ class TestSensitivityAccuracy:
 class TestSensitivity2Cmt:
     @pytest.fixture()
     def advan13_2cmt(self):
-        return ADVAN13(n_compartments=2, rtol=1e-8, atol=1e-10, force_scipy=True)
+        return ADVAN13(n_compartments=2, rtol=1e-8, atol=1e-10)
 
     def test_two_cmt_sensitivity_shape(self, advan13_2cmt):
         obs_times = np.array([0.5, 1.0, 2.0, 4.0])

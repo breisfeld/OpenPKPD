@@ -52,7 +52,7 @@ class TestODEVsAnalytical:
     """Compare ADVAN6 ODE predictions against ADVAN3 analytical solutions."""
 
     def _compile_des(self) -> object:
-        compiler = NMTRANCompiler(use_jax=False)
+        compiler = NMTRANCompiler()
         return compiler.compile_des(DES_2CMT, n_compartments=2)
 
     def test_2cmt_iv_ipred_agrees(self):
@@ -98,7 +98,7 @@ class TestODEVsAnalytical:
         des_1cmt = """
 DADT(1) = -K10 * A(1)
 """
-        compiler = NMTRANCompiler(use_jax=False)
+        compiler = NMTRANCompiler()
         des_callable = compiler.compile_des(des_1cmt, n_compartments=1)
         pk_params = {"K10": 0.1, "V": 10.0, "V1": 10.0}
         advan6 = ADVAN6(n_compartments=1)
@@ -153,7 +153,7 @@ class TestADVAN5vsADVAN6:
     """
 
     def _compile_des(self) -> object:
-        compiler = NMTRANCompiler(use_jax=False)
+        compiler = NMTRANCompiler()
         return compiler.compile_des(DES_3CMT, n_compartments=3)
 
     def test_3cmt_iv_ipred_agrees(self):

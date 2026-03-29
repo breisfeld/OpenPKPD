@@ -18,7 +18,7 @@ cases, also uses `TRANS` to activate specialized absorption models.
 | `ADVAN10` | numerical | Michaelis-Menten / nonlinear elimination workflows |
 | `ADVAN11` | analytical | 3-compartment IV |
 | `ADVAN12` | analytical | 3-compartment oral |
-| `ADVAN13` | numerical | general ODE system with advanced sensitivity hooks |
+| `ADVAN13` | numerical | stiff ODE system with forward sensitivity support |
 | `ADVAN16` | numerical | delay differential equation extension |
 
 ## TRANS codes

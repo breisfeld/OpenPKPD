@@ -4,8 +4,7 @@ NMTRANCompiler: Translates $PK, $DES, and $ERROR code blocks to Python callables
 NM-TRAN is FORTRAN-77 style code with NONMEM extensions. This compiler
 handles the core subset needed for PK/PD modeling.
 
-Stage 1: exec()-based Python callable (correct results, no autodiff)
-Stage 2: JAX-compatible form for gradient computation (optional)
+Compiled form: exec()-based Python callable for runtime evaluation.
 
 Reserved name mapping:
   THETA(n) → theta[n-1]
@@ -19,7 +18,7 @@ Reserved name mapping:
   IPRED    → ipred
   DV       → dv
 
-FORTRAN intrinsics mapped to Python/NumPy/JAX equivalents:
+FORTRAN intrinsics mapped to Python equivalents:
   EXP, LOG, SQRT, ABS, MOD, MAX, MIN, INT, FLOAT, ATAN2, SIN, COS, TAN
   DBLE → float cast
 """
@@ -58,30 +57,6 @@ _INTRINSICS: dict[str, str] = {
     "SIGN": "_nmtran_sign",
     "GAMLN": "math.lgamma",
 }
-
-_INTRINSICS_JAX: dict[str, str] = {
-    "EXP": "jnp.exp",
-    "LOG": "jnp.log",
-    "LOG10": "jnp.log10",
-    "SQRT": "jnp.sqrt",
-    "ABS": "jnp.abs",
-    "MOD": "jnp.mod",
-    "MAX": "jnp.maximum",
-    "MIN": "jnp.minimum",
-    "INT": "jnp.int32",
-    "FLOAT": "jnp.float32",
-    "DBLE": "jnp.float64",
-    "ATAN2": "jnp.arctan2",
-    "SIN": "jnp.sin",
-    "COS": "jnp.cos",
-    "TAN": "jnp.tan",
-    "ASIN": "jnp.arcsin",
-    "ACOS": "jnp.arccos",
-    "ATAN": "jnp.arctan",
-    "SIGN": "jnp.sign",
-    "GAMLN": "jax.scipy.special.gammaln",
-}
-
 
 def _nmtran_sign(a: float, b: float) -> float:
     """FORTRAN SIGN(a, b) = abs(a) * sign(b)."""
@@ -784,13 +759,11 @@ class NMTRANCompiler:
         error_fn = compiler.compile_error(error_code)
         des_fn = compiler.compile_des(des_code, n_compartments=4)
 
-    The compiled callables are Stage 1 (exec-based). Stage 2 (JAX-compatible)
-    is produced by compile_pk_jax() etc. when JAX is available.
+    The compiled callables are standard exec-based Python callables.
     """
 
-    def __init__(self, use_jax: bool = False) -> None:
-        self.use_jax = use_jax
-        self._intrinsics = _INTRINSICS_JAX if use_jax else _INTRINSICS
+    def __init__(self) -> None:
+        self._intrinsics = _INTRINSICS
 
     def compile_pk(self, code: str) -> CompiledPKCallable:
         """Compile a $PK code block to a Python callable."""

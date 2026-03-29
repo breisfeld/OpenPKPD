@@ -36,13 +36,6 @@ Issues = "https://gitlab.com/breisfeld/OpenPKPD/-/issues"
 jit = [
     "numba>=0.62,<0.63",   # 0.62.x → llvmlite 0.45 (pre-built wheels on Python 3.12)
 ]
-# JAX acceleration (requires compatible platform — not available on Intel macOS)
-jax = [
-    "jax>=0.4.30",
-    "jaxlib>=0.4.30",
-    "diffrax>=0.6",
-    "numpyro>=0.15",
-]
 # Bayesian methods
 bayes = [
     "pymc>=5.16",
@@ -63,7 +56,7 @@ cluster = [
 plots = [
     "matplotlib>=3.9",
 ]
-# Full install (without JAX)
+# Full install
 full = [
     "optimagic>=0.5",
     "sympy>=1.13",
@@ -79,6 +72,7 @@ dev = [
     "pre-commit>=3.8",
     "marimo>=0.10",
     "matplotlib>=3.9",
+    "sympy>=1.13",
     "maturin>=1.5,<2",
 ]
 # R interoperability
@@ -188,6 +182,7 @@ dev = [
     "pytest-xdist>=3.8.0",
     "marimo>=0.10",
     "matplotlib>=3.9",
+    "sympy>=1.13",
     # platformdirs is a runtime dep of openpkpd_gui; listed here so that
     # `uv sync` (no extras) still installs it and GUI test modules can be
     # *collected* without a ModuleNotFoundError.  PySide6 itself is kept

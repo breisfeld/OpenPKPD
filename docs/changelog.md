@@ -228,6 +228,6 @@ This project follows [Semantic Versioning](https://semver.org).
 ## Planned — 0.3.0
 
 - ADVAN5/7 (general linear, matrix exponential)
-- NUTS/BAYES full posterior (NumPyro + PyMC) — currently at prototype maturity
+- NUTS/BAYES full posterior hardening — currently at prototype maturity
 - Trust-region optimizer for improved FOCEI convergence on non-convex surfaces
 - CDISC ADPPK domain export

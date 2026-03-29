@@ -1,35 +1,17 @@
 """
-ADVAN13 — ODE with adjoint-sensitivity gradient computation.
+ADVAN13 — stiff ODE solving plus forward sensitivity equations.
 
-In NONMEM, ADVAN13 integrates stiff ODEs and uses adjoint sensitivity
-equations to provide exact gradients of the OFV with respect to parameters.
-This enables faster and more accurate gradient-based estimation (FOCE,
-Laplacian) for complex stiff systems compared to finite-difference
-sensitivity.
-
-Implementation strategy:
-  - If JAX + diffrax are available: use diffrax with ``diffrax.Adjoint``
-    controller, which provides exact reverse-mode gradients through the ODE
-    solution via the continuous adjoint method.
-  - Fallback: delegate to ADVAN8 (stiff scipy LSODA solver) with
-    finite-difference sensitivity (same as ADVAN8 but with tighter
-    tolerances appropriate for adjoint-quality gradients).
-
-The JAX path is automatically selected when ``jax`` and ``diffrax`` can be
-imported.  Set ``force_scipy=True`` to disable JAX even when available.
+In NONMEM, ADVAN13 integrates stiff ODEs and is associated with sensitivity-
+aware estimation workflows. In OpenPKPD, ADVAN13 is implemented as a SciPy
+stiff solve with tighter tolerances than ADVAN8 plus an explicit forward-
+mode sensitivity solve for gradient-related workflows.
 
 References:
-    Pontryagin LS et al. (1962). The Mathematical Theory of Optimal
-        Processes. Wiley-Interscience.
-    Chen RTQ et al. (2018). Neural ordinary differential equations.
-        NeurIPS 2018. (Modern diffrax implementation.)
     NONMEM 7.5 User's Guide — ADVAN13 documentation.
 """
 
 from __future__ import annotations
 
-import importlib.util
-import sys
 from collections.abc import Callable
 
 import numpy as np
@@ -39,35 +21,18 @@ from openpkpd.pk.base import PKSolution
 from openpkpd.pk.ode.advan8 import ADVAN8
 
 
-def _is_importable(name: str) -> bool:
-    """Return True if *name* can be imported.
-
-    Handles monkeypatched ``sys.modules`` entries (including fake module
-    objects whose ``__spec__`` is None, which confuse ``find_spec``).
-    """
-    if name in sys.modules:
-        return sys.modules[name] is not None
-    try:
-        return importlib.util.find_spec(name) is not None
-    except (ValueError, ModuleNotFoundError):
-        return False
-
-
 class ADVAN13(ADVAN8):
     """
-    ODE solver with adjoint sensitivity (ADVAN13).
+    ODE solver with forward sensitivity support (ADVAN13).
 
-    Provides the same interface as ADVAN8/ADVAN6 but uses the adjoint method
-    for gradient computation when JAX and diffrax are available.
-
-    When JAX is not available, falls back to ADVAN8 (stiff scipy LSODA) with
-    a tighter tolerance to approximate the accuracy of adjoint gradients.
+    Provides the same interface as ADVAN8/ADVAN6 but uses a tighter stiff
+    SciPy solve and exposes forward sensitivity equations through
+    ``solve_with_sensitivity``.
 
     Args:
         n_compartments: Number of ODE compartments (default 10).
         rtol:           Relative ODE tolerance (default 1e-8, tighter than ADVAN8).
         atol:           Absolute ODE tolerance (default 1e-10).
-        force_scipy:    If True, always use scipy even when JAX is available.
     """
 
     advan: int = 13
@@ -77,7 +42,6 @@ class ADVAN13(ADVAN8):
         n_compartments: int = 10,
         rtol: float = 1e-8,
         atol: float = 1e-10,
-        force_scipy: bool = False,
     ) -> None:
         super().__init__(
             n_compartments=n_compartments,
@@ -85,16 +49,6 @@ class ADVAN13(ADVAN8):
             atol=atol,
             method="Radau",  # Radau is generally more accurate for stiff systems
         )
-        self.force_scipy = force_scipy
-        self._jax_available: bool | None = None
-
-    def _check_jax(self) -> bool:
-        """Check whether JAX and diffrax are importable."""
-        if self._jax_available is not None:
-            return self._jax_available
-
-        self._jax_available = _is_importable("jax") and _is_importable("diffrax")
-        return self._jax_available
 
     def solve(
         self,
@@ -107,14 +61,7 @@ class ADVAN13(ADVAN8):
         covariate_change_times: list[float] | None = None,
     ) -> PKSolution:
         """
-        Solve the ODE system, using adjoint sensitivity when JAX is available.
-
-        For the JAX/diffrax path, the ODE is solved with a stiff solver
-        (Kvaerno5 or Dopri8) and the ``Adjoint`` controller records a
-        continuous adjoint tape for reverse-mode differentiation.
-
-        For the scipy fallback path, delegates to ADVAN8.solve() with the
-        tighter tolerances set at construction time.
+        Solve the ODE system with the stiff SciPy path configured for ADVAN13.
 
         Args:
             pk_params:    PK parameter dictionary.
@@ -126,103 +73,7 @@ class ADVAN13(ADVAN8):
         Returns:
             PKSolution with ipred, amounts, f arrays.
         """
-        if not self.force_scipy and self._check_jax():
-            return self._solve_adjoint_jax(pk_params, dose_events, obs_times, des_callable)
-        # Fallback: stiff scipy
         return super().solve(pk_params, dose_events, obs_times, pk_callable, des_callable)
-
-    def _solve_adjoint_jax(
-        self,
-        pk_params: dict[str, float],
-        dose_events: list,
-        obs_times: np.ndarray,
-        des_callable: Callable | None,
-    ) -> PKSolution:
-        """
-        Adjoint ODE solve via diffrax.
-
-        Uses ``diffrax.diffeqsolve`` with ``diffrax.Adjoint()`` as the
-        adjoint controller and a stiff solver (``diffrax.Kvaerno5`` by
-        default).  The resulting solution supports exact reverse-mode
-        gradients via ``jax.grad``.
-
-        Falls back to scipy on any diffrax error (e.g. convergence failure).
-
-        Args:
-            pk_params:    PK parameter dictionary.
-            dose_events:  List of DoseEvent objects.
-            obs_times:    Observation times array.
-            des_callable: Compiled $DES right-hand-side callable.
-
-        Returns:
-            PKSolution (identical structure to ADVAN6/ADVAN8 output).
-        """
-        try:
-            import diffrax
-            import jax.numpy as jnp
-
-            if des_callable is None:
-                # No DES block: nothing to differentiate; use scipy
-                return super().solve(pk_params, dose_events, obs_times, None, None)
-
-            n_cmt = self.n_compartments
-            t0 = 0.0
-            t_max = float(np.max(obs_times)) if len(obs_times) > 0 else 1.0
-
-            # Build initial conditions from dose events at t=0
-            y0 = jnp.zeros(n_cmt)
-            for de in dose_events:
-                if float(de.time) == 0.0:
-                    cmt_idx = int(de.compartment) - 1
-                    if 0 <= cmt_idx < n_cmt:
-                        y0 = y0.at[cmt_idx].add(float(de.amount))
-
-            # Build diffrax ODE term from the compiled DES callable
-            def vector_field(t: float, y: jnp.ndarray, args: None) -> jnp.ndarray:
-                a = list(y)
-                dadt = des_callable(float(t), a, pk_params, [], [])
-                return jnp.array(dadt, dtype=float)
-
-            term = diffrax.ODETerm(vector_field)
-            solver = diffrax.Kvaerno5()
-            saveat = diffrax.SaveAt(ts=jnp.array(obs_times, dtype=float))
-            stepsize_controller = diffrax.PIDController(rtol=self.rtol, atol=self.atol)
-
-            sol = diffrax.diffeqsolve(
-                term,
-                solver,
-                t0=t0,
-                t1=t_max,
-                dt0=None,
-                y0=y0,
-                saveat=saveat,
-                stepsize_controller=stepsize_controller,
-                adjoint=diffrax.Adjoint(),
-                max_steps=10_000,
-            )
-
-            amounts = np.array(sol.ys)  # shape (n_times, n_cmt)
-
-            # IPRED = amount in output compartment / volume
-            output_cmt = int(pk_params.get("CMT", 1)) - 1
-            v_key = "V" if "V" in pk_params else "V1"
-            v = float(pk_params.get(v_key, 1.0))
-
-            if amounts.ndim == 2 and amounts.shape[1] > output_cmt:
-                ipred = amounts[:, output_cmt] / v
-            else:
-                ipred = np.zeros(len(obs_times))
-
-            return PKSolution(
-                ipred=np.maximum(ipred, 0.0),
-                amounts=amounts,
-                times=obs_times,
-                f=None,
-            )
-
-        except Exception:
-            # Any diffrax failure: fall back to ADVAN8 scipy
-            return super().solve(pk_params, dose_events, obs_times, None, des_callable)
 
     # ── Forward-mode sensitivity ───────────────────────────────────────────────
 
@@ -236,7 +87,7 @@ class ADVAN13(ADVAN8):
         fd_step: float = 1e-5,
     ) -> PKSolution:
         """
-        Solve the ODE and forward sensitivity equations (no JAX required).
+        Solve the ODE and forward sensitivity equations.
 
         Augments the ODE ``dy/dt = f(y, t, p)`` with variational equations:
 

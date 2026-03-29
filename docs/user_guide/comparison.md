@@ -33,8 +33,9 @@ and Pharmpy 1.x (Uppsala University).
 
 OpenPKPD implements the FO, FOCE, and Laplacian methods with the full NONMEM-compatible
 estimation loop. SAEM uses a single-chain Metropolis-Hastings sampler (multi-chain
-Rao-Blackwellisation is a known gap). Bayesian estimation dispatches to PyMC or
-NumPyro when installed, otherwise falls back to a Laplace approximation.
+Rao-Blackwellisation is a known gap). Bayesian estimation dispatches to PyMC
+when installed, otherwise uses the built-in NUTS backend or falls back to a
+Laplace approximation.
 
 ---
 
@@ -61,7 +62,7 @@ NumPyro when installed, otherwise falls back to a Laplace approximation.
 | ADVAN6 | Non-stiff ODE ($DES), JIT-accelerated | Y | Y | Y | — | Y | Y | via NM |
 | ADVAN8 | Stiff ODE (LSODA) | Y | Y | Y | — | Y | Y | via NM |
 | ADVAN10 | 1-cmt Michaelis-Menten | Y | Y | Y | Y | Y | Y | via NM |
-| ADVAN13 | Stiff ODE + adjoint sensitivity | P | Y | — | — | — | Y | via NM |
+| ADVAN13 | Stiff ODE + forward sensitivity | P | Y | — | — | — | Y | via NM |
 | ADVAN16-style DDE | Delay differential equations | Y | Y | — | — | — | Y | via NM |
 | PBPK | Physiologically-based PK | P | — | — | — | Y | Y | — |
 | Transit absorption | Savic 2007 n-transit model | P | via $DES | Y | — | Y | Y | via NM |
@@ -219,7 +220,7 @@ NumPyro when installed, otherwise falls back to a Laplace approximation.
 - GxP-validated, regulatory-grade software (NONMEM, WinNonLin)
 - Best-in-class SAEM convergence with Rao-Blackwellisation (Monolix)
 - Fast compiled ODE simulation for 10,000+ subject VPCs (mrgsolve)
-- GPU-accelerated estimation and adjoint sensitivity (Pumas.jl)
+- GPU-accelerated estimation and advanced sensitivity workflows (Pumas.jl)
 - A full GUI-only modelling environment (WinNonLin, Monolix) — OpenPKPD's GUI covers
   common workflows but lacks the model-building canvas of those tools
 - Highly polished NPDE/VPC/automation pipelines for production workflows — OpenPKPD now includes NPDE/NPC/VPC building blocks, but the surrounding workflow polish still lags mature toolchains

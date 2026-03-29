@@ -334,7 +334,7 @@ class TestADVAN2ExactBatemanFormula:
 DADT(1) = -KA * A(1)
 DADT(2) = KA * A(1) - K10 * A(2)
 """
-        compiler = NMTRANCompiler(use_jax=False)
+        compiler = NMTRANCompiler()
         des = compiler.compile_des(des_oral, n_compartments=2)
         pk_params = {"KA": KA, "K10": K, "V": V}
         advan6 = ADVAN6(n_compartments=2)
@@ -540,7 +540,7 @@ DADT(1) = -KA * A(1)
 DADT(2) =  KA * A(1) - (K10 + K12) * A(2) + K21 * A(3)
 DADT(3) =  K12 * A(2) - K21 * A(3)
 """
-        return NMTRANCompiler(use_jax=False).compile_des(des, n_compartments=3)
+        return NMTRANCompiler().compile_des(des, n_compartments=3)
 
     def test_central_compartment_matches_ode(self):
         """

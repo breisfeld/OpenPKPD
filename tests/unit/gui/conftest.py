@@ -41,14 +41,15 @@ if not _pyside6_available():
     def pytest_collect_file(parent, file_path):  # noqa: ANN001, ANN201
         """Skip all test files in this directory when PySide6 is missing."""
         if file_path.suffix == ".py" and file_path.name.startswith("test_"):
-            return _SkipItem.from_parent(parent, fspath=file_path)
+            # Use path= (pathlib.Path) instead of deprecated fspath= (py.path.local)
+            return _SkipItem.from_parent(parent, path=file_path)
         return None
 
     class _SkipItem(pytest.File):
         def collect(self):  # noqa: ANN201
             yield _SkipTest.from_parent(
                 self,
-                name=self.fspath.basename,
+                name=self.path.name,
             )
 
     class _SkipTest(pytest.Item):
@@ -59,4 +60,4 @@ if not _pyside6_available():
             return str(excinfo.value)
 
         def reportinfo(self):  # noqa: ANN201
-            return self.fspath, None, f"[skip] {self.fspath.basename}: PySide6 not installed"
+            return self.path, None, f"[skip] {self.path.name}: PySide6 not installed"

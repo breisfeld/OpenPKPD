@@ -875,3 +875,111 @@ def test_write_control_stream_text_round_trips_content(tmp_path: Path) -> None:
     write_control_stream_text(str(destination), text)
 
     assert destination.read_text(encoding="utf-8") == text
+
+
+# ---------------------------------------------------------------------------
+# BAYES estimation method — selector and results menu
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_bayes_appears_in_estimation_combo() -> None:
+    """BAYES must be selectable in the estimation method combo box."""
+    if not qt_widgets_available():
+        pytest.skip("Qt not available")
+
+    from openpkpd_gui.workflows.model_workflow import ESTIMATION_METHODS
+
+    assert "BAYES" in ESTIMATION_METHODS, (
+        f"BAYES not in ESTIMATION_METHODS: {ESTIMATION_METHODS}"
+    )
+
+
+@pytest.mark.unit
+def test_bayes_display_label_mentions_nuts() -> None:
+    """The BAYES display label must mention NUTS or Bayesian."""
+    if not qt_widgets_available():
+        pytest.skip("Qt not available")
+
+    from openpkpd_gui.workflows.model_workflow import _ESTIMATION_METHODS_DISPLAY
+
+    bayes_labels = [label for method, label in _ESTIMATION_METHODS_DISPLAY
+                    if method == "BAYES"]
+    assert bayes_labels, "No BAYES entry found in _ESTIMATION_METHODS_DISPLAY"
+    assert any("NUTS" in label or "Bayesian" in label or "bayes" in label.lower()
+               for label in bayes_labels), (
+        f"BAYES label does not mention NUTS or Bayesian: {bayes_labels}"
+    )
+
+
+@pytest.mark.unit
+def test_bayes_help_text_mentions_rhat_and_ess() -> None:
+    """The BAYES help text must mention R-hat and ESS (key diagnostics)."""
+    if not qt_widgets_available():
+        pytest.skip("Qt not available")
+
+    from openpkpd_gui.workflows.model_workflow import _ESTIMATION_HELP_TEXT
+
+    assert "R-hat" in _ESTIMATION_HELP_TEXT or "r-hat" in _ESTIMATION_HELP_TEXT.lower(), (
+        "Help text does not mention R-hat"
+    )
+
+
+@pytest.mark.unit
+def test_bayes_combo_item_present_in_built_widget(tmp_path) -> None:
+    """After building the model workflow widget the combo box must include BAYES."""
+    if not qt_widgets_available():
+        pytest.skip("Qt not available")
+
+    from openpkpd_gui.app.qt_bindings import qt_widgets
+    from openpkpd_gui.workflows.model_workflow import build_model_workflow
+    from openpkpd_gui.project.project import Project
+
+    app = qt_widgets.QApplication.instance() or qt_widgets.QApplication([])
+    project = Project.create(tmp_path)
+    widget = build_model_workflow(project)
+    try:
+        widget.show()
+        app.processEvents()
+        combo = widget.findChild(qt_widgets.QComboBox, "model-estimation-combo")
+        assert combo is not None, "Estimation combo box not found"
+        all_data = [combo.itemData(i) for i in range(combo.count())]
+        assert "BAYES" in all_data, (
+            f"BAYES not in combo items: {all_data}"
+        )
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()
+
+
+@pytest.mark.unit
+def test_bayesian_action_present_in_review_menu(tmp_path) -> None:
+    """The results workflow Review menu must contain a 'Bayesian diagnostics' action."""
+    if not qt_widgets_available():
+        pytest.skip("Qt not available")
+
+    from openpkpd_gui.app.qt_bindings import qt_widgets
+    from openpkpd_gui.workflows.results_workflow import build_results_workflow
+    from openpkpd_gui.project.project import Project
+
+    app = qt_widgets.QApplication.instance() or qt_widgets.QApplication([])
+    project = Project.create(tmp_path)
+    widget = build_results_workflow(project)
+    try:
+        widget.show()
+        app.processEvents()
+        action = widget.findChild(qt_widgets.QAction,
+                                  "results-open-bayesian-review-button")
+        assert action is not None, (
+            "open_bayesian_action (objectName='results-open-bayesian-review-button') "
+            "not found in results workflow"
+        )
+        # Must start disabled (no Bayesian artifacts yet)
+        assert not action.isEnabled(), (
+            "Bayesian action should be disabled until Bayesian artifacts are present"
+        )
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()

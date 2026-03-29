@@ -258,6 +258,43 @@ def test_pk_subroutines_notebook_reports_solver_options() -> None:
                 "Report HTML length:",
             ],
         ),
+        (
+            "03_estimation_methods.py",
+            [
+                # Existing method sections
+                "FOCE",
+                "SAEM",
+                # Bayesian section added in P1.8+P1.10
+                # Note: marimo URL-encodes source in HTML (= → %3D, " → %22),
+                # so only alphanumeric/underscore strings can be checked literally.
+                "Bayesian",
+                "nsamples",
+                "posterior_samples_by_chain",
+                "mcmc_trace_by_chain_plot",
+                "rhat_plot",
+                "ess_plot",
+                # Convergence interpretation table
+                "R-hat",
+                "result.converged",
+            ],
+        ),
+        (
+            "08_diagnostics_plots.py",
+            [
+                # Section 7: MCMC Diagnostic Plots
+                "MCMC Diagnostic Plots",
+                "mcmc_trace_by_chain_plot",
+                "rhat_plot",
+                "ess_plot",
+                "compute_rhat",
+                "compute_ess",
+                "compute_autocorr",
+                # Interpretation guidance
+                "Excellent convergence",
+                "posterior_density_plot",
+                "posterior_forest_plot",
+            ],
+        ),
     ],
 )
 def test_notebooks_emit_expected_results(notebook: str, expected_texts: list[str]) -> None:

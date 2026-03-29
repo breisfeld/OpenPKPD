@@ -24,6 +24,7 @@ EXPECTED_EXAMPLE_FILES = {
     "34_nmsim_two_compartment_block_omega_fo.ctl",
     "35_nmsim_advan13_one_compartment_des.ctl",
     "36_nmsim_saem_multi_covariate_age_weight_sex.ctl",
+    "37_focei_optimizer_controls.ctl",
     "10_warfarin_pk_focei.ctl",
     "11_two_compartment_iv_focei.ctl",
     "12_phenobarbital_fo.ctl",

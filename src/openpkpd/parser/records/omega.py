@@ -108,6 +108,26 @@ class OmegaRecord(BaseRecord):
             # Skip unrecognised character
             remaining = remaining[1:]
 
+    def to_string(self) -> str:
+        """Serialize OMEGA record from parsed specs."""
+        lines = [f"${self.record_name}"]
+        for spec in self.specs:
+            if spec.same:
+                lines.append("  SAME")
+                continue
+            fix_s = " FIXED" if spec.fixed else ""
+            if spec.block_size == 1:
+                lines.append(f"  {spec.values[0]}{fix_s}")
+            else:
+                n = spec.block_size
+                lines.append(f"  BLOCK({n}){fix_s}")
+                idx = 0
+                for row in range(n):
+                    row_vals = [str(spec.values[idx + col]) for col in range(row + 1)]
+                    lines.append("  " + " ".join(row_vals))
+                    idx += row + 1
+        return "\n".join(lines) + "\n"
+
     def to_dict(self) -> dict[str, Any]:
         d = super().to_dict()
         d["specs"] = [

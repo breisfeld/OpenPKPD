@@ -59,6 +59,25 @@ class DataRecord(BaseRecord):
         self.nowide = bool(re.search(r"\bNOWIDE\b", rest, re.IGNORECASE))
         self.wide = bool(re.search(r"\bWIDE\b", rest, re.IGNORECASE))
 
+    def to_string(self) -> str:
+        """Serialize DATA record from parsed fields."""
+        parts = [self.filename]
+        if self.ignore_char:
+            parts.append(f"IGNORE={self.ignore_char}")
+        elif self.ignore_list:
+            parts.append(f"IGNORE=({','.join(self.ignore_list)})")
+        if self.accept_list:
+            parts.append(f"ACCEPT=({','.join(self.accept_list)})")
+        if self.records is not None:
+            parts.append(f"RECORDS={self.records}")
+        if self.lrecl is not None:
+            parts.append(f"LRECL={self.lrecl}")
+        if self.nowide:
+            parts.append("NOWIDE")
+        elif self.wide:
+            parts.append("WIDE")
+        return f"$DATA {' '.join(parts)}\n"
+
     def to_dict(self) -> dict[str, Any]:
         d = super().to_dict()
         d.update(

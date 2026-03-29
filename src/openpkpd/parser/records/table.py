@@ -77,6 +77,33 @@ class TableRecord(BaseRecord):
             if tok and tok.upper() not in reserved:
                 self.columns.append(tok.upper())
 
+    def to_string(self) -> str:
+        """Serialize TABLE record from parsed fields."""
+        parts: list[str] = list(self.columns)
+        if self.noprint:
+            parts.append("NOPRINT")
+        if self.noappend:
+            parts.append("NOAPPEND")
+        if self.append:
+            parts.append("APPEND")
+        if self.oneheader:
+            parts.append("ONEHEADER")
+        if self.firstonly:
+            parts.append("FIRSTONLY")
+        if self.lastonly:
+            parts.append("LASTONLY")
+        if self.notitle:
+            parts.append("NOTITLE")
+        if self.nolabel:
+            parts.append("NOLABEL")
+        if self.format:
+            parts.append(f"FORMAT={self.format}")
+        if self.esample is not None:
+            parts.append(f"ESAMPLE={self.esample}")
+        if self.file:
+            parts.append(f"FILE={self.file}")
+        return f"$TABLE {' '.join(parts)}\n"
+
     def to_dict(self) -> dict[str, Any]:
         d = super().to_dict()
         d.update({"columns": self.columns, "file": self.file, "noprint": self.noprint})

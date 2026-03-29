@@ -259,6 +259,26 @@ class ControlStream:
             "records": [r.to_dict() for r in self.records],
         }
 
+    def to_string(self) -> str:
+        """Serialize the entire control stream to NONMEM .ctl text.
+
+        Each record is rendered via its ``to_string()`` method.  Structured
+        records (THETA, OMEGA, SIGMA, ESTIMATION, …) reconstruct from their
+        parsed attributes so programmatic modifications are preserved.  All
+        other records reproduce their original ``raw_text``.
+        """
+        parts = [rec.to_string() for rec in self.records]
+        return "\n".join(parts)
+
+    def write(self, path: str) -> None:
+        """Write the control stream to *path*.
+
+        Creates parent directories if they do not exist.
+        """
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(self.to_string())
+
     def __repr__(self) -> str:
         rec_names = [r.record_name for r in self.records]
         return f"ControlStream(records={rec_names})"

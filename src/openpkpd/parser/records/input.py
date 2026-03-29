@@ -54,6 +54,19 @@ class InputRecord(BaseRecord):
                 self.columns.append(upper)
             pos += 1
 
+    def to_string(self) -> str:
+        """Serialize INPUT record from parsed fields."""
+        reverse_aliases: dict[str, str] = {v: k for k, v in self.aliases.items()}
+        tokens: list[str] = []
+        for col in self.columns:
+            if col.startswith("_DROP_"):
+                tokens.append("DROP")
+            elif col in reverse_aliases:
+                tokens.append(f"{reverse_aliases[col]}={col}")
+            else:
+                tokens.append(col)
+        return f"$INPUT {' '.join(tokens)}\n"
+
     def active_columns(self) -> list[str]:
         """Return only non-dropped column names."""
         return [c for c in self.columns if not c.startswith("_DROP_")]

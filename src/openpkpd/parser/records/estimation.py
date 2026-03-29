@@ -176,6 +176,56 @@ class EstimationRecord(BaseRecord):
                     vals.append(float(part))
             self.retry_omega_scales = tuple(vals)
 
+    def to_string(self) -> str:
+        """Serialize ESTIMATION record from parsed fields."""
+        parts: list[str] = [f"METHOD={self.method}"]
+        if self.interaction:
+            parts.append("INTERACTION")
+        if self.laplace and self.method not in ("LAPLACE", "LAPLACIAN"):
+            parts.append("LAPLACE")
+        parts.append(f"MAXEVAL={self.maxeval}")
+        parts.append(f"SIGDIG={self.sigdig}")
+        if self.sigl != 6:
+            parts.append(f"SIGL={self.sigl}")
+        if self.print_interval != 5:
+            parts.append(f"PRINT={self.print_interval}")
+        if self.noabort:
+            parts.append("NOABORT")
+        if self.posthoc:
+            parts.append("POSTHOC")
+        if self.msfo:
+            parts.append(f"MSFO={self.msfo}")
+        if self.isample is not None:
+            parts.append(f"ISAMPLE={self.isample}")
+        if self.niter is not None:
+            parts.append(f"NITER={self.niter}")
+        if self.seed is not None:
+            parts.append(f"SEED={self.seed}")
+        if self.nothetaboundtest:
+            parts.append("NOTHETABOUNDTEST")
+        if self.noomegaboundtest:
+            parts.append("NOOMEGABOUNDTEST")
+        if self.numerical:
+            parts.append("NUMERICAL")
+        if self.gradient:
+            parts.append("GRADIENT")
+        # OpenPKPD extensions
+        if self.n_starts != 1:
+            parts.append(f"NSTARTS={self.n_starts}")
+        if self.gtol != 1e-5:
+            parts.append(f"GTOL={self.gtol}")
+        if self.perturbation_scale != 1.0:
+            parts.append(f"PERTURB={self.perturbation_scale}")
+        if self.outer_optimizer:
+            parts.append(f"OUTEROPT={self.outer_optimizer}")
+        if self.outer_fallback_optimizer:
+            parts.append(f"FALLBACKOPT={self.outer_fallback_optimizer}")
+        if self.retain_best_iterate is True:
+            parts.append("RETAINBEST")
+        elif self.retain_best_iterate is False:
+            parts.append("NORETAINBEST")
+        return f"$ESTIMATION {' '.join(parts)}\n"
+
     def to_dict(self) -> dict[str, Any]:
         d = super().to_dict()
         d.update(

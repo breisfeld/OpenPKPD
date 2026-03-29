@@ -54,6 +54,21 @@ class SubroutinesRecord(BaseRecord):
         if m:
             self.pred = m.group(1)
 
+    def to_string(self) -> str:
+        """Serialize SUBROUTINES record from parsed fields."""
+        parts: list[str] = []
+        if self.advan is not None:
+            parts.append(f"ADVAN{self.advan}")
+        if self.trans is not None:
+            parts.append(f"TRANS{self.trans}")
+        if self.tol != 6:
+            parts.append(f"TOL={self.tol}")
+        if self.infn:
+            parts.append(f"INFN={self.infn}")
+        if self.pred:
+            parts.append(f"PRED={self.pred}")
+        return f"$SUBROUTINES {' '.join(parts)}\n"
+
     def to_dict(self) -> dict[str, Any]:
         d = super().to_dict()
         d.update({"advan": self.advan, "trans": self.trans, "tol": self.tol})

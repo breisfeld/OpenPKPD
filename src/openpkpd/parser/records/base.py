@@ -28,5 +28,18 @@ class BaseRecord(ABC):
         """Serialize record to a plain dict (for debugging / round-trip)."""
         return {"record": self.record_name, "raw_text": self.raw_text}
 
+    def to_string(self) -> str:
+        """Serialize this record to NONMEM control stream text.
+
+        The default implementation emits::
+
+            $RECORDNAME
+            <raw_text>
+
+        Subclasses may override to reconstruct from their parsed attributes so
+        that programmatic modifications are reflected in the output.
+        """
+        return f"${self.record_name}\n{self.raw_text.rstrip()}\n"
+
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(header_line={self.header_line})"

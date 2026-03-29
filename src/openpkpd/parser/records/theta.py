@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from typing import Any
 
@@ -153,6 +154,23 @@ class ThetaRecord(BaseRecord):
             return ThetaSpec(lower=lo, init=init, upper=hi, fixed=fixed)
         else:
             raise ParseError(f"Cannot parse $THETA entry: ({inner})")
+
+    def to_string(self) -> str:
+        """Serialize THETA record from parsed specs."""
+        lines = ["$THETA"]
+        for spec in self.specs:
+            has_lower = not math.isinf(spec.lower)
+            has_upper = not math.isinf(spec.upper)
+            if has_lower or has_upper:
+                lo_s = "" if math.isinf(spec.lower) else str(spec.lower)
+                hi_s = "" if math.isinf(spec.upper) else str(spec.upper)
+                token = f"({lo_s},{spec.init},{hi_s})"
+            else:
+                token = str(spec.init)
+            fix_s = " FIXED" if spec.fixed else ""
+            label_s = f"  ; {spec.label}" if spec.label else ""
+            lines.append(f"  {token}{fix_s}{label_s}")
+        return "\n".join(lines) + "\n"
 
     def to_dict(self) -> dict[str, Any]:
         d = super().to_dict()

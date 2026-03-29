@@ -36,6 +36,8 @@ Internal curated exemplars:
 - `20_theophylline_oral_saem.ctl` — SAEM estimation example derived from the SAEM script
 - `23_same_omega_showcase.ctl` — compact syntax showcase for repeated `$OMEGA ... SAME`
 - `37_focei_optimizer_controls.ctl` — FOCEI optimizer-control syntax showcase with `OUTEROPT`, `FALLBACKOPT`, `RETAINBEST`, and retry extensions; intended mainly for parsing/inspection workflows
+- `38_prior_gaussian_subset.ctl` — documented `$PRIOR` / `$THETAP` / `$THETAPV` / `$OMEGAP` / `$OMEGAPD` Gaussian-penalty subset example
+- `39_onlysimulation_subproblems.ctl` — documented `$SIMULATION` subset example with `ONLYSIMULATION`, a fixed seed, and `SUBPROBLEMS=2`
 
 Imported upstream exemplars:
 

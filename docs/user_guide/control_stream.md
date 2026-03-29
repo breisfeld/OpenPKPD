@@ -84,43 +84,63 @@ result = run_model("model.ctl")
 print(result.summary())
 ```
 
-## Supported records
+## Supported records and serialization contract
 
 The parser recognizes more record types than the current runner executes. Treat
-the table below as the executable support contract for the native runner.
+the table below as the executable support contract for the native runner and
+the supported serialization contract for `ControlStream.to_string()` /
+`ControlStream.write()`.
 
 Status meanings:
 
 - `runtime` = parsed and executed by the runner
 - `runtime/partial` = parsed and executed only for a documented subset
 - `parse-only` = parsed into typed records but not executed by the runner
+- `round-trip` = the parsed record is serialized back into `.ctl` text by the
+  current `ControlStream` object model
 
-| Record | Status | Runner contract |
-|--------|--------|-----------------|
-| `$PROBLEM` | `runtime` | parsed and used |
-| `$DATA` | `runtime` | `IGNORE=` supported |
-| `$INPUT` | `runtime` | includes `DROP` / `SKIP` handling |
-| `$SUBROUTINES` | `runtime` | `ADVAN1–4/6/8/10/11/12/13/16`; `TRANS1–6`, plus OpenPKPD `TRANS7/8` |
-| `$PK` | `runtime` | compiled by the NM-TRAN compiler |
-| `$ERROR` | `runtime` | compiled by the NM-TRAN compiler |
-| `$DES` | `runtime` | used by ODE/DDE workflows |
-| `$THETA` | `runtime` | bounds and `FIXED` supported |
-| `$OMEGA` | `runtime` | diagonal, `BLOCK`, `SAME`, `FIXED` |
-| `$SIGMA` | `runtime` | diagonal, `BLOCK`, `FIXED` |
-| `$ESTIMATION` | `runtime` | FO/FOCE/FOCEI/Laplacian/SAEM/IMP/IMPMAP/BAYES keywords parsed |
-| `$COVARIANCE` | `runtime` | covariance step available in the standard estimation path |
-| `$TABLE` | `runtime` | column selection and export in the standard estimation path |
-| `$SIMULATION` | `runtime/partial` | supports first seed, `ONLYSIMULATION`, `SUBPROBLEMS=n`, and `.sim.csv` output |
-| `$MIXTURE` | `runtime/partial` | supports `NSPOP=n` with dedicated `.mix.json` and `.mix_assignments.csv` artifacts |
-| `$PRIOR` | `runtime/partial` | NWPRI-oriented Gaussian-prior subset only |
-| `$THETAP` / `$THETAPV` | `runtime/partial` | supported together as THETA prior mean/variance |
-| `$OMEGAP` / `$OMEGAPD` | `runtime/partial` | supported as Gaussian penalty subset, not full Wishart semantics |
-| `$SIGMAP` / `$SIGMAPD` | `parse-only` | parsed but not executed by the native runner |
-| `$ABBREVIATED` | `parse-only` | parsed but not executed by the native runner |
-| `$NONPARAMETRIC` | `parse-only` | parsed but not yet exposed as a dedicated control-stream runtime path |
-| `$SIZES` | `parse-only` | parsed but not executed by the native runner |
-| `$DESIGN` | `parse-only` | parsed but not executed by the native runner |
-| `$CONTR` | `parse-only` | parsed but not executed by the native runner |
+| Record | Runtime status | Round-trip | Runner contract |
+|--------|----------------|------------|-----------------|
+| `$PROBLEM` | `runtime` | `yes` | parsed and used |
+| `$DATA` | `runtime` | `yes` | `IGNORE=` supported |
+| `$INPUT` | `runtime` | `yes` | includes `DROP` / `SKIP` handling |
+| `$SUBROUTINES` | `runtime` | `yes` | `ADVAN1–4/6/8/10/11/12/13/16`; `TRANS1–6`, plus OpenPKPD `TRANS7/8` |
+| `$PK` | `runtime` | `yes` | compiled by the NM-TRAN compiler |
+| `$ERROR` | `runtime` | `yes` | compiled by the NM-TRAN compiler |
+| `$DES` | `runtime` | `yes` | used by ODE/DDE workflows |
+| `$THETA` | `runtime` | `yes` | bounds and `FIXED` supported |
+| `$OMEGA` | `runtime` | `yes` | diagonal, `BLOCK`, `SAME`, `FIXED` |
+| `$SIGMA` | `runtime` | `yes` | diagonal, `BLOCK`, `FIXED` |
+| `$ESTIMATION` | `runtime` | `yes` | FO/FOCE/FOCEI/Laplacian/SAEM/IMP/IMPMAP/BAYES keywords parsed |
+| `$COVARIANCE` | `runtime` | `yes` | covariance step available in the standard estimation path |
+| `$TABLE` | `runtime` | `yes` | column selection and export in the standard estimation path |
+| `$SIMULATION` | `runtime/partial` | `yes` | supports first seed, `ONLYSIMULATION`, `SUBPROBLEMS=n`, and `.sim.csv` output |
+| `$MIXTURE` | `runtime/partial` | `yes` | supports `NSPOP=n` with dedicated `.mix.json` and `.mix_assignments.csv` artifacts |
+| `$PRIOR` | `runtime/partial` | `yes` | NWPRI-oriented Gaussian-prior subset only |
+| `$THETAP` / `$THETAPV` | `runtime/partial` | `yes` | supported together as THETA prior mean/variance |
+| `$OMEGAP` / `$OMEGAPD` | `runtime/partial` | `yes` | supported as Gaussian penalty subset, not full Wishart semantics |
+| `$SIGMAP` / `$SIGMAPD` | `parse-only` | `yes` | parsed but not executed by the native runner |
+| `$ABBREVIATED` | `parse-only` | `yes` | parsed but not executed by the native runner |
+| `$NONPARAMETRIC` | `parse-only` | `yes` | parsed but not yet exposed as a dedicated control-stream runtime path |
+| `$SIZES` | `parse-only` | `yes` | parsed but not executed by the native runner |
+| `$DESIGN` | `parse-only` | `yes` | parsed but not executed by the native runner |
+| `$CONTR` | `parse-only` | `yes` | parsed but not executed by the native runner |
+
+## Round-trip example
+
+```python
+from openpkpd.parser.control_stream import ControlStream
+
+cs = ControlStream.from_file("model.ctl")
+rendered = cs.to_string()
+ControlStream.from_string(rendered)   # reparses the current object model
+cs.write("roundtrip/model.ctl")
+```
+
+Round-trip support means OpenPKPD can serialize the current parsed representation
+back to `.ctl` text for the documented subset above. It does **not** mean every
+NONMEM feature combination is guaranteed to execute or to preserve semantics
+beyond the current parser/runtime contract.
 
 Current prior-runtime subset notes:
 

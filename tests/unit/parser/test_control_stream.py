@@ -170,3 +170,72 @@ def test_mixture_record_accessor():
     mix_dict = cs.mixture.to_dict()
     assert mix_dict["nspop"] == 3
     assert mix_dict["pmix_theta_index"] == 4
+
+
+@pytest.mark.unit
+def test_to_string_round_trip_preserves_supported_structured_records():
+    text = """\
+$PROBLEM Round-trip
+$DATA theo.csv IGNORE=@
+$INPUT ID TIME AMT DV EVID MDV
+$SUBROUTINES ADVAN2 TRANS2
+$PK
+KA = THETA(1)*EXP(ETA(1))
+CL = THETA(2)*EXP(ETA(2))
+V  = THETA(3)*EXP(ETA(3))
+$ERROR
+Y = F*(1 + EPS(1))
+$THETA (0.01,1.5,20) (0.001,0.08,5) (0.1,30,500)
+$OMEGA BLOCK(2)
+0.4
+0.1 0.3
+$SIGMA 0.1
+$ESTIMATION METHOD=COND INTER MAXEVAL=25 OUTEROPT=L-BFGS-B RETAINBEST
+$SIMULATION (12345) SUBPROBLEMS=2 TRUE=FINAL
+$PRIOR NWPRI NTHETA=3 NETA=2
+$THETAP 1.5 0.08 30
+$THETAPV 0.25 0.09 4.0
+$OMEGAP 0.2 0.01 0.3
+$OMEGAPD 4 1 5
+$MIXTURE NSPOP=2 PMIX=THETA(4)
+$TABLE ID TIME DV FILE=sdtab001
+"""
+    original = ControlStream.from_string(text)
+    rendered = original.to_string()
+    reparsed = ControlStream.from_string(rendered)
+
+    assert reparsed.problem.title == "Round-trip"
+    assert reparsed.data.filename == "theo.csv"
+    assert reparsed.subroutines.advan == 2
+    assert reparsed.subroutines.trans == 2
+    assert reparsed.estimation_records[0].method == "FOCE"
+    assert reparsed.estimation_records[0].interaction is True
+    assert reparsed.estimation_records[0].maxeval == 25
+    assert reparsed.estimation_records[0].outer_optimizer == "L-BFGS-B"
+    assert reparsed.estimation_records[0].retain_best_iterate is True
+    assert reparsed.simulation is not None
+    assert reparsed.simulation.seeds == [12345]
+    assert reparsed.simulation.subproblems == 2
+    assert reparsed.simulation.true_final is True
+    assert reparsed.prior_record is not None
+    assert reparsed.prior_record.type == "NWPRI"
+    assert reparsed.thetap_record is not None
+    assert reparsed.omegap_record is not None
+    assert reparsed.omegapd_record is not None
+    assert reparsed.mixture is not None
+    assert reparsed.mixture.nspop == 2
+    assert reparsed.mixture.pmix_theta_index == 4
+    assert reparsed.table_records[0].file == "sdtab001"
+
+
+@pytest.mark.unit
+def test_write_creates_parent_directories(tmp_path):
+    cs = ControlStream.from_string(SIMPLE_CTL)
+    out_path = tmp_path / "nested" / "dir" / "model.ctl"
+
+    cs.write(str(out_path))
+
+    assert out_path.exists()
+    reparsed = ControlStream.from_file(str(out_path))
+    assert reparsed.problem is not None
+    assert reparsed.problem.title == "Theophylline 1-compartment oral"

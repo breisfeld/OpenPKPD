@@ -35,7 +35,7 @@ These are OpenPKPD extensions rather than direct NONMEM mappings.
 | `COND LAPLACE` | `"LAPLACIAN"` |
 | `SAEM` | `"SAEM"` |
 | `IMP` | `"IMP"` |
-| `IMPMAP` | `"IMP"` |
+| `IMPMAP` | `"IMPMAP"` |
 
 ## NM-TRAN code blocks
 
@@ -92,11 +92,27 @@ OpenPKPD writes the same output files as NONMEM 7.x:
 
 ## Current limitations
 
-The following NONMEM features are not yet fully supported:
+OpenPKPD now supports useful runtime subsets for several records that were
+previously listed as simply "not implemented". Treat the control-stream user
+guide as the source of truth for the current parser/runtime/export contract:
 
-- **$MIXTURE** — finite mixture models — not yet implemented
-- **$PRIOR** — MAP estimation with informative priors — not yet implemented
-- **$SIMULATION** — Monte Carlo simulation block — partial; use `openpkpd.simulation` directly
+- [`docs/user_guide/control_stream.md`](../user_guide/control_stream.md)
+
+The most important current limitations are:
+
+- **`$MIXTURE`** — partial runtime subset only. The native runner currently
+  supports `NSPOP=n` with dedicated `.mix.json` and `.mix_assignments.csv`
+  artifacts, but not the full NONMEM mixture workflow surface.
+- **`$PRIOR`** — partial runtime subset only. The native runner supports the
+  Gaussian/NWPRI-oriented subset documented in the control-stream guide, not
+  the full NONMEM prior semantics.
+- **`$SIMULATION`** — partial runtime subset only. `ONLYSIMULATION`,
+  `SUBPROBLEMS=n`, the first parsed seed, and `.sim.csv` artifact generation are
+  supported; broader NONMEM simulation semantics are not.
+- **Round-trip write support** — `ControlStream.to_string()` / `.write()` can
+  serialize the current parsed control-stream representation, but this should be
+  treated as **supported for the documented subset**, not as a blanket guarantee
+  for every NONMEM record combination.
 
 Previously listed as limitations but now implemented:
 
@@ -105,7 +121,7 @@ Previously listed as limitations but now implemented:
 | ADVAN5/7 (general linear, matrix exponential) | ✅ Implemented |
 | ADVAN6/8 (general nonlinear ODE, stiff/nonstiff) | ✅ Implemented |
 | ADVAN11/12 (3-compartment IV/oral) | ✅ Implemented |
-| ADVAN13 (stiff ODE + adjoint sensitivity) | ✅ Implemented (partial) |
+| ADVAN13 (stiff ODE + forward sensitivity) | ✅ Implemented (partial) |
 | IOV (inter-occasion variability) | ✅ Implemented |
-| NUTS/BAYES (MCMC via PyMC/NumPyro) | ✅ Implemented |
-| Control stream round-trip write (`to_nmtran()`) | ✅ Implemented |
+| NUTS/BAYES (MCMC via PyMC/native backend) | ✅ Implemented |
+| Control stream serialization (`ControlStream.to_string()` / `.write()`) | ✅ Implemented for the documented subset |

@@ -1038,6 +1038,22 @@ class IndividualModel:
         capabilities = getattr(kernel, "capabilities", None)
         return bool(kernel is not None and getattr(capabilities, "prediction_eta_jacobian", False))
 
+    def supports_theta_data_objective_gradient(self, trans: int = 2) -> bool:
+        kernel = self.get_subject_derivative_kernel(trans)
+        capabilities = getattr(kernel, "capabilities", None)
+        if kernel is None or not getattr(capabilities, "theta_data_objective_gradient", False):
+            return False
+        supports = getattr(kernel, "supports_theta_data_objective_gradient", None)
+        return bool(callable(supports) and supports())
+
+    def supports_prediction_theta_jacobian(self, trans: int = 2) -> bool:
+        kernel = self.get_subject_derivative_kernel(trans)
+        capabilities = getattr(kernel, "capabilities", None)
+        if kernel is None or not getattr(capabilities, "prediction_theta_jacobian", False):
+            return False
+        supports = getattr(kernel, "supports_theta_data_objective_gradient", None)
+        return bool(callable(supports) and supports())
+
     def supports_eta_objective_hessian(self, trans: int = 2) -> bool:
         kernel = self.get_subject_derivative_kernel(trans)
         capabilities = getattr(kernel, "capabilities", None)
@@ -1147,7 +1163,41 @@ class IndividualModel:
             )
             return pred_eta[obs_mask]
 
-        return jacobian(pred_of_eta, eta_arr, use_jax=False, eps=1e-5)
+        return jacobian(pred_of_eta, eta_arr, eps=1e-5)
+
+    def theta_data_objective_gradient(
+        self,
+        theta: np.ndarray,
+        eta: np.ndarray,
+        sigma: np.ndarray,
+        trans: int = 2,
+    ) -> np.ndarray:
+        kernel = self.get_subject_derivative_kernel(trans)
+        if kernel is None:
+            raise NotImplementedError("theta data-objective derivative kernel is not available")
+        return np.asarray(
+            kernel.theta_data_objective_gradient(
+                np.asarray(theta, dtype=float),
+                np.asarray(eta, dtype=float),
+                sigma,
+            ),
+            dtype=float,
+        )
+
+    def prediction_theta_jacobian(
+        self,
+        theta: np.ndarray,
+        eta: np.ndarray,
+        sigma: np.ndarray,
+        trans: int = 2,
+    ) -> np.ndarray:
+        theta_arr = np.asarray(theta, dtype=float)
+        obs_mask = self.subject_events.observation_mask()
+        n_obs = int(np.sum(obs_mask))
+        kernel = self.get_subject_derivative_kernel(trans)
+        if kernel is not None and self.supports_prediction_theta_jacobian(trans):
+            return np.asarray(kernel.prediction_theta_jacobian(theta_arr, eta, sigma), dtype=float)
+        raise NotImplementedError("prediction theta Jacobian is not available")
 
     @staticmethod
     def _eta_penalty_value(

@@ -429,6 +429,14 @@ uv sync --all-extras
 uv run pytest -q
 ```
 
+If you specifically want the symbolic analytical-kernel path active in a source
+checkout, use:
+
+```bash
+uv sync --extra dev --extra symbolic
+just prewarm-symbolic-caches
+```
+
 For common source-checkout workflows, the repository also includes a
 cross-platform `justfile` that selects the needed `uv` extras automatically:
 

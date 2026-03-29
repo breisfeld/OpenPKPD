@@ -67,6 +67,7 @@ mypy:
 test:unit:
   stage: test
   script:
+  - uv run python scripts/prewarm_symbolic_caches.py
   - >
     uv run pytest tests/unit/ -m unit -v --tb=short --junitxml=reports/junit-unit.xml --cov=openpkpd --cov-report=xml:reports/coverage.xml --cov-report=term-missing
   coverage: '/(?i)total.*?\s+(\d+(?:\.\d+)?)%/'

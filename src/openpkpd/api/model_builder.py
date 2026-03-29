@@ -447,7 +447,7 @@ class ModelBuilder:
         pk_sub = get_advan(self._advan)
 
         # Compile code blocks
-        compiler = NMTRANCompiler(use_jax=False)
+        compiler = NMTRANCompiler()
         pk_callable = None
         error_callable = None
 

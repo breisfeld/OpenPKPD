@@ -13,6 +13,8 @@ class DerivativeKernelCapabilities:
     eta_objective_gradient: bool = False
     eta_objective_hessian: bool = False
     prediction_eta_jacobian: bool = False
+    theta_data_objective_gradient: bool = False
+    prediction_theta_jacobian: bool = False
 
 
 @runtime_checkable
@@ -41,6 +43,22 @@ class SubjectDerivativeKernel(Protocol):
     ) -> np.ndarray: ...
 
     def prediction_eta_jacobian(
+        self,
+        theta: np.ndarray,
+        eta: np.ndarray,
+        sigma: np.ndarray,
+    ) -> np.ndarray: ...
+
+    def supports_theta_data_objective_gradient(self) -> bool: ...
+
+    def theta_data_objective_gradient(
+        self,
+        theta: np.ndarray,
+        eta: np.ndarray,
+        sigma: np.ndarray,
+    ) -> np.ndarray: ...
+
+    def prediction_theta_jacobian(
         self,
         theta: np.ndarray,
         eta: np.ndarray,
@@ -82,6 +100,25 @@ class BaseSubjectDerivativeKernel:
         raise NotImplementedError
 
     def prediction_eta_jacobian(
+        self,
+        theta: np.ndarray,
+        eta: np.ndarray,
+        sigma: np.ndarray,
+    ) -> np.ndarray:
+        raise NotImplementedError
+
+    def supports_theta_data_objective_gradient(self) -> bool:
+        return False
+
+    def theta_data_objective_gradient(
+        self,
+        theta: np.ndarray,
+        eta: np.ndarray,
+        sigma: np.ndarray,
+    ) -> np.ndarray:
+        raise NotImplementedError
+
+    def prediction_theta_jacobian(
         self,
         theta: np.ndarray,
         eta: np.ndarray,

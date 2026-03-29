@@ -28,11 +28,15 @@ cd OpenPKPD
 # Install all extras including dev tools
 uv sync --all-extras
 
+# Or, for the symbolic analytical-kernel test path specifically
+uv sync --extra dev --extra symbolic
+
 # Compile and install the Rust extension in-place
 just build-core
 
 # Verify
 uv run pytest -q
+just prewarm-symbolic-caches
 ```
 
 > **Note:** If you skip `just build-core`, the package will still import and all
@@ -54,6 +58,7 @@ Typical usage:
 
 ```bash
 just run-tests-unit
+just prewarm-symbolic-caches
 just lint
 just build-docs-html
 just run-example 01
@@ -81,6 +86,14 @@ uv run pytest tests/integration/ -v
 
 # With coverage report
 uv run pytest --cov=openpkpd --cov-report=html
+```
+
+For the symbolic analytical-kernel route, the intended local/CI workflow is:
+
+```bash
+uv sync --extra dev --extra symbolic
+just prewarm-symbolic-caches
+uv run pytest tests/unit/model/test_symbolic_eta.py tests/unit/estimation/test_bayes.py -q
 ```
 
 Test categories:

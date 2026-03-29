@@ -116,7 +116,7 @@ class Problem:
             pk_subroutine = get_advan(advan)
 
         # 4. Compile code blocks
-        compiler = NMTRANCompiler(use_jax=False)
+        compiler = NMTRANCompiler()
         pk_callable = None
         error_callable = None
         des_callable = None  # A1

@@ -244,6 +244,72 @@ def test_symbolic_kernel_batch_objective_values_match_scalar_evaluations(
         _clear_symbolic_caches()
 
 
+def test_symbolic_advan2_theta_gradient_matches_finite_difference() -> None:
+    pytest.importorskip("sympy")
+    _clear_symbolic_caches()
+    try:
+        model = _make_symbolic_advan2_model()
+        kernel = model.get_subject_derivative_kernel(2)
+        assert kernel is not None
+        assert kernel.supports_theta_data_objective_gradient()
+
+        theta = np.array([1.4, 10.5, 24.0], dtype=float)
+        eta = np.array([0.02, -0.03, 0.01], dtype=float)
+        sigma = np.array([[0.05]], dtype=float)
+        eps = 1e-6
+
+        analytic = np.asarray(kernel.theta_data_objective_gradient(theta, eta, sigma), dtype=float)
+        expected = np.zeros_like(theta)
+        for i in range(len(theta)):
+            theta_p = theta.copy()
+            theta_m = theta.copy()
+            theta_p[i] += eps
+            theta_m[i] -= eps
+            vp = float(kernel.eta_data_objective_value_grad(theta_p, eta, sigma)[0])
+            vm = float(kernel.eta_data_objective_value_grad(theta_m, eta, sigma)[0])
+            expected[i] = (vp - vm) / (2.0 * eps)
+
+        np.testing.assert_allclose(analytic, expected, rtol=1e-4, atol=1e-5)
+    finally:
+        _clear_symbolic_caches()
+
+
+def test_symbolic_advan2_theta_jacobian_matches_finite_difference() -> None:
+    pytest.importorskip("sympy")
+    _clear_symbolic_caches()
+    try:
+        model = _make_symbolic_advan2_model()
+        kernel = model.get_subject_derivative_kernel(2)
+        assert kernel is not None
+        assert kernel.supports_theta_data_objective_gradient()
+
+        theta = np.array([1.4, 10.5, 24.0], dtype=float)
+        eta = np.array([0.02, -0.03, 0.01], dtype=float)
+        sigma = np.array([[0.05]], dtype=float)
+        eps = 1e-6
+
+        analytic = np.asarray(kernel.prediction_theta_jacobian(theta, eta, sigma), dtype=float)
+        expected = np.zeros_like(analytic)
+
+        def pred_of_theta(theta_value: np.ndarray) -> np.ndarray:
+            return np.asarray(model.evaluate(theta_value, eta, sigma, trans=2)[0], dtype=float)[
+                model.subject_events.observation_mask()
+            ]
+
+        base = pred_of_theta(theta)
+        assert base.shape[0] == analytic.shape[0]
+        for i in range(len(theta)):
+            theta_p = theta.copy()
+            theta_m = theta.copy()
+            theta_p[i] += eps
+            theta_m[i] -= eps
+            expected[:, i] = (pred_of_theta(theta_p) - pred_of_theta(theta_m)) / (2.0 * eps)
+
+        np.testing.assert_allclose(analytic, expected, rtol=1e-4, atol=1e-5)
+    finally:
+        _clear_symbolic_caches()
+
+
 def test_symbolic_source_cache_reuses_generated_code(
     tmp_path: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -299,6 +365,37 @@ def test_prewarm_symbolic_caches_materializes_expected_cache_files(
                 tmp_path in sym_eta.Path(str(entry["cache_path"])).parents
                 or sym_eta.Path(str(entry["cache_path"])).parent == tmp_path
             )
+    finally:
+        _clear_symbolic_caches()
+
+
+def test_symbolic_kernel_can_load_from_prewarmed_cache_without_sympy(
+    tmp_path: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("sympy")
+    monkeypatch.setenv("OPENPKPD_SYMBOLIC_CACHE_DIR", str(tmp_path))
+    _clear_symbolic_caches()
+    try:
+        warmed = sym_eta.prewarm_symbolic_caches()
+        assert all(bool(entry["exists"]) for entry in warmed)
+
+        _clear_symbolic_caches()
+        monkeypatch.setattr(sym_eta, "SYMPY_AVAILABLE", False)
+        monkeypatch.setattr(sym_eta, "sp", None)
+        monkeypatch.setattr(sym_eta, "NumPyPrinter", None)
+
+        model = _make_symbolic_advan1_model()
+        kernel = model.get_subject_derivative_kernel(2)
+        assert kernel is not None
+
+        theta = np.array([1.6, 11.5], dtype=float)
+        eta = np.array([0.04, -0.03], dtype=float)
+        sigma = np.array([[0.05]], dtype=float)
+        value, grad = kernel.eta_data_objective_value_grad(theta, eta, sigma)
+
+        assert np.isfinite(float(value))
+        np.testing.assert_equal(np.asarray(grad).shape, eta.shape)
     finally:
         _clear_symbolic_caches()
 

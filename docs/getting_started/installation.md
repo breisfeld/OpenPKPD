@@ -17,11 +17,14 @@ uv add "OpenPKPD[gui]"
 # With diagnostic plots (requires matplotlib)
 uv add "OpenPKPD[plots]"
 
-# Full install — plots + optimagic + sympy (no JAX)
+# Full install — plots + optimagic + sympy
 uv add "OpenPKPD[full]"
 
 # Development install (tests, linting, docs)
 uv sync --all-extras
+
+# Development install focused on the symbolic-kernel path
+uv sync --extra dev --extra symbolic
 ```
 
 ## Installing with pip
@@ -30,7 +33,7 @@ uv sync --all-extras
 pip install OpenPKPD
 pip install "OpenPKPD[gui]"     # desktop GUI (PySide6 + matplotlib)
 pip install "OpenPKPD[plots]"   # with matplotlib
-pip install "OpenPKPD[full]"    # everything except JAX
+pip install "OpenPKPD[full]"
 ```
 
 ## Optional extras
@@ -39,21 +42,14 @@ pip install "OpenPKPD[full]"    # everything except JAX
 |-------|----------|-------------|
 | `gui` | `pyside6>=6.10.2`, `platformdirs>=4.9`, `matplotlib>=3.9` | Desktop GUI (`openpkpd-gui`) with plot output |
 | `plots` | `matplotlib>=3.9` | Diagnostic plots: GOF, PK, PD, ETA |
-| `jax` | `jax`, `jaxlib`, `diffrax`, `numpyro` | JAX autodiff + NUTS sampler (requires JAX-compatible platform) |
 | `bayes` | `pymc>=5.16` | PyMC MCMC backend |
 | `optim` | `optimagic>=0.5` | Unified optimizer interface |
 | `symbolic` | `sympy>=1.13` | Symbolic PK solution derivation |
 | `notebooks` | `marimo>=0.10`, `matplotlib>=3.9` | Interactive marimo notebooks |
 | `cluster` | `dask[distributed]>=2024.8` | Distributed cluster-parallel execution |
 | `r` | `rpy2>=3.5` | R interoperability bridge |
-| `full` | plots + optim + sympy | Everything except JAX/Bayes/GUI/notebooks |
+| `full` | plots + optim + sympy | General scientific extras without Bayesian or GUI packages |
 | `docs` | Sphinx + RTD theme | Building this documentation |
-
-:::{note}
-JAX is not available on Intel macOS (`x86_64`) because no `jaxlib` wheel is
-published for that architecture. All estimation methods work without JAX using
-a SciPy finite-difference fallback.
-:::
 
 ## Verifying the install
 
@@ -84,3 +80,11 @@ just build-docs-html
 
 The repository `justfile` is intended to work across macOS, Linux, and Windows
 for common contributor workflows.
+
+If you are working on analytical PK derivative kernels or want the symbolic
+unit tests and cache-prewarm path active locally, install the `symbolic` extra
+and run:
+
+```bash
+just prewarm-symbolic-caches
+```

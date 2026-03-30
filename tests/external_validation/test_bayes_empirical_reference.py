@@ -319,60 +319,42 @@ class TestTheophyllineBayesNUTSEmpirical:
 
 
 # ---------------------------------------------------------------------------
-# Phenobarbital BAYES(Laplace) vs Grasela & Donn (1985)
+# Warfarin PK — BAYES(Laplace) vs nlmixr2 FOCEI reference
 # ---------------------------------------------------------------------------
 
-_PHENO_BAYES_REF_DIR = os.path.join(os.path.dirname(__file__), "reference")
-_PHENO_BAYES_DATA_FILE = os.path.join(DATA_DIR, "phenobarbital_simulated.csv")
-_PHENO_BAYES_REF_FILE = os.path.join(_PHENO_BAYES_REF_DIR, "grasela1985_phenobarbital_fo.json")
+_WARF_BAYES_DATA_FILE = os.path.join(DATA_DIR, "warfarin_pk.csv")
+_WARF_BAYES_REF_FILE = os.path.join(
+    os.path.dirname(__file__), "nlmixr2", "reference", "warfarin_pk_saem.json"
+)
 
-_PHENO_BAYES_TRUE_CL_PER_KG = 0.0047  # L/h/kg
-_PHENO_BAYES_TRUE_V_PER_KG = 0.96     # L/kg
-
-_PHENO_BAYES_PK = """\
-TVCL = THETA(1) * WT
-TVV  = THETA(2) * WT
-CL   = TVCL * EXP(ETA(1))
-V    = TVV  * EXP(ETA(2))
-K    = CL / V
-S1   = V
+_WARF_BAYES_PK = """\
+KA = THETA(1)*EXP(ETA(1))
+CL = THETA(2)*EXP(ETA(2))
+V  = THETA(3)*EXP(ETA(3))
 """
 
-_PHENO_BAYES_ERROR = """\
-IPRED = F
-W     = IPRED * THETA(3)
-IRES  = DV - IPRED
-IWRES = IRES / W
-Y     = IPRED + W * EPS(1)
-"""
+_WARF_BAYES_ERROR = "Y = F*(1 + EPS(1))"
 
 
-def _build_phenobarbital_bayes_laplace_model(n_samples: int = 200, maxeval: int = 200):
-    """Weak-prior BAYES(Laplace) on phenobarbital neonatal dataset (59 subjects)."""
+def _build_warfarin_bayes_laplace_model(n_samples: int = 200, maxeval: int = 200):
+    """Weak-prior BAYES(Laplace) on Warfarin PK dataset (32 subjects)."""
     from openpkpd import ModelBuilder
     from openpkpd.data.dataset import NONMEMDataset
 
-    if not os.path.exists(_PHENO_BAYES_DATA_FILE):
-        pytest.skip(f"Phenobarbital data not found: {_PHENO_BAYES_DATA_FILE}")
+    if not os.path.exists(_WARF_BAYES_DATA_FILE):
+        pytest.skip(f"Warfarin data not found: {_WARF_BAYES_DATA_FILE}")
 
-    ds = NONMEMDataset.from_csv(_PHENO_BAYES_DATA_FILE)
+    ds = NONMEMDataset.from_csv(_WARF_BAYES_DATA_FILE)
     return (
         ModelBuilder()
-        .problem("Phenobarbital neonatal PK — BAYES(Laplace) vs Grasela 1985")
+        .problem("Warfarin PK 1-CMT oral — BAYES(Laplace) vs nlmixr2 FOCEI")
         .dataset(ds)
-        .covariates(["WT"])
-        .subroutines(advan=1, trans=1)
-        .pk(_PHENO_BAYES_PK)
-        .error(_PHENO_BAYES_ERROR)
-        .theta(
-            [
-                (0.001, _PHENO_BAYES_TRUE_CL_PER_KG, 0.05),
-                (0.10, _PHENO_BAYES_TRUE_V_PER_KG, 5.0),
-                (0.001, 0.10, 1.0),
-            ]
-        )
-        .omega([[0.04, 0], [0, 0.03]])
-        .sigma([[1.0]])
+        .subroutines(advan=2, trans=2)
+        .pk(_WARF_BAYES_PK)
+        .error(_WARF_BAYES_ERROR)
+        .theta([(0.01, 0.9, 20), (0.001, 0.13, 5), (0.1, 8.7, 200)])
+        .omega([0.4, 0.3, 0.3])
+        .sigma(0.05)
         .estimation(
             method="BAYES",
             backend="laplace",
@@ -387,36 +369,40 @@ def _build_phenobarbital_bayes_laplace_model(n_samples: int = 200, maxeval: int 
 
 @pytest.mark.external_validation
 @pytest.mark.slow
-class TestPhenobarbitalBayesLaplaceEmpirical:
+class TestWarfarinBayesLaplaceEmpirical:
     """
-    Phenobarbital neonatal PK — BAYES(Laplace) vs Grasela & Donn (1985).
+    Warfarin PK (1-CMT oral, 32 subjects) — BAYES(Laplace) vs nlmixr2 FOCEI.
 
-    Grasela TH Jr, Donn SM (1985). Neonatal population pharmacokinetics of
-    phenobarbital derived from routine clinical data.
-    Dev Pharmacol Ther, 8(6):374-383.
+    External anchor: ``tests/external_validation/nlmixr2/reference/warfarin_pk_saem.json``
+    (nlmixr2 5.0, FOCEI objective, same dataset).
 
-    Published FO reference (NONMEM):
-      CL = 0.0047 L/h/kg  (BSV ~19% CV)
-      V  = 0.96  L/kg     (BSV ~16% CV)
+    nlmixr2 FOCEI reference values:
+      KA = 0.766 h⁻¹  CL = 0.132 L/h  V = 8.129 L
 
-    BAYES(Laplace) uses a MAP estimate as the posterior mode, so parameter
-    recovery should match or exceed FO accuracy on this well-defined model.
-    This benchmark extends BAYES coverage to a second published-literature
-    dataset (beyond Theophylline and NONMEM Run 402).
+    The BAYES(Laplace) MAP uses a FOCE objective with a weak prior
+    (prior_sd_theta = 1e8 ≈ flat).  Recovery should be close to FOCEI
+    since the prior contributes negligibly to the objective.
+
+    The Warfarin dataset is well-conditioned (rich sampling, 32 subjects),
+    so FO and FOCEI find the same basin — unlike sparse IV designs where the
+    FO vs FOCEI objective surfaces can differ substantially.
+
+    This test extends BAYES(Laplace) coverage to a second dataset beyond
+    the Boeckmann Theophylline run and NONMEM Run 402.
     """
 
     @pytest.fixture(scope="class")
     def ref(self):
-        if not os.path.exists(_PHENO_BAYES_REF_FILE):
-            pytest.skip(f"Reference not found: {_PHENO_BAYES_REF_FILE}")
-        with open(_PHENO_BAYES_REF_FILE) as fh:
+        if not os.path.exists(_WARF_BAYES_REF_FILE):
+            pytest.skip(f"Reference not found: {_WARF_BAYES_REF_FILE}")
+        with open(_WARF_BAYES_REF_FILE) as fh:
             return json.load(fh)
 
     @pytest.fixture(scope="class")
     def result(self):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            return _build_phenobarbital_bayes_laplace_model().fit()
+            return _build_warfarin_bayes_laplace_model().fit()
 
     # --- Backend and shape sanity --------------------------------------------
 
@@ -427,10 +413,15 @@ class TestPhenobarbitalBayesLaplaceEmpirical:
         samples = result.posterior_samples["theta"]
         assert samples.ndim == 2
         assert samples.shape[0] >= 50, f"Too few samples: {samples.shape[0]}"
-        assert samples.shape[1] == 3, f"Expected 3 theta params, got {samples.shape[1]}"
+        assert samples.shape[1] == 3, f"Expected 3 theta params (KA/CL/V), got {samples.shape[1]}"
 
-    def test_ofv_is_finite(self, result):
-        assert np.isfinite(result.ofv), f"OFV={result.ofv}"
+    def test_ofv_is_finite_and_not_penalty(self, result):
+        """OFV must be finite and well below the 1e9 failure sentinel."""
+        assert np.isfinite(result.ofv), f"OFV={result.ofv} is not finite"
+        assert result.ofv < 1e6, (
+            f"OFV={result.ofv:.1f} is suspiciously large — MAP likely failed. "
+            "Check for optimizer divergence or warm-start η corruption."
+        )
 
     def test_omega_psd(self, result):
         eigvals = np.linalg.eigvalsh(result.omega_final)
@@ -439,49 +430,27 @@ class TestPhenobarbitalBayesLaplaceEmpirical:
     def test_sigma_positive(self, result):
         assert result.sigma_final[0, 0] > 0
 
-    # --- Parameter recovery vs Grasela 1985 ----------------------------------
-    # Use theta_final (MAP estimate) for parameter assertions, consistent with
-    # other BAYES(Laplace) tests in the suite.  posterior_samples is validated
-    # separately for shape; for sparse IV data the Laplace sample mean can
-    # diverge from the MAP when the Hessian is poorly conditioned for V.
+    # --- Parameter recovery vs nlmixr2 FOCEI ---------------------------------
 
-    def test_cl_per_kg_within_25pct_of_literature(self, result):
+    def test_ka_within_20pct_of_focei(self, result, ref):
         est = float(result.theta_final[0])
-        pct = 100.0 * abs(est - _PHENO_BAYES_TRUE_CL_PER_KG) / _PHENO_BAYES_TRUE_CL_PER_KG
-        assert pct < 25.0, (
-            f"BAYES MAP CL/kg={est:.5f} is {pct:.1f}% from Grasela 1985 "
-            f"{_PHENO_BAYES_TRUE_CL_PER_KG} (tol 25%)"
-        )
+        ref_val = float(ref["theta"]["KA"])
+        pct = 100.0 * abs(est - ref_val) / ref_val
+        assert pct < 20.0, f"BAYES MAP KA={est:.4f} is {pct:.1f}% from nlmixr2 {ref_val:.4f} (tol 20%)"
 
-    def test_v_per_kg_physiologically_plausible(self, result):
-        """
-        V/kg remains in a neonatal physiological range.
-
-        NOTE: BAYES(Laplace) uses FOCEI for the MAP objective, which can find a
-        different local optimum than FO on sparse IV designs.  On this 59-subject
-        phenobarbital dataset the FOCEI MAP converges to V/kg ≈ 2.5 L/kg while
-        FO recovers V/kg ≈ 0.96 L/kg (Grasela 1985).  This is a documented
-        FO vs FOCEI landscape difference on sparse data, not a regression.
-        CL (well-identified from trough levels) agrees within 25% across both
-        estimators.  A strict V parity test is omitted here; the test instead
-        verifies that V is within a broad physiological envelope.
-        """
+    def test_cl_within_15pct_of_focei(self, result, ref):
         est = float(result.theta_final[1])
-        assert 0.1 < est < 10.0, (
-            f"BAYES MAP V/kg={est:.4f} outside broad neonatal range 0.1–10 L/kg; "
-            "check for optimizer divergence"
+        ref_val = float(ref["theta"]["CL"])
+        pct = 100.0 * abs(est - ref_val) / ref_val
+        assert pct < 15.0, f"BAYES MAP CL={est:.4f} is {pct:.1f}% from nlmixr2 {ref_val:.4f} (tol 15%)"
+
+    def test_v_within_15pct_of_focei(self, result, ref):
+        est = float(result.theta_final[2])
+        ref_val = float(ref["theta"]["V"])
+        pct = 100.0 * abs(est - ref_val) / ref_val
+        assert pct < 15.0, f"BAYES MAP V={est:.4f} is {pct:.1f}% from nlmixr2 {ref_val:.4f} (tol 15%)"
+
+    def test_subject_count_matches_data(self, result):
+        assert len(result.post_hoc_etas) == 32, (
+            f"Expected 32 Warfarin subjects, got {len(result.post_hoc_etas)}"
         )
-
-    def test_halflife_physiologically_plausible(self, result):
-        """Half-life from MAP CL/V should remain in the broad neonatal range."""
-        cl = float(result.theta_final[0])
-        v = float(result.theta_final[1])
-        if cl > 0 and v > 0:
-            hl = v * np.log(2) / cl
-            assert 30.0 < hl < 1000.0, (
-                f"BAYES MAP t½={hl:.1f} h outside broad neonatal envelope 30–1000 h"
-            )
-
-    def test_subject_count_matches_reference(self, result, ref):
-        n_expected = int(ref["openpkpd_simulation_parameters"]["n_subjects"])
-        assert len(result.post_hoc_etas) == n_expected

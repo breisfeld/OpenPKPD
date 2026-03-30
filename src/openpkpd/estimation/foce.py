@@ -595,6 +595,20 @@ class FOCEMethod(EstimationMethod):
             eta_hat = self._inner_loop(population_model, p)
             self._current_eta_hat = eta_hat
             ofv = self._outer_ofv(population_model, p, eta_hat)
+            # If the outer OFV signals a hard failure (≥ 1e9 sentinel), the
+            # warm-started η-hat is likely corrupted — typically by the optimizer
+            # having explored a near-singular omega region where all ETA values
+            # are shrunk to zero.  Retry from a cold (zero) start so that the
+            # best-iterate tracker sees an accurate OFV and the next warm-start
+            # begins from a clean state rather than the corrupted one.
+            if ofv >= 1e9:
+                self._current_eta_hat = {
+                    sid: np.zeros(init_params.n_eta())
+                    for sid in population_model.subject_ids()
+                }
+                eta_hat = self._inner_loop(population_model, p)
+                self._current_eta_hat = eta_hat
+                ofv = self._outer_ofv(population_model, p, eta_hat)
             self._iter += 1
             self._ofv_history.append(ofv)
             if ofv < self._best_outer_ofv:
@@ -613,6 +627,12 @@ class FOCEMethod(EstimationMethod):
             maxeval=self.maxeval,
         )
         final_params = ParameterSet.from_vector(result.x, init_params).apply_bounds()
+        # Reset to zero warm-start for the final evaluation so that a corrupted
+        # η-hat cache (from degenerate omega regions explored during optimization)
+        # does not propagate into the reported OFV.
+        self._current_eta_hat = {
+            sid: np.zeros(init_params.n_eta()) for sid in population_model.subject_ids()
+        }
         final_eta_hat = self._inner_loop(population_model, final_params)
         final_ofv = self._outer_ofv(population_model, final_params, final_eta_hat)
         result, final_params, final_eta_hat, final_ofv = self._maybe_promote_best_iterate(
@@ -689,9 +709,23 @@ class FOCEMethod(EstimationMethod):
             return result, final_params, final_eta_hat, final_ofv
         if self._best_outer_ofv >= final_ofv:
             return result, final_params, final_eta_hat, final_ofv
+        # Re-evaluate at the best iterate using a *cold* (zero) inner warm-start.
+        # If the optimizer wandered through a numerically degenerate region
+        # (e.g. omega collapsing toward zero), the cached eta_hat can be
+        # corrupted, causing _outer_ofv to return the 1e10 penalty sentinel even
+        # at a genuinely good parameter point.  A zero-start inner loop is
+        # safe and gives the canonical OFV at that point.
         best_params = ParameterSet.from_vector(self._best_outer_x, init_params).apply_bounds()
-        best_eta_hat = self._inner_loop(population_model, best_params)
-        best_ofv = self._outer_ofv(population_model, best_params, best_eta_hat)
+        n_eta = init_params.n_eta()
+        saved_eta_hat = self._current_eta_hat
+        self._current_eta_hat = {
+            sid: np.zeros(n_eta) for sid in population_model.subject_ids()
+        }
+        try:
+            best_eta_hat = self._inner_loop(population_model, best_params)
+            best_ofv = self._outer_ofv(population_model, best_params, best_eta_hat)
+        finally:
+            self._current_eta_hat = saved_eta_hat
         if best_ofv < final_ofv:
             logger.info("  Retaining best iterate OFV %.4f -> %.4f", final_ofv, best_ofv)
             result = SimpleNamespace(

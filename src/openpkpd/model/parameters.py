@@ -23,6 +23,8 @@ _MAX_OMEGA_DIAG = 9.0
 _MAX_COVA_LOG_DIAG_BOUND = 0.5 * math.log(_MAX_OMEGA_DIAG)  # ≈ 1.099
 
 
+
+
 def _exp_covariance_diag(raw: float) -> float:
     """Exponentiate a covariance log-Cholesky diagonal without overflowing on squaring."""
     return math.exp(min(raw, _MAX_COVARIANCE_LOG_DIAG))
@@ -494,9 +496,12 @@ class ParameterSet:
 
         - Free THETA: (None, None) — the logit/log transform already
           enforces spec.lower/upper in ``from_vector``/``apply_bounds``.
-        - OMEGA/SIGMA log-Cholesky diagonal: (-inf, _MAX_COVA_LOG_DIAG_BOUND)
+        - OMEGA/SIGMA log-Cholesky diagonal: (None, _MAX_COVA_LOG_DIAG_BOUND)
           so omega_ii ≤ _MAX_OMEGA_DIAG.  Prevents the outer loop from
           driving IIV to infinity (a degenerate but numerically cheap solution).
+          No lower bound is set: if the optimizer drives omega toward zero,
+          the ``objective()`` closure detects the resulting 1e10 penalty and
+          retries with a cold η-hat reset (see foce.py) to recover clean OFV.
         - OMEGA/SIGMA off-diagonal Cholesky elements: (None, None).
         """
         bounds: list[tuple[float | None, float | None]] = []

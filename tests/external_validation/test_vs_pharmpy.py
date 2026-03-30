@@ -32,10 +32,15 @@ Pharmpy documentation: https://pharmpy.github.io/latest/
 from __future__ import annotations
 
 import importlib.util
+import json
 import math
+import os
+import warnings
 
 import numpy as np
 import pytest
+
+DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 
 # ---------------------------------------------------------------------------
 # Layer A: Shrinkage formula cross-check (no pharmpy required)
@@ -520,3 +525,137 @@ class TestNonparametricVsPharmpyPheno:
 
     def test_nonparametric_empirical_eta_mean_stays_near_zero(self, openpkpd_result):
         np.testing.assert_allclose(openpkpd_result.empirical_mean(), np.zeros(2), atol=0.05)
+
+
+
+# ---------------------------------------------------------------------------
+# Theophylline Nonparametric vs nlmixr2 FOCEI reference
+# ---------------------------------------------------------------------------
+
+_THEO_NP_DATA_FILE = os.path.join(DATA_DIR, "theophylline_boeckmann.csv")
+_THEO_NP_FOCEI_REF_FILE = os.path.join(
+    os.path.dirname(__file__), "nlmixr2", "reference", "theophylline_foce.json"
+)
+
+_THEO_NP_PK = """\
+KA = THETA(1)*EXP(ETA(1))
+CL = THETA(2)*EXP(ETA(2))
+V  = THETA(3)*EXP(ETA(3))
+"""
+
+_THEO_NP_ERROR = "Y = F + F*EPS(1)"
+
+
+def _build_theophylline_nonparametric_model(
+    maxeval: int = 200,
+    max_iter: int = 60,
+):
+    """1-cmt oral nonparametric on 12-subject Boeckmann theophylline dataset."""
+    from openpkpd import ModelBuilder
+    from openpkpd.data.dataset import NONMEMDataset
+
+    if not os.path.exists(_THEO_NP_DATA_FILE):
+        pytest.skip(f"Theophylline data not found: {_THEO_NP_DATA_FILE}")
+
+    ds = NONMEMDataset.from_csv(_THEO_NP_DATA_FILE)
+    return (
+        ModelBuilder()
+        .problem("Theophylline 1-cmt oral — Nonparametric vs nlmixr2 FOCEI")
+        .dataset(ds)
+        .subroutines(advan=2, trans=2)
+        .pk(_THEO_NP_PK)
+        .error(_THEO_NP_ERROR)
+        # Absolute (not per-kg) CL (L/h) and V (L) for the Boeckmann dataset.
+        # nlmixr2 FOCEI reference: KA≈1.44, CL≈2.79, V≈32.19
+        .theta([(0.1, 1.5, 10.0), (0.1, 2.8, 10.0), (5.0, 32.0, 100.0)])
+        .omega([0.5, 0.25, 0.25])
+        .sigma(0.02)
+        .estimation(
+            method="NONPARAMETRIC",
+            base_method="FOCEI",
+            maxeval=maxeval,
+            max_iter=max_iter,
+        )
+        .build()
+    )
+
+
+@pytest.mark.external_validation
+@pytest.mark.slow
+class TestTheophyllineNonparametricEmpirical:
+    """
+    Theophylline 1-cmt oral nonparametric vs nlmixr2 FOCEI basin.
+
+    NONPARAMETRIC (NPML/EM) estimation is compared against the nlmixr2 FOCEI
+    reference for CL and V.  These two well-identified parameters should agree
+    within ±20% because the nonparametric distribution mode should coincide
+    with the FOCEI estimate for a model this well-specified.
+
+    KA is deliberately excluded from the hard tolerance check: it is harder
+    to identify nonparametrically with only 12 subjects and is more sensitive
+    to the support-point initialisation.
+
+    This provides a second nonparametric benchmark dataset beyond the
+    Pharmpy pheno reference (59 subjects, IV).  Together they span both
+    oral and IV administration, and small vs moderate N.
+
+    Reference: nlmixr2 FOCEI on nlmixr2data::theo_sd (12 subjects, Boeckmann).
+    """
+
+    @pytest.fixture(scope="class")
+    def nlmixr2_ref(self):
+        if not os.path.exists(_THEO_NP_FOCEI_REF_FILE):
+            pytest.skip(f"nlmixr2 FOCEI reference not found: {_THEO_NP_FOCEI_REF_FILE}")
+        with open(_THEO_NP_FOCEI_REF_FILE) as fh:
+            return json.load(fh)
+
+    @pytest.fixture(scope="class")
+    def result(self):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return _build_theophylline_nonparametric_model().fit()
+
+    # --- Sanity checks -------------------------------------------------------
+
+    def test_ofv_is_finite(self, result):
+        assert np.isfinite(result.ofv), f"OFV={result.ofv}"
+
+    def test_support_weights_sum_to_one(self, result):
+        if hasattr(result, "support_weights") and result.support_weights is not None:
+            total = float(np.sum(result.support_weights))
+            assert abs(total - 1.0) < 1e-4, f"Support weights sum={total:.6f}"
+
+    def test_support_points_non_degenerate(self, result):
+        if hasattr(result, "support_points") and result.support_points is not None:
+            assert len(result.support_points) >= 2, "Collapsed to ≤1 support point"
+
+    def test_omega_psd(self, result):
+        eigvals = np.linalg.eigvalsh(result.omega_final)
+        assert np.all(eigvals >= -1e-8), f"OMEGA not PSD: {eigvals}"
+
+    def test_sigma_positive(self, result):
+        assert result.sigma_final[0, 0] > 0
+
+    # --- Parameter agreement with nlmixr2 FOCEI basin ------------------------
+
+    def test_cl_tracks_focei_basin(self, result, nlmixr2_ref):
+        est = float(result.theta_final[1])
+        reference = float(nlmixr2_ref["theta"]["CL"])
+        pct = 100.0 * abs(est - reference) / reference
+        assert pct < 20.0, (
+            f"Nonparametric CL={est:.4f} is {pct:.1f}% from nlmixr2 FOCEI "
+            f"{reference:.4f} (tol 20%)"
+        )
+
+    def test_v_tracks_focei_basin(self, result, nlmixr2_ref):
+        est = float(result.theta_final[2])
+        reference = float(nlmixr2_ref["theta"]["V"])
+        pct = 100.0 * abs(est - reference) / reference
+        assert pct < 20.0, (
+            f"Nonparametric V={est:.3f} is {pct:.1f}% from nlmixr2 FOCEI "
+            f"{reference:.3f} (tol 20%)"
+        )
+
+    def test_ka_is_physiologically_plausible(self, result):
+        ka = float(result.theta_final[0])
+        assert 0.1 < ka < 10.0, f"KA={ka:.3f} outside plausible oral range 0.1–10 h⁻¹"

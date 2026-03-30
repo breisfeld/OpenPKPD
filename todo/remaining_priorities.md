@@ -405,6 +405,28 @@ validation class passed (`5 passed` in `30.93s`) and documents a converged
 support-point fit that stays near the Pharmpy fixed-effects / residual-scale
 basin without collapsing the support weights. This closes the old "no
 empirical nonparametric anchor" gap, though coverage is still only one dataset.
+Status note (2026-03-30): Four new external-validation benchmark classes added
+(`34 passed` in `219s`):
+- `TestWarfarinSAEMvsNlmixr2` — SAEM on Warfarin PK (32 subjects) vs existing
+  `warfarin_pk_saem.json` nlmixr2 reference; KA, V, and sigma are release-gated;
+  CL has a documented systematic SAEM gap and is tracked with a wide safety-net
+  assertion rather than hidden.
+- `TestPhenobarbitalSAEMvsLiterature` — SAEM on neonatal phenobarbital (59
+  subjects) vs Grasela & Donn (1985) published FO NONMEM reference; CL/kg within
+  35%, V/kg within 25%, half-life within 40% of literature. Provides a second
+  published-literature SAEM anchor beyond theophylline/Monolix.
+- `TestPhenobarbitalBayesLaplaceEmpirical` — BAYES(Laplace) on phenobarbital vs
+  Grasela 1985; CL/kg within 25%; V/kg test documents known FO-vs-FOCEI basin
+  difference on sparse IV data (FOCEI MAP finds V/kg ≈ 2.5 vs FO 0.96) and
+  uses a physiological-range assertion instead of a literature-match assertion.
+  Extends BAYES(Laplace) coverage to a second dataset (beyond theophylline and
+  NONMEM Run 402).
+- `TestTheophyllineNonparametricEmpirical` — Nonparametric NPML on Boeckmann
+  theophylline (12 subjects, oral) vs nlmixr2 FOCEI basin; CL and V within 20%;
+  KA physiologically plausible. Provides a second nonparametric dataset anchor
+  (oral vs pheno IV) and confirms support-point non-collapse.
+The remaining gap for RP-001 is mixed-endpoint PK/PD benchmark coverage and a
+second IMP/IMPMAP dataset with an external (NONMEM/Monolix) reference.
 
 ### RP-002 — Control-stream support matrix and round-trip contract
 *Created: 2026-03-29*

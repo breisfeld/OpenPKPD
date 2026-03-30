@@ -190,6 +190,8 @@ dev = [
     # in the [gui] extra — tests that actually need Qt are skipped when
     # PySide6 is absent (see tests/unit/gui/conftest.py).
     "platformdirs>=4.9",
+    "hatchling>=1.29.0",
+    "build>=1.4.2",
 ]
 validation = [
     "rpy2>=3.6.5",

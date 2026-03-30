@@ -47,8 +47,11 @@ def _(mo):
         | **IMP** | Monte Carlo importance sampling | Slow | Very high |
         | **Nonparametric** | NPML / NPMLE | Moderate | Distribution-free |
 
-        OpenPKPD also supports **Bayesian estimation** (PyMC/NumPyro back-ends)
-        via `method="BAYES"`.
+        OpenPKPD also supports **Bayesian estimation** via `method="BAYES"`,
+        using either the **PyMC** back-end (install `openpkpd[bayes]`) or the
+        built-in pure-NumPy **NUTS** sampler (no extra dependency required).
+        The built-in NUTS backend currently samples THETA only; use PyMC or
+        `BAYES(backend="laplace")` for faster Bayesian summaries.
         """
     )
     return
@@ -472,12 +475,19 @@ def _(mo):
 
         ## 7. Bayesian Estimation (NUTS / MCMC)
 
-        OpenPKPD interfaces with **PyMC** (default) or **NumPyro** for full
-        Bayesian posterior sampling via the No-U-Turn Sampler (NUTS).
+        OpenPKPD supports Bayesian posterior sampling via the No-U-Turn Sampler
+        (NUTS) through two paths:
+
+        - **Built-in NumPy NUTS** — no extra dependency; `backend="nuts"`.
+          Currently samples **THETA only** (OMEGA and SIGMA remain fixed).
+          Best for lightweight checks and models with analytical PK subroutines.
+        - **PyMC** — install `openpkpd[bayes]`; `backend="pymc"`. Recommended
+          for primary MCMC workflows needing full posterior coverage.
+        - **Laplace** — `backend="laplace"`. Fast Gaussian approximation at the
+          MAP; no MCMC required. Good for quick Bayesian summaries.
 
         ```bash
-        pip install "openpkpd[bayes]"   # PyMC backend (recommended)
-        pip install "openpkpd[jax]"     # NumPyro backend (GPU-friendly)
+        pip install "openpkpd[bayes]"   # PyMC backend (recommended for full MCMC)
         ```
 
         ### Configuring the sampler
@@ -503,7 +513,7 @@ def _(mo):
                 nsamples=1000,   # posterior draws per chain (after warm-up)
                 nchains=4,       # independent Markov chains
                 nwarmup=500,     # NUTS warm-up / step-size adaptation
-                backend="pymc",  # or "numpyro"
+                backend="pymc",  # or "nuts" (built-in) or "laplace"
                 seed=42,
             )
         )

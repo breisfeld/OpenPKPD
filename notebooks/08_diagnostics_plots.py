@@ -565,7 +565,7 @@ def _(mo):
 
         Both `compute_rhat` and `compute_ess` implement the **split-R-hat**
         method of Vehtari et al. (2021) with rank normalisation, so they work
-        without ArviZ on any backend (NumPyro, PyMC, or custom chains).
+        without ArviZ on any backend (built-in NUTS, PyMC, or custom chains).
 
         ### Marginal posteriors and forest plot
 

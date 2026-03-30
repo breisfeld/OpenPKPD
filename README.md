@@ -20,7 +20,7 @@ NONMEM-style control-stream support, a CLI, and a Qt desktop GUI.
 - **Covariate workflows**: manual covariate coding, imputation helpers, and stepwise SCM
 - **Data/output**: NONMEM-compatible `.lst/.ext/.phi/.cov/.cor` outputs, `$TABLE`, HTML reports, and NCA exports
 - **Advanced integrations**: SBML import, sparse-sampling NCA, built-in multi-core parallelism for estimation and simulation
-- **Examples and tests**: 30 example scripts plus extensive unit/integration/regression coverage
+- **Examples and tests**: 32 example scripts plus extensive unit/integration/regression coverage
 
 ## Installation
 
@@ -190,9 +190,10 @@ print("OFV:", result.ofv)
 print("THETA:", result.theta_final)
 ```
 
-See `examples/` for 30 runnable examples covering FO/FOCE, control streams,
+See `examples/` for 32 runnable examples covering FO/FOCE, control streams,
 FOCEI optimizer controls, VPC, NCA, optimal design, Bayesian estimation,
-SBML import, DDE, IOV, PBPK, and advanced PD.
+SBML import, DDE, IOV, PBPK, advanced PD, IMP/IMPMAP warm-start comparison,
+nonparametric support-point estimation, and phenobarbital population PK.
 
 The repository also ships a marimo notebook library under `notebooks/`; install
 `openpkpd[notebooks]` to run them locally.
@@ -204,6 +205,10 @@ The repository includes public cross-tool benchmarks under
 
 - Monolix-backed theophylline SAEM checks
 - nlmixr2-backed FOCEI checks for theophylline and warfarin
+- nlmixr2-backed SAEM checks for warfarin PK (32 subjects)
+- Grasela & Donn (1985) SAEM checks for neonatal phenobarbital (59 subjects)
+- nlmixr2 FOCEI basin anchor for warfarin BAYES(Laplace)
+- nlmixr2 FOCEI basin anchor for theophylline Nonparametric (NPML)
 - PKNCA / Phoenix-style theophylline NCA checks
 - WinNonlin-backed Indometh NCA checks from a published NonCompart validation paper
 - PFIM-backed optimal-design checks and FOCEI diagnostic parity harnesses
@@ -362,6 +367,14 @@ sol = dde.solve({"CL": 2.0, "V": 10.0, "TAU": 0.5},
 | 22 | 5-organ PBPK model (lung, liver, kidney, gut, central) |
 | 23 | Inter-occasion variability (IOV) modelling |
 | 24 | Advanced PD models: effect compartment, turnover, TGI, placebo |
+| 25 | FOCEI optimizer controls: L-BFGS-B, Powell fallback, multi-start, retry logic |
+| 26 | Control-stream optimizer extension inspection |
+| 27 | Phenobarbital neonatal population PK — weight-based allometric scaling |
+| 28 | Indometh NCA (Phoenix WinNonlin reference) |
+| 29 | Optimal design (PFIM-backed sampling-time optimization) |
+| 30 | Four-compartment ADVAN5 (micro-rate) model |
+| 31 | IMP vs IMPMAP warm-start comparison on warfarin PK |
+| 32 | Nonparametric support-point estimation on phenobarbital |
 
 ## Comparison with Other Tools
 

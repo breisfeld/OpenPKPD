@@ -1,6 +1,6 @@
 # OpenPKPD — Remaining Priorities
-*Last updated: 2026-03-29*
-*Priority snapshot date: 2026-03-29*
+*Last updated: 2026-03-30*
+*Priority snapshot date: 2026-03-30*
 
 This document reflects the current source tree, test suite, docs, and examples.
 It is not a historical backlog dump. It focuses on what most limits OpenPKPD
@@ -415,12 +415,15 @@ Status note (2026-03-30): Four new external-validation benchmark classes added
   subjects) vs Grasela & Donn (1985) published FO NONMEM reference; CL/kg within
   35%, V/kg within 25%, half-life within 40% of literature. Provides a second
   published-literature SAEM anchor beyond theophylline/Monolix.
-- `TestPhenobarbitalBayesLaplaceEmpirical` — BAYES(Laplace) on phenobarbital vs
-  Grasela 1985; CL/kg within 25%; V/kg test documents known FO-vs-FOCEI basin
-  difference on sparse IV data (FOCEI MAP finds V/kg ≈ 2.5 vs FO 0.96) and
-  uses a physiological-range assertion instead of a literature-match assertion.
-  Extends BAYES(Laplace) coverage to a second dataset (beyond theophylline and
-  NONMEM Run 402).
+- `TestWarfarinBayesLaplaceEmpirical` — BAYES(Laplace) on warfarin PK (32
+  subjects) vs nlmixr2 FOCEI basin; OFV ≈ −219 (real, not a sentinel); KA
+  within 20%, CL within 15%, V within 15% of the reference (KA −9.4%, CL
+  +0.4%, V −8.2% on the measured run); runtime ≈ 20 s. Replaced a broken
+  phenobarbital BAYES test that produced OFV = 1e10 + 43 due to the FOCE
+  warm-start corruption bug. Also adds `test_ofv_is_finite_and_not_penalty`
+  guard (checks both `np.isfinite(ofv)` and `ofv < 1e6`). Bundled with a
+  three-part FOCE warm-start corruption fix in `foce.py` that prevents the
+  η̂ cache from propagating sentinel values into the best-iterate tracker.
 - `TestTheophyllineNonparametricEmpirical` — Nonparametric NPML on Boeckmann
   theophylline (12 subjects, oral) vs nlmixr2 FOCEI basin; CL and V within 20%;
   KA physiologically plausible. Provides a second nonparametric dataset anchor

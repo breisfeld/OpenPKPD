@@ -51,14 +51,19 @@ values with a fixed seed and a moderate SAEM schedule (`200 + 100` iterations).
 
 ### SAEM
 
-- **Anchors:** public Monolix theophylline SAEM reference and `nlmixr2`
-  warfarin PK SAEM reference
+- **Anchors:** public Monolix theophylline SAEM reference; `nlmixr2` warfarin
+  PK SAEM reference; Grasela & Donn (1985) neonatal phenobarbital FO NONMEM
+  reference
 - **Tests:** `tests/external_validation/test_vs_monolix.py`,
-  `tests/external_validation/test_saem_reference.py`
-- **Current interpretation:** SAEM is no longer validated only on one public
-  example. It now has both a Monolix-backed theophylline path and an
-  `nlmixr2`-backed warfarin PK path, but broader mixed-endpoint and PBPK-style
-  empirical coverage is still missing.
+  `tests/external_validation/test_saem_reference.py`,
+  `tests/external_validation/test_vs_nlmixr2.py`
+- **Current interpretation:** SAEM now has three external anchors — Monolix
+  theophylline, nlmixr2 warfarin PK (`TestWarfarinSAEMvsNlmixr2`: KA, V, and
+  σ within 30% of the reference; CL has a documented ~28% systematic gap that
+  is tracked explicitly rather than hidden), and Grasela & Donn (1985)
+  phenobarbital (`TestPhenobarbitalSAEMvsLiterature`: CL/kg within 35%, V/kg
+  within 25%, half-life within 40% of the published FO NONMEM values). Broader
+  mixed-endpoint and PBPK-style empirical coverage is still missing.
 
 ### BAYES(Laplace)
 
@@ -74,6 +79,21 @@ values with a fixed seed and a moderate SAEM schedule (`200 + 100` iterations).
     fixture (`4 passed` in `129.43s`)
   - this adds a second model family beyond the 1-compartment oral PK empirical
     slices and makes BAYES(Laplace) less dependent on one narrow benchmark shape
+- **Warfarin BAYES(Laplace) benchmark (2026-03-30):**
+  - `TestWarfarinBayesLaplaceEmpirical` validates BAYES(Laplace) against the
+    `nlmixr2` FOCEI basin on 32-subject warfarin PK: OFV ≈ −219 (real, not a
+    penalty sentinel), KA within 20%, CL within 15%, and V within 15% of the
+    nlmixr2 reference (`KA −9.4%`, `CL +0.4%`, `V −8.2%` on the measured run)
+  - runtime ≈ 20 s; the `test_ofv_is_finite_and_not_penalty` guard checks both
+    `np.isfinite(ofv)` and `ofv < 1e6` to catch any recurrence of the warm-start
+    OFV sentinel bug that was fixed in the same pass (see note below)
+  - **FOCE warm-start corruption fix (2026-03-30):** a three-part fix in
+    `foce.py` eliminates the η̂ warm-start contamination that caused the FOCE
+    outer optimizer to emit a `1e10` penalty OFV when the search passed through
+    a near-singular Ω region and the cached η̂ values became stale. The fix adds
+    a cold-start retry in `objective()`, a η̂ reset before final OFV evaluation
+    in `_run_single()`, and a η̂ reset before best-iterate re-evaluation in
+    `_maybe_promote_best_iterate()`.
 
 ### BAYES(NUTS)
 
@@ -128,7 +148,8 @@ values with a fixed seed and a moderate SAEM schedule (`200 + 100` iterations).
 
 ### Nonparametric
 
-- **Anchors:** Pharmpy's bundled `pheno` empirical dataset and fit results,
+- **Anchors:** Pharmpy's bundled `pheno` empirical dataset and fit results;
+  `nlmixr2` FOCEI basin for Boeckmann theophylline (12-subject oral PK);
   plus exact EM-weight references for the core NPML optimizer
 - **Tests:** `tests/external_validation/test_vs_pharmpy.py`,
   `tests/external_validation/test_advanced_estimators_reference.py`
@@ -150,6 +171,14 @@ values with a fixed seed and a moderate SAEM schedule (`200 + 100` iterations).
   - this is a real empirical operational benchmark, but it is still anchored
     to Pharmpy's FOCEI basin rather than a separate external nonparametric
     reference implementation
+- **Theophylline oral NPML benchmark (2026-03-30):**
+  - `TestTheophyllineNonparametricEmpirical` validates NPML on the Boeckmann
+    theophylline dataset (12 subjects, oral) against the `nlmixr2` FOCEI basin:
+    CL within 20% (`−0.1%` on the measured run), V within 20% (`+0.2%`), KA
+    physiologically plausible (1.47 h⁻¹ vs nlmixr2 1.44 h⁻¹)
+  - provides a second nonparametric dataset anchor (oral PK vs the IV-type pheno
+    dataset) and confirms support-point non-collapse on a different absorption
+    route
 
 ## PKNCA / Phoenix-style NCA: theophylline
 
@@ -405,6 +434,16 @@ OMEGA update step size. No fix yet.
 
 - **Monolix SAEM:** OpenPKPD is numerically consistent with the public Monolix
   theophylline project after matching dose units.
+- **nlmixr2 SAEM (warfarin):** KA, V, and σ are within 30% of the nlmixr2
+  reference. CL has a documented ~28% systematic gap (tracked in
+  `test_cl_documented_gap_from_nlmixr2`); root cause under investigation.
+- **SAEM (phenobarbital, Grasela 1985):** CL/kg within 35%, V/kg within 25%,
+  and half-life within 40% of the published FO NONMEM reference values.
+- **BAYES(Laplace) (warfarin):** OFV ≈ −219 (not a penalty value); KA −9.4%,
+  CL +0.4%, V −8.2% from the nlmixr2 FOCEI basin. FOCE warm-start corruption
+  fix eliminates the previous 1e10 OFV sentinel.
+- **Nonparametric (theophylline NPML):** CL −0.1%, V +0.2%, KA +1.9% from the
+  nlmixr2 FOCEI basin on the 12-subject Boeckmann theophylline dataset.
 - **PKNCA / Phoenix-style NCA:** OpenPKPD reproduces the published theophylline
   summary metrics very closely, and the repository now separately tests
   interpolated user-specified cutoff handling in the NCA unit suite.
@@ -413,8 +452,9 @@ OMEGA update step size. No fix yet.
   extravascular reference tables for both linear and log rules.
 - **nlmixr2 FOCEI:** Excellent agreement (< 5% on all parameters) for
   theophylline and warfarin 1-compartment models.
-- **NONMEM 2-compartment (Run 402):** Significant gap due to local minimum;
-  known optimiser limitation; multi-start fix planned.
+- **NONMEM 2-compartment (Run 402):** OpenPKPD now reaches the correct
+  NONMEM-like parameter basin. The remaining note is a raw OFV offset due to
+  differing Hessian-correction conventions, not a local-minimum failure.
 - **NONMEM covariate model (Run 504/504f):** 7–11% OFV gap; covariate
   exponent estimation needs improved initialisation and convergence criteria.
 

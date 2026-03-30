@@ -60,8 +60,7 @@ def _(mo):
 
         # Or install individual extras
         pip install openpkpd[plots]   # matplotlib only
-        pip install openpkpd[jax]     # JAX acceleration + NumPyro Bayes
-        pip install openpkpd[bayes]   # PyMC Bayesian
+        pip install openpkpd[bayes]   # PyMC Bayesian (recommended for full MCMC)
         ```
 
         ## About OpenPKPD

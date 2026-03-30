@@ -5,11 +5,31 @@ Rao-Blackwellisation.
 Two-phase algorithm:
   Phase 1 (K1 ≈ 300 iterations, γ=1, stochastic exploration):
     E-step: Sample C chains η_{i,c}^(k) ~ p(η|y_i, θ^(k-1)) via MH per chain
-    M-step: Update θ, Ω from Rao-Blackwell sufficient statistics
-    Q-update: Q^(k) = Q^(k-1) + γ_k * (SS_k - Q^(k-1))
+    M-step:
+      Ω update — closed-form SA:  Q_Ω = Q_Ω + γ_k·(SS_Ω − Q_Ω),  Ω = Q_Ω
+      θ update — direct M-step argmax every iteration:  θ = argmax h_k(θ)
+      σ update — direct M-step argmax every iteration:  σ = argmax h_k(σ)
 
   Phase 2 (K2 ≈ 200 iterations, γ_k = (k-K1)^{-0.7}, convergence):
-    Same as Phase 1 with decreasing step size → convergence
+    Same E-step and Ω update (γ decreasing).
+    θ and σ: still direct argmax at each iteration (no SA averaging).
+    Final θ/σ reported as mean of the last _PH2_WINDOW phase-2 estimates.
+
+Design note on θ/σ updates
+---------------------------
+Standard SAEM theory (Kuhn & Lavielle 2004) applies the SA recursion to
+sufficient statistics, not to the M-step argmax.  For exponential-family
+models the SA-averaged sufficient statistics feed a closed-form M-step
+(e.g. Ω = Q_Ω / N).  For nonlinear mixed-effects models the θ M-step has
+no closed-form; the common implementation computes
+  θ_{k+1} = argmax Q_k(θ),  Q_k(θ) = Q_{k-1}(θ) + γ_k·(h_k(θ)−Q_{k-1}(θ))
+i.e. SA is applied to the *function* Q, not to the argmax.  Applying SA
+averaging to the argmax sequence instead (Q_θ += γ·(θ_new − Q_θ)) is a
+biased approximation: in phase 2 it produces an exponentially-weighted
+average of past argmax values that systematically undershoots the true
+population parameter (observed as −28% CL bias on warfarin).  The correct
+treatment is to take the direct argmax at each iteration and average the
+last _PH2_WINDOW estimates for reporting stability.
 
 Rao-Blackwellisation (Kuhn & Lavielle 2004, Combes & Lavielle 2015):
   With C parallel MH chains per subject, the Monte Carlo variance of the
@@ -198,11 +218,11 @@ class SAEMMethod(EstimationMethod):
         omega = params.omega.copy()
         sigma = params.sigma.copy()
 
-        # Running average sufficient statistics for OMEGA M-step
-        # Q_omega = E[eta_i * eta_i^T]
+        # Running average sufficient statistic for OMEGA M-step only.
+        # Q_omega = E[eta_i * eta_i^T]  (SAEM SA recursion, closed-form M-step)
+        # NOTE: theta and sigma are updated via direct M-step argmax — no SA
+        # averaging is applied to those parameters (see module docstring).
         Q_omega = np.zeros((n_eta, n_eta))
-        Q_theta = theta.copy()
-        Q_sigma = sigma.copy()
         sigma_slice = self._sigma_vector_slice(init_params)
         sigma_free = sigma_slice.stop - sigma_slice.start
 
@@ -230,9 +250,13 @@ class SAEMMethod(EstimationMethod):
         ofv_history: list[float] = []
         K_total = self.n_iter_phase1 + self.n_iter_phase2
 
-        # Phase-2 parameter tracking for convergence criterion
-        # Stores the concatenation [theta | diag(omega)] at each phase-2 step.
+        # Phase-2 parameter tracking for:
+        #   ph2_param_history — convergence criterion (compares window means)
+        #   ph2_theta_history — final theta_final = mean of last _PH2_WINDOW
+        #   ph2_sigma_history — final sigma_final = mean of last _PH2_WINDOW
         ph2_param_history: list[np.ndarray] = []
+        ph2_theta_history: list[np.ndarray] = []
+        ph2_sigma_history: list[np.ndarray] = []
         converged = False
 
         for k in range(K_total):
@@ -288,8 +312,9 @@ class SAEMMethod(EstimationMethod):
 
             # THETA M-step: minimize Rao-Blackwell averaged subject OFV
             # (IndividualModel.log_likelihood returns -2 * log p(y | eta, theta))
-            # For efficiency, only update theta every 5 iterations in phase 1
-            if (k % 5 == 0 or not is_phase1) and free_theta_idx:
+            # Updated every iteration (phase 1 and 2).  No SA averaging is
+            # applied to theta — see module docstring for rationale.
+            if free_theta_idx:
 
                 def theta_obj(free_th: np.ndarray, _theta=theta, _sigma=sigma) -> float:
                     th = _theta.copy()
@@ -320,7 +345,7 @@ class SAEMMethod(EstimationMethod):
                 )
                 theta_new = theta.copy()
                 theta_new[free_theta_idx] = th_result.x
-                theta_new = (
+                theta = (
                     ParameterSet(
                         theta=theta_new,
                         omega=omega,
@@ -332,21 +357,10 @@ class SAEMMethod(EstimationMethod):
                     .apply_bounds()
                     .theta
                 )
-                Q_theta = Q_theta + gamma * (theta_new - Q_theta)
-                theta = (
-                    ParameterSet(
-                        theta=Q_theta.copy(),
-                        omega=omega,
-                        sigma=sigma,
-                        theta_specs=init_params.theta_specs,
-                        omega_specs=init_params.omega_specs,
-                        sigma_specs=init_params.sigma_specs,
-                    )
-                    .apply_bounds()
-                    .theta
-                )
+                if not is_phase1:
+                    ph2_theta_history.append(theta.copy())
 
-            if (k % 5 == 0 or not is_phase1) and sigma_free > 0:
+            if sigma_free > 0:
                 sigma_template = ParameterSet(
                     theta=theta,
                     omega=omega,
@@ -392,22 +406,11 @@ class SAEMMethod(EstimationMethod):
                 )
                 sigma_vec_new = sigma_vec0.copy()
                 sigma_vec_new[sigma_slice] = sig_result.x
-                sigma_new = (
+                sigma = (
                     ParameterSet.from_vector(sigma_vec_new, sigma_template).apply_bounds().sigma
                 )
-                Q_sigma = Q_sigma + gamma * (sigma_new - Q_sigma)
-                sigma = (
-                    ParameterSet(
-                        theta=theta,
-                        omega=omega,
-                        sigma=Q_sigma.copy(),
-                        theta_specs=init_params.theta_specs,
-                        omega_specs=init_params.omega_specs,
-                        sigma_specs=init_params.sigma_specs,
-                    )
-                    .apply_bounds()
-                    .sigma
-                )
+                if not is_phase1:
+                    ph2_sigma_history.append(sigma.copy())
 
             # Compute current OFV for monitoring (average chain 0 across subjects)
             ofv = 0.0
@@ -455,6 +458,35 @@ class SAEMMethod(EstimationMethod):
         # Final post-hoc ETAs: mean across all chains (RB point estimate)
         final_etas = {sid: np.mean(eta_chains[sid], axis=0) for sid in subj_ids}
 
+        # Final theta: mean of the last _PH2_WINDOW phase-2 M-step argmax values.
+        # This averaging suppresses iteration-to-iteration noise in the M-step
+        # while using the direct argmax (no SA averaging across iterations).
+        W = self._PH2_WINDOW
+        if ph2_theta_history:
+            n_avg = min(W, len(ph2_theta_history))
+            theta_final_arr = np.mean(ph2_theta_history[-n_avg:], axis=0)
+            theta_final_arr = (
+                ParameterSet(
+                    theta=theta_final_arr,
+                    omega=omega,
+                    sigma=sigma,
+                    theta_specs=init_params.theta_specs,
+                    omega_specs=init_params.omega_specs,
+                    sigma_specs=init_params.sigma_specs,
+                )
+                .apply_bounds()
+                .theta
+            )
+        else:
+            theta_final_arr = theta
+
+        # Final sigma: mean of last _PH2_WINDOW phase-2 sigma estimates.
+        if ph2_sigma_history:
+            n_avg = min(W, len(ph2_sigma_history))
+            sigma_final_arr = np.mean(ph2_sigma_history[-n_avg:], axis=0)
+        else:
+            sigma_final_arr = sigma
+
         conv_msg = (
             f"SAEM phase-2 stability criterion met "
             f"({n_chains} chain{'s' if n_chains > 1 else ''} per subject)"
@@ -466,9 +498,9 @@ class SAEMMethod(EstimationMethod):
         )
 
         res = EstimationResult(
-            theta_final=theta,
+            theta_final=theta_final_arr,
             omega_final=omega,
-            sigma_final=sigma,
+            sigma_final=sigma_final_arr,
             ofv=final_ofv,
             converged=converged,
             post_hoc_etas=final_etas,

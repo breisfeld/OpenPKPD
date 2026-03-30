@@ -6,9 +6,9 @@
     "dataset": "synthetic_placebo_response_pd",
     "method": "PlaceboResponseModel.fit",
     "seed": 4,
+    "notes": "Self-consistent openpkpd regression baseline. Useful for drift detection but not yet an external scientific reference.",
     "validation_level": "fixed synthetic placebo-response regression benchmark",
-    "validation_note": "docs/user_guide/analysis_validation_gaps.md",
-    "notes": "Self-consistent openpkpd regression baseline. Useful for drift detection but not yet an external scientific reference."
+    "validation_note": "docs/user_guide/analysis_validation_gaps.md"
   },
   "true_params": {
     "E0": 60.0,
@@ -23,34 +23,34 @@
     "kpl": 0.04
   },
   "params": {
-    "E0": 59.94958444478748,
-    "kdeg": 0.016068460190304095,
-    "Eplacebo": 14.598334411632534,
-    "kpl": 0.051449409786556495
+    "E0": 59.94958818871703,
+    "kdeg": 0.016068448320408844,
+    "Eplacebo": 14.598330536362495,
+    "kpl": 0.051449359066495316
   },
-  "ofv": 25.093759357749118,
-  "aic": 33.09375935774912,
+  "ofv": 25.093759253541236,
+  "aic": 33.093759253541236,
   "converged": true,
   "predicted": [
-    59.94958444478748,
-    59.287734909038214,
-    58.48501309462675,
-    57.56972278687216,
-    56.56602854337318,
-    55.49451750178764,
-    54.37268661658666,
-    53.21536515287526,
-    52.03508097305884,
-    50.842378029622495,
-    49.64609150227379,
-    48.4535861708028,
-    47.270962879407094,
-    46.10323730929281,
-    44.954494721397,
-    43.82802384905103,
-    42.726432701735554,
-    41.6517486774426,
-    40.60550506532861,
-    39.588815746033326
+    59.94958818871703,
+    59.28773808635352,
+    58.485016081146995,
+    57.569725868585415,
+    56.56603193296311,
+    55.494521352420776,
+    54.37269103339126,
+    53.21537020247713,
+    52.03508669148347,
+    50.8423844288254,
+    49.64609857552021,
+    48.45359389708402,
+    47.27097122705129,
+    46.10324623890333,
+    44.95450418823073,
+    43.82803380493098,
+    42.72644309657723,
+    41.65175946046092,
+    40.60551618598123,
+    39.58882715474734
   ]
 }

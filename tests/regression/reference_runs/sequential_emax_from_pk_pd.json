@@ -6,9 +6,9 @@
     "dataset": "synthetic_sequential_emax_from_pk_pd",
     "method": "SequentialPKPDWorkflow.fit_pd",
     "seed": 123,
+    "notes": "Self-consistent openpkpd regression baseline. Useful for drift detection but not yet an external scientific reference.",
     "validation_level": "fixed synthetic sequential PK-derived regression benchmark",
-    "validation_note": "docs/user_guide/analysis_validation_gaps.md",
-    "notes": "Self-consistent openpkpd regression baseline. Useful for drift detection but not yet an external scientific reference."
+    "validation_note": "docs/user_guide/analysis_validation_gaps.md"
   },
   "true_params": {
     "E0": 1.5,
@@ -21,20 +21,20 @@
     "EC50": 1.0
   },
   "params": {
-    "E0": 1.445723639468367,
-    "Emax": 12.191887611986951,
-    "EC50": 3.058915098940389
+    "E0": 1.4457251002244076,
+    "Emax": 12.191887541635966,
+    "EC50": 3.0589167190988578
   },
-  "ofv": 0.021994194561947882,
-  "aic": 6.021994194561948,
+  "ofv": 0.021994194561574733,
+  "aic": 6.021994194561575,
   "converged": true,
   "predicted": [
-    9.016316440997763,
-    9.991470672330221,
-    10.320567712317153,
-    10.041158389254885,
-    9.371462743127443,
-    8.130891352294046,
-    5.1545538657504375
+    9.016316338177601,
+    9.991470730136784,
+    10.320567842979154,
+    10.041158457458176,
+    9.37146268924088,
+    8.130891175195316,
+    5.15455393829484
   ]
 }

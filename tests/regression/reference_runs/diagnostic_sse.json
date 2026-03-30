@@ -6,12 +6,12 @@
     "dataset": "synthetic_theophylline_like",
     "method": "SSE",
     "seed": 11,
+    "notes": "Self-consistent openpkpd regression baseline. Useful for drift detection but not yet an external scientific reference.",
     "validation_level": "internal simulation-reestimation benchmark",
     "external_method_references": [
       "Holford NHG et al. (2000) Simulation of clinical trials. Annu Rev Pharmacol Toxicol 40:209-234."
     ],
-    "validation_note": "docs/user_guide/analysis_validation_gaps.md",
-    "notes": "Self-consistent openpkpd regression baseline. Useful for drift detection but not yet an external scientific reference."
+    "validation_note": "docs/user_guide/analysis_validation_gaps.md"
   },
   "n_replicates": 4,
   "convergence_rate": 1.0,
@@ -30,30 +30,30 @@
     "SIGMA(1,1)": 0.01
   },
   "mean_estimates": {
-    "THETA1": 1.5327087011813014,
-    "THETA2": 2.7646222850252764,
-    "THETA3": 33.1306348732165,
-    "OMEGA(1,1)": 0.03299860571021751,
-    "SIGMA(1,1)": 0.011605723979068436
+    "THETA1": 1.4715329265836719,
+    "THETA2": 2.808678280461081,
+    "THETA3": 33.07305443482743,
+    "OMEGA(1,1)": 0.027983114988296216,
+    "SIGMA(1,1)": 0.008048548102702419
   },
   "bias": {
-    "THETA1": 0.021805800787534284,
-    "THETA2": -0.012634898205258364,
-    "THETA3": 0.007010178517218798,
-    "OMEGA(1,1)": -0.1750348572445624,
-    "SIGMA(1,1)": 0.1605723979068436
+    "THETA1": -0.018978048944218878,
+    "THETA2": 0.0030993858789576155,
+    "THETA3": 0.0052600132166392,
+    "OMEGA(1,1)": -0.3004221252925946,
+    "SIGMA(1,1)": -0.1951451897297581
   },
   "rmse": {
-    "THETA1": 0.04134042342437946,
-    "THETA2": 0.039616585697879673,
-    "THETA3": 0.30075706277082803,
-    "OMEGA(1,1)": 0.012360030045416998,
-    "SIGMA(1,1)": 0.002052902354431791
+    "THETA1": 0.14249520849273314,
+    "THETA2": 0.013348022714092625,
+    "THETA3": 0.1772037306211785,
+    "OMEGA(1,1)": 0.015913251194660347,
+    "SIGMA(1,1)": 0.002163656106288131
   },
   "coverage_95": {
-    "THETA1": 0.75,
-    "THETA2": 0.5,
-    "THETA3": 1.0,
+    "THETA1": 1.0,
+    "THETA2": 0.75,
+    "THETA3": 0.0,
     "OMEGA(1,1)": 1.0,
     "SIGMA(1,1)": 0.75
   }

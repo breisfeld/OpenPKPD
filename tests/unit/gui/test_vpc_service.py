@@ -44,7 +44,7 @@ def _cache_fit_context(
 def test_create_job_requires_cached_fit_context() -> None:
     workspace = Workspace(name="VPC demo")
 
-    with pytest.raises(ValueError, match="requires a successful fit"):
+    with pytest.raises(ValueError, match="requires a reusable successful fit"):
         VPCService().create_job(workspace, fit_service=FitService())
 
 

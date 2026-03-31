@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import math
 import time
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
@@ -48,11 +49,17 @@ def _try_import(name: str):
 _neg2ll = _try_import("neg2ll_obs_loop")
 _probe = _try_import("native_cvodes_advan6_mixed_pkpd_probe")
 
+_multidose = _try_import("native_cvodes_advan6_mixed_pkpd_probe_multidose")
+_sens_probe = _try_import("native_cvodes_advan6_mixed_pkpd_sensitivity_probe_multidose")
+
 pytestmark_native = pytest.mark.skipif(
     _neg2ll is None, reason="native _core extension not available"
 )
 pytestmark_cvodes = pytest.mark.skipif(
     _probe is None, reason="native-cvodes feature not compiled in"
+)
+pytestmark_sens = pytest.mark.skipif(
+    _sens_probe is None, reason="native-cvodes sensitivity probe not compiled in"
 )
 
 
@@ -425,16 +432,6 @@ class TestNativeCvodesPerformance:
 # Section 4 — Multi-dose probe: accuracy, consistency, and performance
 # ===========================================================================
 
-def _try_import_multidose():
-    try:
-        from openpkpd._native import import_core_symbol
-        return import_core_symbol("native_cvodes_advan6_mixed_pkpd_probe_multidose")
-    except Exception:
-        return None
-
-
-_multidose = _try_import_multidose()
-
 pytestmark_multidose = pytest.mark.skipif(
     _multidose is None, reason="native-cvodes multi-dose probe not available"
 )
@@ -607,4 +604,500 @@ class TestCvodesMultidoseAccuracy:
               f"speedup: {speedup:.1f}×")
         assert speedup >= 5.0, (
             f"Expected multi-dose probe ≥5× faster than scipy; got {speedup:.2f}×"
+        )
+
+
+# ===========================================================================
+# Section 5 — Forward-sensitivity probe: analytical vs finite-difference
+# ===========================================================================
+
+# ODE theta order: KTR, KA, CL, V, EMAX, EC50, KOUT, E0
+_PARAM_NAMES = ("KTR", "KA", "CL", "V", "EMAX", "EC50", "KOUT", "E0")
+
+_SENS_THETA = [0.5, 0.3, 0.13, 8.0, 0.9, 1.0, 0.07, 1.0]
+_SENS_OBS   = [0.5, 1.0, 2.0, 4.0, 8.0, 12.0, 24.0]
+_SENS_DT    = [0.0]
+_SENS_DA    = [100.0]
+
+
+def _fd_sensitivity(obs_times, dose_times, dose_amts, theta, eps=1e-5):
+    """
+    Central-FD sensitivity dA/dtheta_j, shape (n_times, 8, 4).
+
+    Uses the multidose probe at ±eps step so the reference is independent of
+    the sensitivity probe implementation.
+    """
+    n_t = len(obs_times)
+    sens_fd = np.zeros((n_t, 8, 4))
+    for j in range(8):
+        th_p = list(theta)
+        th_m = list(theta)
+        th_p[j] += eps
+        th_m[j] -= eps
+        s_p = np.array(_multidose(obs_times, dose_times, dose_amts, th_p))
+        s_m = np.array(_multidose(obs_times, dose_times, dose_amts, th_m))
+        sens_fd[:, j, :] = (s_p - s_m) / (2.0 * eps)
+    return sens_fd
+
+
+@pytest.mark.usefixtures()
+class TestSensitivityProbeAccuracy:
+    """Analytical forward sensitivities match central FD at rtol ≤ 1e-4."""
+
+    @pytest.fixture(autouse=True)
+    def _skip(self):
+        if _sens_probe is None or _multidose is None:
+            pytest.skip("sensitivity probe not available")
+
+    def _run(self, obs, dt, da, theta, *, rtol=1e-4, eps=1e-5):
+        states_raw, sens_raw = _sens_probe(obs, dt, da, theta)
+        states = np.array(states_raw)
+        sens = np.array(sens_raw).reshape(len(obs), 8, 4)
+        sens_fd = _fd_sensitivity(obs, dt, da, theta, eps=eps)
+        # atol is dose-proportional: 1e-4 × max(dose_amounts) to account for
+        # sensitivities scaling linearly with dose magnitude.
+        atol = 1e-4 * max(da)
+        np.testing.assert_allclose(
+            sens, sens_fd, rtol=rtol, atol=atol,
+            err_msg=f"sensitivity mismatch for theta={theta}",
+        )
+        return states, sens
+
+    def test_warfarin_nominal(self):
+        """Analytical sensitivity matches FD for nominal warfarin parameters."""
+        self._run(_SENS_OBS, _SENS_DT, _SENS_DA, _SENS_THETA)
+
+    def test_fast_absorption(self):
+        """High KTR/KA case (rapid flip-flop kinetics)."""
+        theta = [2.0, 1.5, 0.13, 8.0, 0.9, 1.0, 0.07, 1.0]
+        self._run(_SENS_OBS, _SENS_DT, _SENS_DA, theta)
+
+    def test_slow_elimination(self):
+        """Low CL — drug accumulates; tests sensitivity at late times."""
+        theta = [0.5, 0.3, 0.02, 8.0, 0.9, 1.0, 0.07, 1.0]
+        self._run(_SENS_OBS, _SENS_DT, _SENS_DA, theta)
+
+    def test_large_dose(self):
+        """2000 mg dose: PK sensitivities scale exactly 20× vs 100 mg.
+
+        The PK compartments (A1, A2, A3) obey a *linear* ODE, so all state
+        trajectories and their sensitivities w.r.t. every parameter scale
+        exactly with dose.  The PD compartment (A4) is nonlinear; we do not
+        assert exact scaling there.
+
+        This test avoids FD comparison entirely: for entries where the true
+        sensitivity is zero (e.g. dA_PK/dKOUT), FD picks up ODE integration
+        noise proportional to the dose magnitude, giving spurious 100% relative
+        errors.  The linear-scaling identity is exact up to ODE integration
+        error (~1e-8 relative per step) and is a far stricter test.
+        """
+        _, s100_raw  = _sens_probe(_SENS_OBS, _SENS_DT, [100.0],  _SENS_THETA)
+        _, s2000_raw = _sens_probe(_SENS_OBS, _SENS_DT, [2000.0], _SENS_THETA)
+        s100  = np.array(s100_raw ).reshape(len(_SENS_OBS), 8, 4)
+        s2000 = np.array(s2000_raw).reshape(len(_SENS_OBS), 8, 4)
+
+        # PK compartments only (indices 0..2): exact 20× scaling
+        pk = slice(0, 3)
+        ratio = 2000.0 / 100.0
+        nonzero_mask = np.abs(s100[:, :, pk]) > 1e-12
+        np.testing.assert_allclose(
+            s2000[:, :, pk][nonzero_mask],
+            ratio * s100[:, :, pk][nonzero_mask],
+            rtol=1e-5,  # tight: ODE rtol is 1e-8, cumulative error over ~24h ≪ 1e-5
+            err_msg="PK sensitivities must scale exactly with dose (linear ODE)",
+        )
+        # PD compartment (A4): check that signs are consistent with pharmacology.
+        # dA4/dEMAX should be non-positive at all times for inhibitory PD.
+        assert np.all(s2000[:, 4, 3] <= 0.0), "dA4/dEMAX should be ≤0 (inhibitory)"
+
+    def test_zero_emax_gives_zero_ec50_pd_sensitivity(self):
+        """EMAX=0: dA4/dEC50 = 0 because EC50 only appears in the emax*conc/denom term.
+
+        Note: dA4/dEMAX is NOT zero at EMAX=0 — the direct derivative
+        ∂(dA4/dt)/∂EMAX = kout·e0·(−conc/denom) is non-zero as long as A3 > 0.
+        Only the EC50 sensitivity is identically zero: its direct derivative
+        ∝ emax·conc/denom² = 0 and its indirect J[3,2]·s_ec50[2] = 0 because
+        J[3,2] ∝ emax·ec50 = 0 and s_ec50[2] = 0 (A3 does not depend on EC50).
+        """
+        theta = list(_SENS_THETA)
+        theta[4] = 0.0   # EMAX = 0
+        _, sens_raw = _sens_probe(_SENS_OBS, _SENS_DT, _SENS_DA, theta)
+        sens = np.array(sens_raw).reshape(len(_SENS_OBS), 8, 4)
+        # dA4/dEC50 must be zero when EMAX=0
+        np.testing.assert_allclose(sens[:, 5, 3], 0.0, atol=1e-10,
+                                   err_msg="dA4/dEC50 should be 0 when EMAX=0")
+        # dA1, dA2, dA3 do not depend on EMAX or EC50 at all
+        np.testing.assert_allclose(sens[:, 4, :3], 0.0, atol=1e-10,
+                                   err_msg="dA1..3/dEMAX should be 0")
+        np.testing.assert_allclose(sens[:, 5, :3], 0.0, atol=1e-10,
+                                   err_msg="dA1..3/dEC50 should be 0")
+
+    def test_sensitivity_wrt_ktr_at_early_time(self):
+        """dA2/dKTR should be positive early (more transit → more absorbed)."""
+        obs = [0.5, 1.0]
+        _, sens_raw = _sens_probe(obs, _SENS_DT, _SENS_DA, _SENS_THETA)
+        sens = np.array(sens_raw).reshape(len(obs), 8, 4)
+        # At 0.5h absorption is driving — A2 rising with KTR
+        assert sens[0, 0, 1] > 0, "dA2/dKTR should be positive at t=0.5h"
+
+    def test_dA1_dKTR_is_negative(self):
+        """Increasing KTR drains A1 faster → dA1/dKTR < 0 at all obs times."""
+        _, sens_raw = _sens_probe(_SENS_OBS, _SENS_DT, _SENS_DA, _SENS_THETA)
+        sens = np.array(sens_raw).reshape(len(_SENS_OBS), 8, 4)
+        # A1 decays as exp(-ktr*t), so dA1/dKTR = -t * A1 < 0
+        assert np.all(sens[:, 0, 0] <= 0.0), "dA1/dKTR must be ≤ 0"
+
+    def test_multidose_sensitivity_matches_fd(self):
+        """Two-dose schedule: analytical sensitivity matches FD."""
+        obs  = [0.5, 4.0, 8.0, 12.0, 24.0, 36.0]
+        dt   = [0.0, 12.0]
+        da   = [100.0, 100.0]
+        theta = _SENS_THETA
+        self._run(obs, dt, da, theta)
+
+    def test_pre_dose_sensitivities_are_zero(self):
+        """Observations before the first dose have zero state and sensitivity."""
+        obs = [0.5, 1.0]   # before dose at t=2
+        dt  = [2.0]
+        da  = [100.0]
+        states_raw, sens_raw = _sens_probe(obs, dt, da, _SENS_THETA)
+        states = np.array(states_raw)
+        sens   = np.array(sens_raw).reshape(len(obs), 8, 4)
+        np.testing.assert_array_equal(states, 0.0)
+        np.testing.assert_array_equal(sens,   0.0)
+
+    def test_validation_unsorted_obs_times_raises(self):
+        with pytest.raises(Exception, match="sorted"):
+            _sens_probe([4.0, 1.0], _SENS_DT, _SENS_DA, _SENS_THETA)
+
+    def test_validation_wrong_theta_length_raises(self):
+        with pytest.raises(Exception):
+            _sens_probe(_SENS_OBS, _SENS_DT, _SENS_DA, [0.5, 0.3])
+
+
+# ===========================================================================
+# Section 6 — PFIM native sensitivity path: G and Z vs finite differences
+# ===========================================================================
+
+class TestPFIMNativeSensitivityPath:
+    """
+    End-to-end test of PFIMEngine._compute_G_and_Z_native.
+
+    Constructs a minimal but realistic native-contract individual model
+    (warfarin-shaped, single dose at t=0) and compares the native G and Z
+    matrices against the existing finite-difference implementations.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _skip(self):
+        if _sens_probe is None or _multidose is None:
+            pytest.skip("sensitivity probe not available")
+        try:
+            from openpkpd.model.individual import (
+                IndividualModel, _native_cvodes_advan6_sensitivity_probe_multidose_rust,
+            )
+            if _native_cvodes_advan6_sensitivity_probe_multidose_rust is None:
+                pytest.skip("sensitivity probe not compiled in individual.py context")
+        except ImportError:
+            pytest.skip("IndividualModel not importable")
+
+    def _make_native_individual(self):
+        """Build a minimal IndividualModel with a native ADVAN6 contract."""
+        import numpy as np
+        from unittest.mock import MagicMock
+
+        from openpkpd.model.individual import IndividualModel
+
+        # Build subject events compatible with the native contract
+        SubjectEvents = MagicMock()
+        se = SubjectEvents()
+        se.obs_times = np.array([0.5, 1.0, 2.0, 4.0, 8.0, 12.0, 24.0])
+        se.obs_dv = np.full(7, np.nan)
+        se.obs_mdv = np.zeros(7, dtype=int)
+        se.obs_cmt = np.ones(7, dtype=int)
+        se.observation_mask.return_value = np.ones(7, dtype=bool)
+        se.covariate_df = None
+        se.covariate_at.return_value = {}
+        se.covariate_change_times.return_value = []
+
+        dose_event = MagicMock()
+        dose_event.time = 0.0
+        dose_event.amount = 100.0
+        dose_event.is_infusion = False
+        dose_event.compartment = 1
+        se.dose_events = [dose_event]
+
+        # PK callable: identity map — pop THETA[0..7] = ODE params directly
+        param_names = ("KTR", "KA", "CL", "V", "EMAX", "EC50", "KOUT", "E0")
+
+        def pk_callable(theta, eta, t=0.0, covariates=None):
+            # eta shifts CL (index 2) and V (index 3) log-normally for testing
+            th = list(theta)
+            result = {name: th[i] for i, name in enumerate(param_names)}
+            result["CL"] = th[2] * np.exp(eta[0] if len(eta) > 0 else 0.0)
+            result["V"]  = th[3] * np.exp(eta[1] if len(eta) > 1 else 0.0)
+            return result
+
+        # Error callable — proportional error model, recognised by _infer_common_error_model.
+        # _source must contain a normalised form that matches the pattern detector.
+        def error_callable(theta, eta, eps, f, ipred, y, t, a=None, covariates=None, sigma=None):
+            return {"Y": f * (1 + eps[0]), "IPRED": f}
+        error_callable._source = "Y = F * (1 + EPS[0])"
+
+        # pk_subroutine stub
+        pk_sub = MagicMock()
+        pk_sub.advan = 6
+        pk_sub.n_compartments = 4
+
+        indiv = IndividualModel(
+            subject_events=se,
+            pk_subroutine=pk_sub,
+            pk_callable=pk_callable,
+            error_callable=error_callable,
+            n_eps=1,
+        )
+        return indiv, pk_callable, param_names
+
+    def _make_pfim_engine(self, indiv, pk_callable, param_names):
+        """Build a PFIMEngine around the native individual."""
+        from openpkpd.design.pfim import PFIMEngine
+
+        pop_model = MagicMock()
+        pop_model.subject_ids.return_value = [1]
+        pop_model.individual_model.return_value = indiv
+        pop_model.trans = 2
+
+        n_theta = 8
+        n_eta = 2
+        omega = 0.04 * np.eye(n_eta)   # 20% CV on CL, V
+        sigma = np.array([[0.01]])
+
+        class Params:
+            theta = np.array(_SENS_THETA)
+
+        Params.omega = omega
+        Params.sigma = sigma
+
+        return PFIMEngine(population_model=pop_model, init_params=Params())
+
+    def _predict_F(self, pk_callable, param_names, theta, eta, times, dose_times, dose_amts):
+        """Compute F = A3/V at *times* using the multidose probe.
+
+        This is the same computation the native path performs, expressed as
+        plain Python + Rust probe calls — giving an independent FD reference
+        without going through IndividualModel.evaluate() or pk_sub.solve().
+        """
+        pk_params = pk_callable(list(theta), list(eta), t=0.0)
+        ode_theta = [float(pk_params[n]) for n in param_names]
+        V = float(pk_params["V"])
+        states_raw = _multidose(sorted(times), dose_times, dose_amts, ode_theta)
+        # Re-order to match requested times (probe requires sorted input)
+        order = np.argsort(times, kind="stable")
+        inv = np.empty_like(order); inv[order] = np.arange(len(times))
+        A3 = np.array(states_raw)[:, 2][inv]
+        return A3 / V
+
+    def test_native_G_matches_fd_G(self):
+        """_compute_G_and_Z_native G matrix matches FD of F=A3/V w.r.t. pop theta.
+
+        Reference is computed directly from _multidose + pk_callable, so it is
+        independent of IndividualModel.evaluate() / pk_sub.solve() and does not
+        require a fully-working solver mock.
+        """
+        indiv, pk_callable, param_names = self._make_native_individual()
+        engine = self._make_pfim_engine(indiv, pk_callable, param_names)
+
+        times = np.array([1.0, 4.0, 8.0, 24.0])
+        theta = np.array(_SENS_THETA)
+        eta_zero = np.zeros(2)
+        eps = 1e-5
+        dose_times = [0.0]
+        dose_amts  = [100.0]
+
+        native_result = engine._compute_G_and_Z_native(times, theta, indiv, 2)
+        assert native_result is not None, "native path should activate"
+        G_native, _ = native_result
+
+        n_theta = len(theta)
+        G_fd = np.zeros((len(times), n_theta))
+        for j in range(n_theta):
+            tp = theta.copy(); tp[j] += eps
+            tm = theta.copy(); tm[j] -= eps
+            G_fd[:, j] = (
+                self._predict_F(pk_callable, param_names, tp, eta_zero, times, dose_times, dose_amts)
+                - self._predict_F(pk_callable, param_names, tm, eta_zero, times, dose_times, dose_amts)
+            ) / (2.0 * eps)
+
+        # atol=1e-6: the FD reference itself has ODE-noise ~1e-7 for entries
+        # that are analytically zero (EMAX/EC50/KOUT/E0 don't enter the A3 ODE).
+        # Non-zero entries (|G| ~ 0.03–11) are dominated by the rtol=1e-3 bound.
+        np.testing.assert_allclose(G_native, G_fd, rtol=1e-3, atol=1e-6,
+                                   err_msg="Native G deviates from direct FD reference")
+
+    def test_native_Z_matches_fd_Z(self):
+        """_compute_G_and_Z_native Z matrix matches FD of F=A3/V w.r.t. eta.
+
+        Reference is computed directly from _multidose + pk_callable (with
+        perturbed eta), giving an independent test of the chain rule application
+        through the pk_callable's eta derivatives.
+        """
+        indiv, pk_callable, param_names = self._make_native_individual()
+        engine = self._make_pfim_engine(indiv, pk_callable, param_names)
+
+        times = np.array([1.0, 4.0, 8.0, 24.0])
+        theta = np.array(_SENS_THETA)
+        n_eta = 2
+        eps = 1e-5
+        dose_times = [0.0]
+        dose_amts  = [100.0]
+
+        native_result = engine._compute_G_and_Z_native(times, theta, indiv, n_eta)
+        assert native_result is not None
+        _, Z_native = native_result
+
+        Z_fd = np.zeros((len(times), n_eta))
+        for k in range(n_eta):
+            ep = np.zeros(n_eta); ep[k] = eps
+            em = np.zeros(n_eta); em[k] = -eps
+            Z_fd[:, k] = (
+                self._predict_F(pk_callable, param_names, theta, ep, times, dose_times, dose_amts)
+                - self._predict_F(pk_callable, param_names, theta, em, times, dose_times, dose_amts)
+            ) / (2.0 * eps)
+
+        # atol=1e-6: same rationale as G — FD reference has ODE integration noise
+        # on entries where the true sensitivity is analytically small.
+        np.testing.assert_allclose(Z_native, Z_fd, rtol=1e-3, atol=1e-6,
+                                   err_msg="Native Z deviates from direct FD reference")
+
+    def test_fim_native_matches_fim_fd(self):
+        """compute_fim result matches a manually-assembled FIM reference.
+
+        The native path cannot be compared against engine._numerical_gradient_prediction
+        in isolation because that method relies on IndividualModel.evaluate() →
+        pk_sub.solve(), which is a MagicMock in this test.  Instead we build a
+        reference FIM directly from the Rust multidose probe + pk_callable (the
+        same low-level primitives the native path uses) and verify the full FIM
+        formula:  M = G^T V^{-1} G  where  V = Z Ω Z^T + σ² I.
+        """
+        indiv, pk_callable, param_names = self._make_native_individual()
+        engine = self._make_pfim_engine(indiv, pk_callable, param_names)
+
+        times  = np.array([1.0, 4.0, 8.0, 24.0])
+        theta  = np.array(_SENS_THETA)
+        n_eta  = 2
+        n_theta = len(theta)
+        eps    = 1e-5
+        dose_times = [0.0]
+        dose_amts  = [100.0]
+        eta_zero   = np.zeros(n_eta)
+
+        # --- Native FIM ---
+        fim_native = engine.compute_fim(times)
+
+        # --- Reference FIM assembled from FD (bypassing IndividualModel.evaluate) ---
+        G_ref = np.zeros((len(times), n_theta))
+        for j in range(n_theta):
+            tp = theta.copy(); tp[j] += eps
+            tm = theta.copy(); tm[j] -= eps
+            G_ref[:, j] = (
+                self._predict_F(pk_callable, param_names, tp, eta_zero, times, dose_times, dose_amts)
+                - self._predict_F(pk_callable, param_names, tm, eta_zero, times, dose_times, dose_amts)
+            ) / (2.0 * eps)
+
+        Z_ref = np.zeros((len(times), n_eta))
+        for k in range(n_eta):
+            ep = np.zeros(n_eta); ep[k] = eps
+            em = np.zeros(n_eta); em[k] = -eps
+            Z_ref[:, k] = (
+                self._predict_F(pk_callable, param_names, theta, ep, times, dose_times, dose_amts)
+                - self._predict_F(pk_callable, param_names, theta, em, times, dose_times, dose_amts)
+            ) / (2.0 * eps)
+
+        omega = engine.init_params.omega
+        sigma_diag = float(engine.init_params.sigma[0, 0])
+        V = Z_ref @ omega @ Z_ref.T + sigma_diag * np.eye(len(times))
+        V += 1e-10 * np.eye(len(times))
+        V_inv = np.linalg.inv(V)
+        fim_ref = G_ref.T @ V_inv @ G_ref
+
+        # atol=1e-3: G columns for PD parameters (EMAX/EC50/KOUT/E0) are
+        # analytically zero (they don't enter the A3 ODE).  Native correctly
+        # returns exactly zero for those columns; FD reference has ~1e-7 noise
+        # per G entry which amplifies to ~1e-4 in FIM cross-terms via V^{-1}.
+        # Main-block entries (KTR/KA/CL/V × KTR/KA/CL/V, magnitude ~650-1870)
+        # are still tightly bounded by rtol=5e-3 (≤ 0.5% relative error).
+        np.testing.assert_allclose(fim_native, fim_ref, rtol=5e-3, atol=1e-3,
+                                   err_msg="Native FIM deviates from direct FD reference FIM")
+
+    def test_native_path_disabled_when_no_contract(self):
+        """_compute_G_and_Z_native returns None when individual has no native contract."""
+        from unittest.mock import MagicMock
+        indiv, pk_callable, param_names = self._make_native_individual()
+        engine = self._make_pfim_engine(indiv, pk_callable, param_names)
+
+        # Sabotage the contract
+        indiv._native_advan6_mixed_pkpd_contract = None
+
+        times = np.array([1.0, 4.0])
+        theta = np.array(_SENS_THETA)
+        result = engine._compute_G_and_Z_native(times, theta, indiv, 2)
+        assert result is None
+
+
+# ===========================================================================
+# Section 7 — Sensitivity probe performance
+# ===========================================================================
+
+class TestSensitivityProbePerformance:
+    """
+    Sensitivity probe vs. equivalent finite-difference work.
+
+    A pure-FD approach for PFIM needs 2×(8 theta + 2 eta) = 20 base probe
+    calls.  CVODES forward-sensitivity integration solves a 36-dimensional
+    system (4 state + 8×4 sensitivity) in one pass.  Dense BDF linear algebra
+    scales as O(N³), so the sensitivity probe is roughly 13–15× more expensive
+    than a single 4-state base probe.  One sensitivity call ≈ 20/14 ≈ 1.4×
+    cheaper than 20 FD calls.
+
+    Primary benefit of the native path is gradient *accuracy* (no FD rounding
+    error); the throughput gain is modest.  We assert ≥1.2× to confirm there
+    is a net benefit and guard against regressions.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _skip(self):
+        if _sens_probe is None or _multidose is None:
+            pytest.skip("sensitivity probe not available")
+
+    def test_sensitivity_probe_faster_than_fd_equivalent(self):
+        obs   = _SENS_OBS
+        dt    = _SENS_DT
+        da    = _SENS_DA
+        theta = _SENS_THETA
+        n_reps = 200
+        n_fd_pairs = 10   # 2×(8 theta + 2 eta) = 20 evaluations → 10 pairs of ±eps
+
+        # Warm-up
+        _sens_probe(obs, dt, da, theta)
+        for _ in range(n_fd_pairs):
+            _multidose(obs, dt, da, theta)
+
+        t0 = time.perf_counter()
+        for _ in range(n_reps):
+            _sens_probe(obs, dt, da, theta)
+        sens_s = time.perf_counter() - t0
+
+        t0 = time.perf_counter()
+        for _ in range(n_reps):
+            for _ in range(n_fd_pairs):
+                _multidose(obs, dt, da, theta)
+        fd_s = time.perf_counter() - t0
+
+        speedup = fd_s / sens_s
+        print(f"\n  Sensitivity probe: {sens_s*1e3/n_reps:.3f} ms/call  "
+              f"FD equivalent ({n_fd_pairs} pairs): {fd_s*1e3/n_reps:.3f} ms/call  "
+              f"speedup: {speedup:.1f}×")
+        assert speedup >= 1.2, (
+            f"Expected sensitivity probe ≥1.2× faster than {n_fd_pairs} FD pairs; "
+            f"got {speedup:.2f}×"
         )

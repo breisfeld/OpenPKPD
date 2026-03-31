@@ -18,6 +18,7 @@ def test_candidate_sundials_lib_dirs_prefers_env_and_existing_build_dirs(
     build_lib.mkdir(parents=True)
 
     monkeypatch.setenv("OPENPKPD_SUNDIALS_LIBDIRS", str(env_dir))
+    monkeypatch.setenv("OPENPKPD_NATIVE_DEV", "1")
     monkeypatch.setattr(_native, "__file__", str(project_root / "src" / "openpkpd" / "_native.py"))
 
     dirs = _native._candidate_sundials_lib_dirs()
@@ -52,3 +53,26 @@ def test_candidate_sundials_lib_dirs_includes_package_adjacent_lib_dirs(
 
     assert package_lib in dirs
     assert ext_lib in dirs
+
+
+def test_candidate_sundials_lib_dirs_defaults_to_packaged_locations_only(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "proj"
+    package_dir = project_root / "src" / "openpkpd"
+    package_dir.mkdir(parents=True)
+    build_lib = project_root / "rust" / "target" / "release" / "build" / "sundials-sys-abc" / "out" / "lib"
+    build_lib.mkdir(parents=True)
+
+    monkeypatch.delenv("OPENPKPD_NATIVE_DEV", raising=False)
+    monkeypatch.setattr(_native, "__file__", str(package_dir / "_native.py"))
+    monkeypatch.setattr(
+        _native.importlib.util,
+        "find_spec",
+        lambda name: SimpleNamespace(origin=None),
+    )
+
+    dirs = _native._candidate_sundials_lib_dirs()
+
+    assert build_lib not in dirs

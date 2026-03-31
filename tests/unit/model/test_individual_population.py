@@ -629,7 +629,7 @@ class TestIndividualModel:
         expected_ll += log_likelihood_normal(2.0, 1.0, 1.0)
         assert result == pytest.approx(-2.0 * expected_ll)
 
-    def test_evaluate_observation_model_uses_native_warfarin_pkpd_probe_when_available(
+    def test_evaluate_observation_model_uses_native_advan6_mixed_pkpd_probe_when_available(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -664,7 +664,7 @@ class TestIndividualModel:
             ]
 
         monkeypatch.setattr(
-            "openpkpd.model.individual._cvode_wrap_warfarin_pkpd_probe_rust",
+            "openpkpd.model.individual._native_cvodes_advan6_mixed_pkpd_probe_rust",
             _fake_probe,
         )
 

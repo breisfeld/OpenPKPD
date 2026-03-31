@@ -53,12 +53,16 @@ def _shadow_with_wheel(wheel_path: Path) -> Path:
     with zipfile.ZipFile(wheel_path) as zf:
         zf.extractall(tmp)
 
-    # Remove any existing openpkpd entries so the extracted copy wins.
-    sys.path[:] = [
-        entry for entry in sys.path
-        if "openpkpd" not in entry and "site-packages" not in entry
-    ]
+    # Prepend the extracted wheel so it takes priority over any installed or
+    # editable openpkpd copy in sys.path.  We do NOT strip other sys.path
+    # entries (e.g. site-packages) because the native extension needs numpy
+    # and other dependencies to be importable when it initialises.
+    # Flushing cached openpkpd.* modules ensures the fresh import resolves
+    # from the extracted wheel rather than a previously loaded editable copy.
     sys.path.insert(0, str(tmp))
+    for key in list(sys.modules):
+        if key == "openpkpd" or key.startswith("openpkpd."):
+            del sys.modules[key]
     return tmp
 
 

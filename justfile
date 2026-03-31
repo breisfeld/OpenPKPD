@@ -269,6 +269,31 @@ build-wheel:
     env -u CONDA_PREFIX CARGO_TARGET_DIR=rust/target/wheel uv run maturin build --release --features native-cvodes --out dist/
     {{uv_dev}} python scripts/check_installed_native_cvodes_wheel.py --require-native-cvodes --wheel "$(ls -t dist/openpkpd-*-linux*.whl | head -1)"
 
+# Build a macOS x86_64 wheel suitable for PyPI upload.
+# SUNDIALS is compiled from source and linked statically, so no delocate bundling is needed.
+# MACOSX_DEPLOYMENT_TARGET=10.13 ensures broad Intel Mac compatibility and avoids tagging
+# the wheel with the current OS version (which would restrict installation on older systems).
+# Requires: Rust toolchain (rustup.rs); x86_64-apple-darwin target is the default on Intel Macs.
+build-wheel-macos:
+    env -u CONDA_PREFIX MACOSX_DEPLOYMENT_TARGET=10.13 CARGO_TARGET_DIR=rust/target/macos-x86_64-wheel uv run maturin build --release --features native-cvodes --out dist/
+    {{uv_dev}} python scripts/check_installed_native_cvodes_wheel.py --require-native-cvodes --wheel "$(ls -t dist/openpkpd-*-macosx*x86_64*.whl | head -1)"
+
+# Build a macOS arm64 (Apple Silicon) wheel suitable for PyPI upload, cross-compiled from
+# any Mac. SUNDIALS is compiled from source and linked statically; no delocate step needed.
+# Note: the resulting .so cannot be loaded on the build machine if it is Intel-only, so
+# the symbol-check step is skipped here (run it on Apple Silicon hardware after installing).
+# Requires: rustup target add aarch64-apple-darwin
+build-wheel-macos-arm64:
+    env -u CONDA_PREFIX MACOSX_DEPLOYMENT_TARGET=11.0 CARGO_TARGET_DIR=rust/target/macos-arm64-wheel uv run maturin build --release --target aarch64-apple-darwin --features native-cvodes --out dist/
+
+# Build a macOS universal2 wheel (x86_64 + arm64 fat binary) suitable for PyPI upload.
+# Contains both slices in a single wheel; the x86_64 slice can be verified locally on
+# Intel hardware.
+# Requires: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+build-wheel-macos-universal2:
+    env -u CONDA_PREFIX MACOSX_DEPLOYMENT_TARGET=11.0 CARGO_TARGET_DIR=rust/target/macos-universal2-wheel uv run maturin build --release --target universal2-apple-darwin --features native-cvodes --out dist/
+    {{uv_dev}} python scripts/check_installed_native_cvodes_wheel.py --require-native-cvodes --wheel "$(ls -t dist/openpkpd-*-macosx*universal2*.whl | head -1)"
+
 # Cross-compile a Windows (win_amd64) wheel from Linux using the MinGW-w64 toolchain.
 # Includes native CVODES: sundials-sys/static_libraries links SUNDIALS directly into
 # the .pyd so no DLLs need to be bundled and delvewheel is not required.

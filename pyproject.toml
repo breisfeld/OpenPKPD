@@ -75,6 +75,7 @@ dev = [
     "matplotlib>=3.9",
     "sympy>=1.13",
     "maturin>=1.5,<2",
+    "patchelf>=0.17.2.4",
 ]
 # R interoperability
 r = [
@@ -122,6 +123,9 @@ python-source = "src"
 # Rust extension is injected as openpkpd._core
 module-name = "openpkpd._core"
 features = ["pyo3/extension-module"]
+# Optional native CVODES support is intentionally not enabled by default for
+# release builds yet. It is built explicitly when packaging validates the
+# bundled-SUNDIALS wheel path on all target platforms.
 # Cargo.toml stays under rust/ to keep sources organised
 manifest-path = "rust/Cargo.toml"
 # Explicitly include the LICENSE file in the sdist.

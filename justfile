@@ -245,21 +245,38 @@ test-notebooks: install-notebooks
 # Rust compiled extensions
 # ---------------------------------------------------------------------------
 
-# Build and install the openpkpd._core Rust extension in-place (development).
+# Build and install the openpkpd._core Rust extension in-place, then verify it.
 # Requires: Rust toolchain (rustup.rs) and maturin (installed via uv sync --extra dev).
 # Run once after cloning or after modifying rust/src/lib.rs.
 build-core:
     env -u CONDA_PREFIX uv run maturin develop --release
+    {{uv_dev}} python scripts/check_native_cvodes.py
 
-# Build and install the openpkpd._core Rust extension with the cvode-wrap spike
-# feature enabled for native CVODES experiments.
-build-core-cvode-wrap-spike:
-    env -u CONDA_PREFIX uv run maturin develop --release --features cvode-wrap-spike
+# Build and install the openpkpd._core Rust extension with the optional native
+# CVODES path enabled, then verify all native-cvodes symbols are present.
+build-core-native-cvodes:
+    OPENPKPD_NATIVE_DEV=1 env -u CONDA_PREFIX uv run maturin develop --release --features native-cvodes
+    OPENPKPD_NATIVE_DEV=1 {{uv_dev}} python scripts/check_native_cvodes.py --require-native-cvodes
 
-# Build a distributable wheel for the current platform only (not manylinux).
-# For production manylinux wheels use the CI pipeline.
+# Build a LOCAL smoke-test wheel for the current platform.
+# The resulting wheel is tagged manylinux_<host-glibc>; it is NOT suitable
+# for PyPI upload because it will not install on systems with older glibc.
+# Use `just build-manylinux` to produce the PyPI release wheel.
+# Includes native CVODES support; SUNDIALS is bundled via patchelf + auditwheel.
+# Uses a dedicated Cargo target dir (rust/target/wheel) so that patchelf's
+# in-place RPATH rewrite does not contaminate the dev build artifacts.
 build-wheel:
-    env -u CONDA_PREFIX uv run maturin build --release --out dist/
+    env -u CONDA_PREFIX CARGO_TARGET_DIR=rust/target/wheel uv run maturin build --release --features native-cvodes --out dist/
+    {{uv_dev}} python scripts/check_installed_native_cvodes_wheel.py --require-native-cvodes --wheel "$(ls -t dist/openpkpd-*-linux*.whl | head -1)"
+
+# Cross-compile a Windows (win_amd64) wheel from Linux using the MinGW-w64 toolchain.
+# Includes native CVODES: sundials-sys/static_libraries links SUNDIALS directly into
+# the .pyd so no DLLs need to be bundled and delvewheel is not required.
+# Requires: mingw-w64 system package and the x86_64-pc-windows-gnu Rust target.
+#   sudo apt install mingw-w64
+#   rustup target add x86_64-pc-windows-gnu
+build-wheel-windows:
+    env -u CONDA_PREFIX CARGO_TARGET_DIR=rust/target/windows-wheel CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-gcc CXX_x86_64_pc_windows_gnu=x86_64-w64-mingw32-g++ PYO3_CROSS_PYTHON_VERSION=3.12 uv run maturin build --release --target x86_64-pc-windows-gnu --features native-cvodes -i python3.12 --out dist/
 
 # ---------------------------------------------------------------------------
 # Git hooks
@@ -295,19 +312,29 @@ build:
     rm -rf dist/
     uv build
 
-# Build a manylinux_2_28 wheel + sdist using the maturin Docker image (Linux publish target).
-# Requires Docker. Matches what the CI pipeline produces.
+# Build a manylinux_2_28 wheel + sdist using the maturin Docker image.
+# Requires Docker. Matches what the CI pipeline produces for Linux.
+# native-cvodes is included: SUNDIALS is compiled inside the container and bundled.
 build-manylinux:
     rm -rf dist/
-    docker run --rm -v "$(pwd)":/io ghcr.io/pyo3/maturin build --release --compatibility manylinux_2_28 --out dist/
+    docker run --rm -v "$(pwd)":/io ghcr.io/pyo3/maturin build --release --features native-cvodes --compatibility manylinux_2_28 --out dist/
+    env -u CONDA_PREFIX uv run maturin sdist --out dist/
+
+# Build all PyPI release artefacts: manylinux_2_28 + Windows (cross-compiled) + sdist.
+# Requires Docker (for the Linux wheel) and mingw-w64 + x86_64-pc-windows-gnu target.
+# Leaves dist/ containing exactly the files to upload.
+build-release-wheels:
+    rm -rf dist/
+    docker run --rm -v "$(pwd)":/io ghcr.io/pyo3/maturin build --release --features native-cvodes --compatibility manylinux_2_28 --out dist/
+    env -u CONDA_PREFIX CARGO_TARGET_DIR=rust/target/windows-wheel CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-gcc CXX_x86_64_pc_windows_gnu=x86_64-w64-mingw32-g++ PYO3_CROSS_PYTHON_VERSION=3.12 uv run maturin build --release --target x86_64-pc-windows-gnu --features native-cvodes -i python3.12 --out dist/
     env -u CONDA_PREFIX uv run maturin sdist --out dist/
 
 # Publish to TestPyPI (reads PYPI_TEST_API_TOKEN from .env)
-publish-to-pypi-test: build-manylinux
+publish-to-pypi-test: build-release-wheels
     uv publish --publish-url https://test.pypi.org/legacy/ --token "$PYPI_TEST_API_TOKEN"
 
 # Publish to PyPI (reads PYPI_API_TOKEN from .env)
-publish-to-pypi: build-manylinux
+publish-to-pypi: build-release-wheels
     uv publish --token "$PYPI_API_TOKEN"
 
 # ---------------------------------------------------------------------------

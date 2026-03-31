@@ -1,10 +1,12 @@
-"""Helpers for optional native-extension loading during development.
+"""Helpers for optional native-extension loading.
 
 This is intentionally conservative:
 
 - if the core extension imports normally, do nothing special
-- if a SUNDIALS-backed spike path needs local shared libraries, try to preload
-  them from known development locations
+- if a packaged SUNDIALS-backed native path needs bundled shared libraries, try
+  package-adjacent locations first
+- allow explicit development fallback to local Cargo build outputs only when
+  requested
 - never raise just because the native path is unavailable
 """
 
@@ -17,7 +19,7 @@ import os
 from pathlib import Path
 
 
-def _candidate_sundials_lib_dirs() -> list[Path]:
+def _development_sundials_lib_dirs() -> list[Path]:
     dirs: list[Path] = []
 
     env_dirs = os.environ.get("OPENPKPD_SUNDIALS_LIBDIRS")
@@ -34,7 +36,25 @@ def _candidate_sundials_lib_dirs() -> list[Path]:
             continue
         dirs.extend(sorted(build_dir.glob("sundials-sys-*/out/lib")))
 
-    dirs.extend(_candidate_package_lib_dirs())
+    seen: set[Path] = set()
+    out: list[Path] = []
+    for path in dirs:
+        resolved = path.resolve()
+        if resolved.is_dir() and resolved not in seen:
+            seen.add(resolved)
+            out.append(resolved)
+    return out
+
+
+def _native_development_fallback_enabled() -> bool:
+    value = os.environ.get("OPENPKPD_NATIVE_DEV", "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _candidate_sundials_lib_dirs() -> list[Path]:
+    dirs = _candidate_package_lib_dirs()
+    if _native_development_fallback_enabled():
+        dirs.extend(_development_sundials_lib_dirs())
 
     seen: set[Path] = set()
     out: list[Path] = []
@@ -103,7 +123,7 @@ def _preload_sundials_libs() -> None:
 
 
 def import_core_symbol(name: str):
-    """Import a symbol from ``openpkpd._core``, preloading local SUNDIALS if needed."""
+    """Import a symbol from ``openpkpd._core`` with optional bundled-lib preload."""
     try:
         module = importlib.import_module("openpkpd._core")
     except ImportError as first_error:
@@ -112,4 +132,7 @@ def import_core_symbol(name: str):
             module = importlib.import_module("openpkpd._core")
         except ImportError:
             raise first_error
-    return getattr(module, name)
+    try:
+        return getattr(module, name)
+    except AttributeError as exc:
+        raise ImportError(f"openpkpd._core does not export {name!r}") from exc

@@ -45,9 +45,11 @@ except ImportError:
     _RUST_CORE_AVAILABLE = False
 
 try:
-    _cvode_wrap_warfarin_pkpd_probe_rust = import_core_symbol("cvode_wrap_warfarin_pkpd_probe")
+    _native_cvodes_advan6_mixed_pkpd_probe_rust = import_core_symbol(
+        "native_cvodes_advan6_mixed_pkpd_probe"
+    )
 except ImportError:
-    _cvode_wrap_warfarin_pkpd_probe_rust = None
+    _native_cvodes_advan6_mixed_pkpd_probe_rust = None
 
 # BLQMethod string → integer code expected by the Rust function
 _BLQ_METHOD_CODE: dict[str | None, int] = {
@@ -183,7 +185,7 @@ class IndividualModel:
             tuple(1.0 if i == j else 0.0 for i in range(self.n_eps)) for j in range(self.n_eps)
         )
         self._common_error_model = self._infer_common_error_model(error_callable, self.n_eps)
-        self._native_warfarin_pkpd_contract = self._build_native_warfarin_pkpd_contract()
+        self._native_advan6_mixed_pkpd_contract = self._build_native_advan6_mixed_pkpd_contract()
 
     def __getstate__(self) -> dict[str, Any]:
         """Drop rebuildable caches so worker-process pickling stays robust."""
@@ -235,8 +237,8 @@ class IndividualModel:
                 return None
         return np.asarray(dvid_values, dtype=float)
 
-    def _build_native_warfarin_pkpd_contract(self) -> dict[str, Any] | None:
-        if _cvode_wrap_warfarin_pkpd_probe_rust is None:
+    def _build_native_advan6_mixed_pkpd_contract(self) -> dict[str, Any] | None:
+        if _native_cvodes_advan6_mixed_pkpd_probe_rust is None:
             return None
         if getattr(self.pk_subroutine, "advan", None) != 6:
             return None
@@ -273,13 +275,13 @@ class IndividualModel:
             "required_names": ("KTR", "KA", "CL", "V", "EMAX", "EC50", "KOUT", "E0"),
         }
 
-    def _try_native_warfarin_pkpd_probe(
+    def _try_native_advan6_mixed_pkpd_probe(
         self,
         pk_params: dict[str, float],
         obs_times: np.ndarray,
     ) -> PKSolution | None:
-        contract = self._native_warfarin_pkpd_contract
-        probe = _cvode_wrap_warfarin_pkpd_probe_rust
+        contract = self._native_advan6_mixed_pkpd_contract
+        probe = _native_cvodes_advan6_mixed_pkpd_probe_rust
         if contract is None or probe is None:
             return None
         if (
@@ -308,6 +310,19 @@ class IndividualModel:
         amounts[:, :4] = amounts4
         ipred = amounts4[:, 2] / float(pk_params["V"])
         return PKSolution(times=obs_times.copy(), amounts=amounts, ipred=ipred, f=ipred.copy())
+
+    def _try_native_pk_backend(
+        self,
+        pk_params: dict[str, float],
+        obs_times: np.ndarray,
+    ) -> PKSolution | None:
+        """Try any supported native PK backend for this model shape.
+
+        This is the generic Python-side seam. Individual native kernels can
+        stay contract-specific underneath, but callers should not need to know
+        which dataset or prototype first motivated the native path.
+        """
+        return self._try_native_advan6_mixed_pkpd_probe(pk_params, obs_times)
 
     @staticmethod
     def _infer_common_error_model(
@@ -625,7 +640,7 @@ class IndividualModel:
             solve_kwargs["covariate_fn"] = _covariate_fn
             solve_kwargs["covariate_change_times"] = self._covariate_change_times
 
-        native_pk_sol = self._try_native_warfarin_pkpd_probe(micro_params, obs_times)
+        native_pk_sol = self._try_native_pk_backend(micro_params, obs_times)
         if native_pk_sol is not None:
             ipred = native_pk_sol.ipred
             f = native_pk_sol.f if native_pk_sol.f is not None else ipred

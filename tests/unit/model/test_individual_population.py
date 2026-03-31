@@ -656,16 +656,27 @@ class TestIndividualModel:
 
         calls: list[tuple[list[float], float, list[float]]] = []
 
-        def _fake_probe(times: list[float], dose_amt: float, theta8: list[float]) -> list[list[float]]:
-            calls.append((list(times), float(dose_amt), list(theta8)))
+        # The code prefers the multidose probe; patch it with the
+        # multidose signature (obs_times, dose_times, dose_amts, theta).
+        def _fake_multidose_probe(
+            times: list[float],
+            dose_times: list[float],
+            dose_amts: list[float],
+            theta8: list[float],
+        ) -> list[list[float]]:
+            calls.append((list(times), list(dose_times), list(dose_amts), list(theta8)))
             return [
                 [80.0, 10.0, 30.0, -5.0],
                 [0.1, 0.2, 12.0, -7.5],
             ]
 
         monkeypatch.setattr(
+            "openpkpd.model.individual._native_cvodes_advan6_mixed_pkpd_probe_multidose_rust",
+            _fake_multidose_probe,
+        )
+        monkeypatch.setattr(
             "openpkpd.model.individual._native_cvodes_advan6_mixed_pkpd_probe_rust",
-            _fake_probe,
+            lambda *a, **kw: [],  # kept so contract builder finds it non-None
         )
 
         error_callable = compiler.compile_error(
@@ -705,9 +716,11 @@ class TestIndividualModel:
         ipred, _, f, pred, _ = model.evaluate_observation_model(theta, np.array([]), sigma, trans=1)
 
         assert len(calls) == 1
-        assert calls[0][0] == [0.5, 24.0]
-        assert calls[0][1] == pytest.approx(100.0)
-        np.testing.assert_allclose(calls[0][2], [0.8968, 0.8887, 0.1337, 8.6756, 0.999, 1.5735, 0.0552, 101.3225])
+        # Multidose probe signature: (obs_times, dose_times, dose_amts, theta)
+        assert calls[0][0] == [0.5, 24.0]          # obs_times
+        assert calls[0][1] == [0.0]                 # dose_times: single dose at t=0
+        assert calls[0][2] == pytest.approx([100.0])  # dose_amts
+        np.testing.assert_allclose(calls[0][3], [0.8968, 0.8887, 0.1337, 8.6756, 0.999, 1.5735, 0.0552, 101.3225])
         np.testing.assert_allclose(ipred, [30.0 / 8.6756, 12.0 / 8.6756])
         np.testing.assert_allclose(f, ipred)
         np.testing.assert_allclose(pred, [30.0 / 8.6756, 101.3225 - 7.5])
@@ -1804,3 +1817,336 @@ class TestPopulationModel:
         assert result == pytest.approx(23.0)
         np.testing.assert_allclose(subj1.calls[0], [1.0, 2.0])
         np.testing.assert_allclose(subj2.calls[0], [0.0, 0.0])
+
+
+
+# ===========================================================================
+# Detection-logic gate tests for _build_native_advan6_mixed_pkpd_contract
+# ===========================================================================
+# These tests verify that every blocking condition in the native-path
+# contract builder returns None correctly, and that the "happy path"
+# yields a non-None contract.  Each test exercises exactly one gate.
+#
+# The "valid" mixed-PK/PD error code below matches the
+# mixed_pkpd_dvid_theta pattern required by the contract builder.
+# ===========================================================================
+
+_MIXED_PKPD_ERROR_CODE = (
+    "PKPROP = THETA(9)\n"
+    "PKADD = THETA(10)\n"
+    "PDADD = THETA(11)\n"
+    "IPRED = THETA(8) + A(4)\n"
+    "W = PDADD\n"
+    "Y = IPRED + W*EPS(2)\n"
+    "IF (DVID == 1) W = SQRT((PKPROP*F)**2 + PKADD**2)\n"
+    "IF (DVID == 1) Y = F + W*EPS(1)"
+)
+_SIMPLE_PROP_ERROR_CODE = "Y = F*(1+EPS(1))"
+_SINGLE_DOSE = [DoseEvent(time=0.0, amount=100.0, compartment=1)]
+_OBS_TIMES = np.array([0.5, 1.0, 4.0, 24.0], dtype=float)
+_OBS_DV = np.array([10.0, 9.0, 7.0, 3.0], dtype=float)
+_DVID_COVARIATES = [{"DVID": 1.0}, {"DVID": 1.0}, {"DVID": 2.0}, {"DVID": 2.0}]
+
+
+class _FakeADVAN6(PKSubroutine):
+    """Minimal PKSubroutine that declares advan=6."""
+    advan = 6
+    n_compartments = 4
+
+    def solve(self, *args, **kwargs):
+        raise AssertionError("native probe should bypass Python solve()")
+
+    def apply_trans(self, raw_params, trans):
+        return dict(raw_params)
+
+
+class _FakeADVAN2(PKSubroutine):
+    """Minimal PKSubroutine that declares advan=2 (non-ODE)."""
+    advan = 2
+    n_compartments = 2
+
+    def solve(self, *args, **kwargs):
+        raise AssertionError("should not be called")
+
+    def apply_trans(self, raw_params, trans):
+        return dict(raw_params)
+
+
+def _build_mixed_pkpd_model(
+    *,
+    dose_events=None,
+    error_code=_MIXED_PKPD_ERROR_CODE,
+    pk_subroutine=None,
+    obs_times=None,
+    obs_dv=None,
+    obs_covariates=None,
+    covariate_df=None,
+    occasion_indices=None,
+) -> IndividualModel:
+    compiler = NMTRANCompiler()
+    n_eps = 1 if error_code == _SIMPLE_PROP_ERROR_CODE else 2
+    dose_events = dose_events if dose_events is not None else _SINGLE_DOSE
+    obs_times = obs_times if obs_times is not None else _OBS_TIMES
+    obs_dv = obs_dv if obs_dv is not None else _OBS_DV
+    obs_covariates = obs_covariates if obs_covariates is not None else _DVID_COVARIATES
+    pk_sub = pk_subroutine if pk_subroutine is not None else _FakeADVAN6()
+
+    def _pk_callable(theta, eta, t=0.0, covariates=None):
+        return {
+            "KTR": 1.0, "KA": 0.5, "CL": 0.134, "V": 8.11,
+            "EMAX": 0.8, "EC50": 1.0, "KOUT": 0.0174, "E0": 100.0, "PCMT": 3.0,
+        }
+
+    events = SubjectEvents(
+        subject_id=1,
+        dose_events=dose_events,
+        obs_times=obs_times,
+        obs_dv=obs_dv,
+        obs_cmt=np.ones(len(obs_times), dtype=int),
+        obs_mdv=np.zeros(len(obs_times), dtype=int),
+        obs_covariates=obs_covariates,
+        covariate_df=covariate_df,
+    )
+    model = IndividualModel(
+        subject_events=events,
+        pk_subroutine=pk_sub,
+        pk_callable=_pk_callable,
+        error_callable=compiler.compile_error(error_code),
+        n_eps=n_eps,
+        occasion_indices=occasion_indices,
+    )
+    return model
+
+
+class TestNativeAdvan6DetectionGates:
+    """
+    One test per blocking condition in _build_native_advan6_mixed_pkpd_contract.
+
+    Each test patches away the native module if needed and asserts that the
+    contract is exactly None when a gate condition is violated.
+    """
+
+    def test_happy_path_builds_contract(self) -> None:
+        model = _build_mixed_pkpd_model()
+        contract = model._native_advan6_mixed_pkpd_contract
+        if contract is None:
+            pytest.skip("native-cvodes extension not compiled in")
+        assert isinstance(contract, dict)
+        assert "dose_amount" in contract
+        assert contract["dose_amount"] == pytest.approx(100.0)
+        assert "required_names" in contract
+        assert "KTR" in contract["required_names"]
+
+    def test_gate_no_native_module_returns_none(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "openpkpd.model.individual._native_cvodes_advan6_mixed_pkpd_probe_rust",
+            None,
+        )
+        model = _build_mixed_pkpd_model()
+        assert model._native_advan6_mixed_pkpd_contract is None
+
+    def test_gate_wrong_advan_number_returns_none(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "openpkpd.model.individual._native_cvodes_advan6_mixed_pkpd_probe_rust",
+            lambda *a, **kw: [],
+        )
+        model = _build_mixed_pkpd_model(pk_subroutine=_FakeADVAN2())
+        assert model._native_advan6_mixed_pkpd_contract is None
+
+    def test_gate_wrong_error_model_returns_none(self, monkeypatch) -> None:
+        """An error model that is not in _NATIVE_SUPPORTED_ERROR_MODELS returns None.
+
+        proportional / additive / combined_* are now accepted; a custom
+        multi-EPS pattern that doesn't match any known template is still rejected.
+        """
+        monkeypatch.setattr(
+            "openpkpd.model.individual._native_cvodes_advan6_mixed_pkpd_probe_rust",
+            lambda *a, **kw: [],
+        )
+        compiler = NMTRANCompiler()
+        # This 4-line error block doesn't match any recognized template.
+        unknown_error = (
+            "W1 = THETA(1)\n"
+            "W2 = THETA(2)\n"
+            "Y = F + W1*EPS(1) + W2*EPS(2)\n"
+            "IPRED2 = F*THETA(3)"
+        )
+        events = SubjectEvents(
+            subject_id=1,
+            dose_events=_SINGLE_DOSE,
+            obs_times=_OBS_TIMES,
+            obs_dv=_OBS_DV,
+            obs_cmt=np.ones(4, dtype=int),
+            obs_mdv=np.zeros(4, dtype=int),
+        )
+        model = IndividualModel(
+            subject_events=events,
+            pk_subroutine=_FakeADVAN6(),
+            pk_callable=lambda theta, eta, t=0.0, covariates=None: {},
+            error_callable=compiler.compile_error(unknown_error),
+            n_eps=2,
+        )
+        assert model._native_advan6_mixed_pkpd_contract is None
+
+    def test_proportional_error_model_activates_native_path(self, monkeypatch) -> None:
+        """After P1b: proportional error model now builds a non-None contract."""
+        monkeypatch.setattr(
+            "openpkpd.model.individual._native_cvodes_advan6_mixed_pkpd_probe_rust",
+            lambda *a, **kw: [],
+        )
+        model = _build_mixed_pkpd_model(
+            error_code=_SIMPLE_PROP_ERROR_CODE,
+            obs_covariates=None,
+        )
+        contract = model._native_advan6_mixed_pkpd_contract
+        assert contract is not None
+        assert contract["is_mixed_pkpd"] is False
+
+    def test_gate_occasion_indices_returns_none(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "openpkpd.model.individual._native_cvodes_advan6_mixed_pkpd_probe_rust",
+            lambda *a, **kw: [],
+        )
+        model = _build_mixed_pkpd_model(
+            occasion_indices=np.array([1, 1, 2, 2]),
+        )
+        assert model._native_advan6_mixed_pkpd_contract is None
+
+    def test_gate_extra_covariate_column_returns_none(self, monkeypatch) -> None:
+        import pandas as pd
+        monkeypatch.setattr(
+            "openpkpd.model.individual._native_cvodes_advan6_mixed_pkpd_probe_rust",
+            lambda *a, **kw: [],
+        )
+        cov_df = pd.DataFrame({"TIME": _OBS_TIMES, "DVID": [1, 1, 2, 2], "WT": [70, 70, 70, 70]})
+        model = _build_mixed_pkpd_model(covariate_df=cov_df)
+        assert model._native_advan6_mixed_pkpd_contract is None
+
+    def test_gate_zero_doses_returns_none(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "openpkpd.model.individual._native_cvodes_advan6_mixed_pkpd_probe_rust",
+            lambda *a, **kw: [],
+        )
+        model = _build_mixed_pkpd_model(dose_events=[])
+        assert model._native_advan6_mixed_pkpd_contract is None
+
+    def test_multiple_doses_activate_native_path(self, monkeypatch) -> None:
+        """After P1a: multiple IV bolus doses now build a non-None contract."""
+        monkeypatch.setattr(
+            "openpkpd.model.individual._native_cvodes_advan6_mixed_pkpd_probe_rust",
+            lambda *a, **kw: [],
+        )
+        two_doses = [
+            DoseEvent(time=0.0, amount=100.0, compartment=1),
+            DoseEvent(time=24.0, amount=100.0, compartment=1),
+        ]
+        model = _build_mixed_pkpd_model(dose_events=two_doses)
+        contract = model._native_advan6_mixed_pkpd_contract
+        assert contract is not None
+        assert contract["dose_times"] == [0.0, 24.0]
+        assert contract["dose_amts"] == [100.0, 100.0]
+
+    def test_gate_infusion_dose_returns_none(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "openpkpd.model.individual._native_cvodes_advan6_mixed_pkpd_probe_rust",
+            lambda *a, **kw: [],
+        )
+        infusion = [DoseEvent(time=0.0, amount=100.0, compartment=1, rate=10.0)]
+        model = _build_mixed_pkpd_model(dose_events=infusion)
+        assert model._native_advan6_mixed_pkpd_contract is None
+
+    def test_late_dose_activates_native_path(self, monkeypatch) -> None:
+        """After P1a: a dose at any time (not just t=0) builds a contract."""
+        monkeypatch.setattr(
+            "openpkpd.model.individual._native_cvodes_advan6_mixed_pkpd_probe_rust",
+            lambda *a, **kw: [],
+        )
+        late = [DoseEvent(time=1.0, amount=100.0, compartment=1)]
+        model = _build_mixed_pkpd_model(dose_events=late)
+        contract = model._native_advan6_mixed_pkpd_contract
+        assert contract is not None
+        assert contract["dose_times"] == [1.0]
+
+    def test_gate_wrong_dose_compartment_returns_none(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "openpkpd.model.individual._native_cvodes_advan6_mixed_pkpd_probe_rust",
+            lambda *a, **kw: [],
+        )
+        wrong_cmt = [DoseEvent(time=0.0, amount=100.0, compartment=2)]
+        model = _build_mixed_pkpd_model(dose_events=wrong_cmt)
+        assert model._native_advan6_mixed_pkpd_contract is None
+
+    def test_gate_unsorted_obs_times_returns_none(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "openpkpd.model.individual._native_cvodes_advan6_mixed_pkpd_probe_rust",
+            lambda *a, **kw: [],
+        )
+        unsorted_times = np.array([4.0, 1.0, 0.5, 24.0], dtype=float)
+        unsorted_dv = np.array([7.0, 9.0, 10.0, 3.0], dtype=float)
+        model = _build_mixed_pkpd_model(
+            obs_times=unsorted_times, obs_dv=unsorted_dv
+        )
+        assert model._native_advan6_mixed_pkpd_contract is None
+
+    def test_probe_gate_missing_required_pk_param_returns_none(self, monkeypatch) -> None:
+        """_try_native_advan6_mixed_pkpd_probe returns None if a required name is absent."""
+        compiler = NMTRANCompiler()
+
+        def _bad_pk(theta, eta, t=0.0, covariates=None):
+            # Missing EMAX, EC50, KOUT, E0 — PCMT present
+            return {"KTR": 1.0, "KA": 0.5, "CL": 0.134, "V": 8.11, "PCMT": 3.0}
+
+        events = SubjectEvents(
+            subject_id=1,
+            dose_events=_SINGLE_DOSE,
+            obs_times=_OBS_TIMES,
+            obs_dv=_OBS_DV,
+            obs_cmt=np.ones(4, dtype=int),
+            obs_mdv=np.zeros(4, dtype=int),
+            obs_covariates=_DVID_COVARIATES,
+        )
+        model = IndividualModel(
+            subject_events=events,
+            pk_subroutine=_FakeADVAN6(),
+            pk_callable=_bad_pk,
+            error_callable=compiler.compile_error(_MIXED_PKPD_ERROR_CODE),
+            n_eps=2,
+        )
+        if model._native_advan6_mixed_pkpd_contract is None:
+            pytest.skip("native-cvodes extension not compiled in")
+        pk_params = _bad_pk(np.array([]), np.array([]))
+        result = model._try_native_advan6_mixed_pkpd_probe(pk_params, _OBS_TIMES)
+        assert result is None
+
+    def test_probe_gate_wrong_pcmt_returns_none(self, monkeypatch) -> None:
+        """_try_native_advan6_mixed_pkpd_probe returns None when PCMT != 3."""
+        compiler = NMTRANCompiler()
+
+        def _pcmt2_pk(theta, eta, t=0.0, covariates=None):
+            return {
+                "KTR": 1.0, "KA": 0.5, "CL": 0.134, "V": 8.11,
+                "EMAX": 0.8, "EC50": 1.0, "KOUT": 0.0174, "E0": 100.0,
+                "PCMT": 2.0,  # wrong — must be 3
+            }
+
+        events = SubjectEvents(
+            subject_id=1,
+            dose_events=_SINGLE_DOSE,
+            obs_times=_OBS_TIMES,
+            obs_dv=_OBS_DV,
+            obs_cmt=np.ones(4, dtype=int),
+            obs_mdv=np.zeros(4, dtype=int),
+            obs_covariates=_DVID_COVARIATES,
+        )
+        model = IndividualModel(
+            subject_events=events,
+            pk_subroutine=_FakeADVAN6(),
+            pk_callable=_pcmt2_pk,
+            error_callable=compiler.compile_error(_MIXED_PKPD_ERROR_CODE),
+            n_eps=2,
+        )
+        if model._native_advan6_mixed_pkpd_contract is None:
+            pytest.skip("native-cvodes extension not compiled in")
+        pk_params = _pcmt2_pk(np.array([]), np.array([]))
+        result = model._try_native_advan6_mixed_pkpd_probe(pk_params, _OBS_TIMES)
+        assert result is None

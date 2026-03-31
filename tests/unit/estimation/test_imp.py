@@ -85,6 +85,32 @@ class _NativeHessianGaussianPopulationModel(_GaussianPopulationModel):
         self._indiv = {1: _NativeHessianGaussianIndividualModel(dv)}
 
 
+class _NativeGradientGaussianIndividualModel(_NativeHessianGaussianIndividualModel):
+    """Adds analytical gradient support to the scalar Gaussian fixture.
+
+    obj_eta(eta) = log(2π·σ²) + (dv−η)²/σ² + η²/ω²
+    d/dη        = −2(dv−η)/σ² + 2η/ω²
+    """
+
+    def supports_eta_objective_gradient(self, trans=None) -> bool:  # noqa: ARG002
+        return True
+
+    def eta_objective_value_grad(
+        self, eta, theta, omega, sigma, trans=None  # noqa: ARG002
+    ) -> tuple[float, np.ndarray]:
+        eta_val = float(np.asarray(eta, dtype=float)[0])
+        omega_var = float(omega[0, 0])
+        sigma_var = float(sigma[0, 0])
+        val = float(self.obj_eta(np.array([eta_val]), theta, omega, sigma, trans=trans))
+        grad = np.array([-2.0 * (self.dv - eta_val) / sigma_var + 2.0 * eta_val / omega_var])
+        return val, grad
+
+
+class _NativeGradientGaussianPopulationModel(_GaussianPopulationModel):
+    def __init__(self, dv: float) -> None:
+        self._indiv = {1: _NativeGradientGaussianIndividualModel(dv)}
+
+
 class _GaussianParams:
     def __init__(self, omega_var: float, sigma_var: float) -> None:
         self.theta = np.array([0.0])
@@ -564,3 +590,150 @@ class TestIMPNumericalAccuracy:
         assert abs(ofv_est - analytic) <= max(0.05 * abs(analytic), 0.1), (
             f"IMP OFV={ofv_est:.4f} analytic={analytic:.4f}"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P5 — native analytical gradient in MAP optimization
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.unit
+class TestIMPNativeGradient:
+    """P5: analytical gradient dispatch in _importance_sample / _map_etas."""
+
+    # ── fixture helpers ────────────────────────────────────────────────────
+
+    _DV = 1.25
+    _OMEGA_VAR = 0.6
+    _SIGMA_VAR = 0.4
+
+    @property
+    def _params(self) -> _GaussianParams:
+        return _GaussianParams(omega_var=self._OMEGA_VAR, sigma_var=self._SIGMA_VAR)
+
+    # eta* = dv * ω / (σ + ω)  (Gaussian MAP closed form)
+    @property
+    def _expected_eta_map(self) -> float:
+        return self._DV * self._OMEGA_VAR / (self._SIGMA_VAR + self._OMEGA_VAR)
+
+    # ── gradient accuracy ──────────────────────────────────────────────────
+
+    def test_gradient_consistent_with_finite_difference(self) -> None:
+        """Analytical gradient matches central-FD of obj_eta to 1e-5 rel tol."""
+        indiv = _NativeGradientGaussianIndividualModel(self._DV)
+        theta = np.array([0.0])
+        omega = np.array([[self._OMEGA_VAR]])
+        sigma = np.array([[self._SIGMA_VAR]])
+        eps = 1e-5
+        for eta_val in (-1.0, 0.0, 0.5, 1.5):
+            eta = np.array([eta_val])
+            _, grad = indiv.eta_objective_value_grad(eta, theta, omega, sigma)
+            fd = np.array([
+                (indiv.obj_eta(eta + eps, theta, omega, sigma)
+                 - indiv.obj_eta(eta - eps, theta, omega, sigma))
+                / (2.0 * eps)
+            ])
+            np.testing.assert_allclose(
+                grad, fd, rtol=1e-5, atol=1e-8,
+                err_msg=f"gradient mismatch at eta={eta_val}"
+            )
+
+    # ── _importance_sample jac dispatch ───────────────────────────────────
+
+    def test_importance_sample_passes_jac_true_with_native_gradient(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When gradient is available, _importance_sample passes jac=True to minimize."""
+        pop_model = _NativeGradientGaussianPopulationModel(dv=self._DV)
+        captured: list[dict] = []
+
+        def _spy(fun, x0, **kwargs):
+            captured.append(dict(kwargs))
+            return scipy_minimize(fun, x0, **kwargs)
+
+        monkeypatch.setattr("openpkpd.estimation.imp.minimize", _spy)
+        IMPMethod(isample=32, seed=0)._importance_sample(pop_model, self._params, 1)
+
+        assert len(captured) >= 1, "minimize should have been called"
+        assert captured[0].get("jac") is True, (
+            "jac=True must be forwarded when native gradient is available"
+        )
+
+    def test_importance_sample_does_not_pass_jac_without_gradient(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Without gradient support, _importance_sample must NOT pass jac."""
+        pop_model = _GaussianPopulationModel(dv=self._DV)
+        captured: list[dict] = []
+
+        def _spy(fun, x0, **kwargs):
+            captured.append(dict(kwargs))
+            return scipy_minimize(fun, x0, **kwargs)
+
+        monkeypatch.setattr("openpkpd.estimation.imp.minimize", _spy)
+        IMPMethod(isample=32, seed=0)._importance_sample(pop_model, self._params, 1)
+
+        assert len(captured) >= 1
+        assert "jac" not in captured[0], (
+            "jac must not be forwarded when native gradient is unavailable"
+        )
+
+    def test_importance_sample_native_gradient_matches_closed_form(self) -> None:
+        """IS result with analytical gradient agrees with closed-form Gaussian marginal."""
+        pop_model = _NativeGradientGaussianPopulationModel(dv=self._DV)
+        analytic = _implemented_log_marginal_gaussian(
+            self._DV, self._SIGMA_VAR, self._OMEGA_VAR
+        )
+        log_marg = IMPMethod(isample=32, seed=0)._importance_sample(
+            pop_model, self._params, 1
+        )
+        assert log_marg == pytest.approx(analytic, abs=1e-8)
+
+    # ── _map_etas jac dispatch ────────────────────────────────────────────
+
+    def test_map_etas_passes_jac_true_with_native_gradient(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When gradient is available, _map_etas passes jac=True to minimize."""
+        pop_model = _NativeGradientGaussianPopulationModel(dv=self._DV)
+        captured: list[dict] = []
+
+        def _spy(fun, x0, **kwargs):
+            captured.append(dict(kwargs))
+            return scipy_minimize(fun, x0, **kwargs)
+
+        monkeypatch.setattr("openpkpd.estimation.imp.minimize", _spy)
+        IMPMethod(isample=32, seed=0, is_map=True)._map_etas(pop_model, self._params)
+
+        assert len(captured) >= 1, "minimize should have been called"
+        assert captured[0].get("jac") is True, (
+            "jac=True must be forwarded when native gradient is available"
+        )
+
+    def test_map_etas_does_not_pass_jac_without_gradient(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Without gradient support, _map_etas must NOT pass jac."""
+        pop_model = _GaussianPopulationModel(dv=self._DV)
+        captured: list[dict] = []
+
+        def _spy(fun, x0, **kwargs):
+            captured.append(dict(kwargs))
+            return scipy_minimize(fun, x0, **kwargs)
+
+        monkeypatch.setattr("openpkpd.estimation.imp.minimize", _spy)
+        IMPMethod(isample=32, seed=0, is_map=True)._map_etas(pop_model, self._params)
+
+        assert len(captured) >= 1
+        assert "jac" not in captured[0], (
+            "jac must not be forwarded when native gradient is unavailable"
+        )
+
+    def test_map_etas_native_gradient_reaches_correct_map(self) -> None:
+        """MAP estimate with analytical gradient matches Gaussian closed-form solution."""
+        pop_model = _NativeGradientGaussianPopulationModel(dv=self._DV)
+        eta_hat = IMPMethod(isample=32, seed=0, is_map=True)._map_etas(
+            pop_model, self._params
+        )
+        # eta* = dv * omega / (sigma + omega)
+        assert eta_hat[1][0] == pytest.approx(self._expected_eta_map, abs=1e-6)

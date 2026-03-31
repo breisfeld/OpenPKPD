@@ -352,12 +352,49 @@ class IMPMethod(EstimationMethod):
                     )
                 )
 
-            map_result = minimize(
-                neg_log_joint,
-                eta0,
-                method="L-BFGS-B",
-                options={"maxiter": 100, "ftol": 1e-8},
-            )
+            # Use analytical gradient when available: single ODE solve per
+            # L-BFGS-B step instead of n_eta+1 finite-difference probes.
+            # Probe once to confirm the return type is a proper (float, ndarray)
+            # pair — guards against MagicMock or partially-implemented kernels.
+            _sg = getattr(indiv, "supports_eta_objective_gradient", None)
+            _vg = getattr(indiv, "eta_objective_value_grad", None)
+            _native_grad = False
+            if callable(_sg) and _sg(population_model.trans) and callable(_vg):
+                try:
+                    _p = _vg(eta0, params.theta, params.omega, params.sigma,
+                             trans=population_model.trans)
+                    if isinstance(_p, tuple) and len(_p) == 2:
+                        _native_grad = True
+                except Exception:
+                    pass
+
+            if _native_grad:
+                def neg_log_joint_with_grad(
+                    eta: np.ndarray,
+                ) -> tuple[float, np.ndarray]:
+                    val, g = indiv.eta_objective_value_grad(
+                        eta,
+                        params.theta,
+                        params.omega,
+                        params.sigma,
+                        trans=population_model.trans,
+                    )
+                    return float(val), np.asarray(g, dtype=float)
+
+                map_result = minimize(
+                    neg_log_joint_with_grad,
+                    eta0,
+                    method="L-BFGS-B",
+                    jac=True,
+                    options={"maxiter": 100, "ftol": 1e-8},
+                )
+            else:
+                map_result = minimize(
+                    neg_log_joint,
+                    eta0,
+                    method="L-BFGS-B",
+                    options={"maxiter": 100, "ftol": 1e-8},
+                )
             eta_map = np.asarray(map_result.x, dtype=float)
 
             eta_hessian = getattr(indiv, "eta_objective_hessian", None)
@@ -467,8 +504,44 @@ class IMPMethod(EstimationMethod):
                     )
                 )
 
-            res = minimize(
-                obj, np.zeros(params.n_eta()), method="L-BFGS-B", options={"maxiter": 100}
-            )
+            # Use analytical gradient when available.
+            # Probe once to validate the return type before committing.
+            _sg = getattr(indiv, "supports_eta_objective_gradient", None)
+            _vg = getattr(indiv, "eta_objective_value_grad", None)
+            _eta0 = np.zeros(params.n_eta())
+            _native_grad = False
+            if callable(_sg) and _sg(population_model.trans) and callable(_vg):
+                try:
+                    _p = _vg(_eta0, params.theta, params.omega, params.sigma,
+                             trans=population_model.trans)
+                    if isinstance(_p, tuple) and len(_p) == 2:
+                        _native_grad = True
+                except Exception:
+                    pass
+
+            if _native_grad:
+                def obj_with_grad(
+                    eta: np.ndarray, _indiv=indiv
+                ) -> tuple[float, np.ndarray]:
+                    val, g = _indiv.eta_objective_value_grad(
+                        eta,
+                        params.theta,
+                        params.omega,
+                        params.sigma,
+                        trans=population_model.trans,
+                    )
+                    return float(val), np.asarray(g, dtype=float)
+
+                res = minimize(
+                    obj_with_grad,
+                    np.zeros(params.n_eta()),
+                    method="L-BFGS-B",
+                    jac=True,
+                    options={"maxiter": 100},
+                )
+            else:
+                res = minimize(
+                    obj, np.zeros(params.n_eta()), method="L-BFGS-B", options={"maxiter": 100}
+                )
             eta_hat[sid] = res.x
         return eta_hat

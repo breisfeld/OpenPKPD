@@ -503,6 +503,143 @@ class IndividualModel:
         # G_i = (n_obs, 8) @ (8, n_eta) → (n_obs, n_eta)
         return dF_dODE @ J_pk_eta
 
+    def _native_gauss_newton_hessian(
+        self,
+        theta: np.ndarray,
+        eta: np.ndarray,
+        omega: np.ndarray,
+        sigma: np.ndarray,
+        eps: float = 1e-5,
+    ) -> np.ndarray | None:
+        """Gauss-Newton Hessian via CVODES sensitivities.  Returns None if unavailable.
+
+        H_i ≈ 2 G_i^T diag(1/var) G_i  +  2 Ω^{-1}
+
+        One Rust sensitivity solve replaces the 2·n_eta·(n_eta+1) ODE calls
+        that ``numerical_hessian`` would require.  Returns None (never raises)
+        so that callers can fall through to the numerical Hessian path.
+        """
+        if _native_cvodes_advan6_sensitivity_probe_multidose_rust is None:
+            return None
+
+        contract = self._native_advan6_mixed_pkpd_contract
+        if contract is None or contract.get("is_mixed_pkpd", False):
+            return None  # Mixed PK/PD routing deferred; caller falls back
+
+        cem = self._common_error_model
+        if cem is None:
+            return None  # Error model not recognised; caller falls back
+
+        if self.pk_callable is None:
+            return None
+
+        obs_mask = self._obs_mask
+        n_eta = len(eta)
+        n_obs = int(obs_mask.sum())
+
+        # ── degenerate case ────────────────────────────────────────────────────
+        if n_obs == 0:
+            try:
+                omega_inv: np.ndarray = np.linalg.inv(omega)
+            except np.linalg.LinAlgError:
+                omega_inv = np.linalg.pinv(omega)
+            return 2.0 * omega_inv
+
+        theta_list = [float(t) for t in theta]
+        eta_list = [float(e) for e in eta]
+
+        try:
+            pk_params_0 = self.pk_callable(
+                theta_list, eta_list, t=0.0, covariates=self._base_covariates
+            )
+        except Exception:
+            return None
+
+        required = contract["required_names"]
+        if any(name not in pk_params_0 for name in required):
+            return None
+
+        ode_theta = [float(pk_params_0[name]) for name in required]
+        V = float(pk_params_0["V"])
+        v_idx = list(required).index("V")
+
+        # Sorted observation times for the probe (probe requires sorted input)
+        all_obs_times = np.asarray(self.subject_events.obs_times, dtype=float)
+        obs_times_masked = all_obs_times[obs_mask]
+        order = np.argsort(obs_times_masked, kind="stable")
+        inv_order = np.empty_like(order)
+        inv_order[order] = np.arange(n_obs)
+        sorted_times = obs_times_masked[order]
+
+        # ── Single CVODES sensitivity solve ────────────────────────────────────
+        try:
+            states_raw, sens_raw = _native_cvodes_advan6_sensitivity_probe_multidose_rust(
+                sorted_times.tolist(),
+                contract["dose_times"],
+                contract["dose_amts"],
+                ode_theta,
+            )
+        except Exception:
+            return None
+
+        states = np.array(states_raw, dtype=float)[inv_order]              # (n_obs, 4)
+        sens   = np.array(sens_raw,   dtype=float).reshape(n_obs, 8, 4)[inv_order]
+
+        # ── G_i = ∂IPRED/∂η  ──────────────────────────────────────────────────
+        A3 = states[:, 2]                        # (n_obs,)
+        dF_dODE = sens[:, :, 2] / V             # (n_obs, 8)
+        dF_dODE[:, v_idx] -= A3 / (V * V)       # quotient-rule correction for V
+
+        J_pk_eta = np.zeros((8, n_eta))
+        for k in range(n_eta):
+            eta_p = eta_list.copy(); eta_p[k] += eps
+            eta_m = eta_list.copy(); eta_m[k] -= eps
+            try:
+                pp = self.pk_callable(theta_list, eta_p, t=0.0, covariates=self._base_covariates)
+                pm = self.pk_callable(theta_list, eta_m, t=0.0, covariates=self._base_covariates)
+                for j, name in enumerate(required):
+                    J_pk_eta[j, k] = (
+                        float(pp.get(name, 0.0)) - float(pm.get(name, 0.0))
+                    ) / (2.0 * eps)
+            except Exception:
+                pass
+
+        G_i = dF_dODE @ J_pk_eta  # (n_obs, n_eta)
+
+        # ── Residual variance from detected error model (no extra ODE solve) ──
+        ipred = A3 / V             # (n_obs,)
+        kind, theta_idx = cem
+        sigma_00 = float(sigma[0, 0]) if sigma.size > 0 else 1.0
+
+        if kind == "proportional":
+            var = np.maximum(sigma_00 * ipred ** 2, 1e-10)
+        elif kind == "additive":
+            var = np.full(n_obs, max(sigma_00, 1e-10))
+        elif kind == "proportional_theta":
+            coeff = float(theta[theta_idx[0]]) ** 2
+            var = np.maximum(coeff * ipred ** 2, 1e-10)
+        elif kind == "additive_theta":
+            var = np.full(n_obs, max(float(theta[theta_idx[0]]) ** 2, 1e-10))
+        elif kind == "combined_theta":
+            prop = float(theta[theta_idx[0]])
+            add  = float(theta[theta_idx[1]])
+            var = np.maximum(prop ** 2 + add ** 2 * ipred ** 2, 1e-10)
+        elif kind == "combined_eps":
+            s01 = float(sigma[0, 1]) if sigma.size >= 4 else 0.0
+            s11 = float(sigma[1, 1]) if sigma.size >= 4 else sigma_00
+            var = np.maximum(sigma_00 + 2.0 * s01 * ipred + s11 * ipred ** 2, 1e-10)
+        else:
+            return None  # Unsupported error model; caller falls back
+
+        # ── Gauss-Newton Hessian ───────────────────────────────────────────────
+        # H_i = 2 G^T R^{-1} G + 2 Ω^{-1}
+        data_hess = 2.0 * (G_i.T / var) @ G_i  # (n_eta, n_eta)
+        try:
+            omega_inv = np.linalg.inv(omega)
+        except np.linalg.LinAlgError:
+            omega_inv = np.linalg.pinv(omega)
+        return data_hess + 2.0 * omega_inv
+
     @staticmethod
     def _infer_common_error_model(
         error_callable: Callable | None,
@@ -1508,6 +1645,13 @@ class IndividualModel:
                 n_blocks = len(eta_arr) // block_size
                 penalty_hess = 2.0 * np.kron(np.eye(n_blocks), omega_inv)
             return data_hess + np.asarray(penalty_hess, dtype=float)
+
+        # ── Native CVODES Gauss-Newton Hessian (single Rust sensitivity solve) ──
+        # Replaces 2·n_eta·(n_eta+1) ODE calls with one sensitivity integration.
+        # Returns None silently when the model or extension is unsupported.
+        native_H = self._native_gauss_newton_hessian(theta, eta_arr, omega, sigma)
+        if native_H is not None:
+            return native_H
 
         def obj_eta_local(eta_value: np.ndarray) -> float:
             return float(self.obj_eta(eta_value, theta, omega, sigma, trans=trans))

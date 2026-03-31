@@ -1245,3 +1245,227 @@ class TestSensitivityProbePerformance:
             f"Expected sensitivity probe ≥1.2× faster than {n_fd_pairs} FD pairs; "
             f"got {speedup:.2f}×"
         )
+
+
+# ===========================================================================
+# Section 9 — Laplacian native Hessian
+# ===========================================================================
+
+class TestLaplacianNativeHessian:
+    """
+    IndividualModel.eta_objective_hessian() — native Gauss-Newton path.
+
+    ``eta_objective_hessian`` is a multi-path method: when the native CVODES
+    sensitivity probe is available and the model is a non-mixed ADVAN6 model,
+    it delegates to ``_native_gauss_newton_hessian``, which computes
+
+        H_i = 2 G_i^T diag(1/var) G_i  +  2 Ω^{-1}
+
+    in a single Rust sensitivity solve rather than 2·n_eta·(n_eta+1) ODE calls.
+    If the native path is unavailable, it falls back to ``numerical_hessian``.
+
+    Tests verify:
+      - positive definiteness (required for log|H_i| to be well-defined)
+      - data term correctness: H - 2Ω⁻¹ ≈ 2 G_i^T diag(1/var) G_i (direct)
+      - eta-dependence of the data term
+      - graceful fallback to numerical Hessian for mixed model / no contract
+      - integration: laplacian._outer_ofv_subject_term calls the method
+    """
+
+    @pytest.fixture(autouse=True)
+    def _skip(self):
+        if _sens_probe is None or _multidose is None:
+            pytest.skip("sensitivity probe not available")
+        try:
+            from openpkpd.model.individual import IndividualModel
+        except ImportError:
+            pytest.skip("IndividualModel not importable")
+
+    def test_native_hessian_is_positive_definite(self):
+        """Gauss-Newton Hessian must be symmetric PD (required for log|H| stability)."""
+        indiv, _, _ = _build_native_individual()
+        theta = np.array(_SENS_THETA)
+        eta   = np.zeros(2)
+        omega = 0.04 * np.eye(2)
+        sigma = np.array([[0.01]])
+
+        H = indiv.eta_objective_hessian(theta, eta, omega, sigma)
+        assert H.shape == (2, 2)
+        np.testing.assert_allclose(H, H.T, atol=1e-12, err_msg="H_i must be symmetric")
+        evals = np.linalg.eigvalsh(H)
+        assert np.all(evals > 0), f"H_i not PD; eigenvalues: {evals}"
+
+    def test_native_data_hessian_matches_direct_reference(self):
+        """Data contribution H - 2Ω⁻¹ equals 2 G_i^T diag(1/var) G_i (direct).
+
+        This validates the Gauss-Newton formula without depending on the
+        full obj_eta numerical Hessian (which requires actual observed DV).
+        Tolerance rtol=1e-6 reflects double-precision arithmetic only.
+        """
+        from openpkpd.model.individual import _native_cvodes_advan6_sensitivity_probe_multidose_rust as probe
+
+        indiv, pk_callable, _ = _build_native_individual()
+        theta = np.array(_SENS_THETA)
+        eta   = np.zeros(2)
+        omega = 0.04 * np.eye(2)
+        sigma = np.array([[0.01]])
+
+        H = indiv.eta_objective_hessian(theta, eta, omega, sigma)
+        data_term = H - 2.0 * np.linalg.inv(omega)
+
+        # Build the same reference manually
+        contract = indiv._native_advan6_mixed_pkpd_contract
+        param_names = contract["required_names"]
+        pk0 = pk_callable(list(theta), [0.0, 0.0])
+        ode_theta = [float(pk0[n]) for n in param_names]
+        V = float(pk0["V"])
+        v_idx = list(param_names).index("V")
+
+        obs_times = [0.5, 1.0, 2.0, 4.0, 8.0, 12.0, 24.0]
+        states_raw, sens_raw = probe(obs_times, contract["dose_times"], contract["dose_amts"], ode_theta)
+        states = np.array(states_raw, dtype=float)  # (7, 4)
+        sens   = np.array(sens_raw,   dtype=float).reshape(7, 8, 4)
+
+        A3 = states[:, 2]
+        dF_dODE = sens[:, :, 2] / V
+        dF_dODE[:, v_idx] -= A3 / (V * V)
+
+        eps = 1e-5
+        J = np.zeros((8, 2))
+        for k in range(2):
+            ep = [0.0, 0.0]; ep[k] += eps
+            em = [0.0, 0.0]; em[k] -= eps
+            pp = pk_callable(list(theta), ep)
+            pm = pk_callable(list(theta), em)
+            for j, name in enumerate(param_names):
+                J[j, k] = (float(pp.get(name, 0.0)) - float(pm.get(name, 0.0))) / (2 * eps)
+
+        G_ref = dF_dODE @ J                    # (7, 2)
+        ipred = A3 / V
+        var_ref = np.maximum(float(sigma[0, 0]) * ipred ** 2, 1e-10)
+        data_ref = 2.0 * (G_ref.T / var_ref) @ G_ref
+
+        np.testing.assert_allclose(
+            data_term, data_ref, rtol=1e-6, atol=1e-10,
+            err_msg="Native data Hessian does not match direct G_i^T R^{-1} G_i reference",
+        )
+
+    def test_native_data_hessian_changes_with_eta(self):
+        """Data term 2 G_i^T R^{-1} G_i changes when η changes.
+
+        Increasing CL via eta[0] changes ODE theta, ipred, G_i, and var,
+        so the data contribution must differ at η=0 vs η=[0.3, -0.2].
+        """
+        indiv, _, _ = _build_native_individual()
+        theta = np.array(_SENS_THETA)
+        omega = 0.04 * np.eye(2)
+        sigma = np.array([[0.01]])
+        omega_inv_2 = 2.0 * np.linalg.inv(omega)
+
+        H0   = indiv.eta_objective_hessian(theta, np.zeros(2), omega, sigma)
+        Hhat = indiv.eta_objective_hessian(theta, np.array([0.3, -0.2]), omega, sigma)
+
+        data0   = H0   - omega_inv_2
+        datahat = Hhat - omega_inv_2
+
+        # The data Hessians must differ when eta changes; we expect >5% difference
+        assert not np.allclose(data0, datahat, rtol=0.05), (
+            "Data Hessian must change with η; got data0=%s, datahat=%s" % (data0, datahat)
+        )
+
+    def test_native_fallback_for_mixed_model(self):
+        """Mixed PK/PD model → native path returns None → method falls back to numerical.
+
+        The result is valid (positive semi-definite) even though it comes from
+        the numerical Hessian of obj_eta.  This test confirms graceful fallback,
+        not a NotImplementedError.
+        """
+        indiv, _, _ = _build_native_individual()
+        if indiv._native_advan6_mixed_pkpd_contract is not None:
+            indiv._native_advan6_mixed_pkpd_contract["is_mixed_pkpd"] = True
+
+        # _native_gauss_newton_hessian must return None for mixed model
+        result = indiv._native_gauss_newton_hessian(
+            np.array(_SENS_THETA), np.zeros(2), 0.04 * np.eye(2), np.array([[0.01]])
+        )
+        assert result is None, "Mixed-model native path must return None"
+
+        # eta_objective_hessian falls back to numerical and still returns a matrix
+        H = indiv.eta_objective_hessian(
+            np.array(_SENS_THETA), np.zeros(2), 0.04 * np.eye(2), np.array([[0.01]])
+        )
+        assert H.shape == (2, 2), "Fallback Hessian has wrong shape"
+
+    def test_native_fallback_when_no_contract(self):
+        """No native contract → native path returns None → method falls back to numerical."""
+        indiv, _, _ = _build_native_individual()
+        indiv._native_advan6_mixed_pkpd_contract = None
+
+        result = indiv._native_gauss_newton_hessian(
+            np.array(_SENS_THETA), np.zeros(2), 0.04 * np.eye(2), np.array([[0.01]])
+        )
+        assert result is None, "No-contract native path must return None"
+
+        H = indiv.eta_objective_hessian(
+            np.array(_SENS_THETA), np.zeros(2), 0.04 * np.eye(2), np.array([[0.01]])
+        )
+        assert H.shape == (2, 2), "Fallback Hessian has wrong shape"
+
+    def test_laplacian_outer_ofv_calls_native_hessian(self):
+        """laplacian._outer_ofv_subject_term dispatches to eta_objective_hessian.
+
+        We stub evaluate_observation_model so the laplacian's try-block
+        reaches the Hessian step, then confirm our spy was called exactly once.
+        """
+        from openpkpd.estimation.laplacian import LaplacianMethod
+
+        indiv, _, _ = _build_native_individual()
+        assert callable(getattr(indiv, "eta_objective_hessian", None)), (
+            "IndividualModel must expose eta_objective_hessian"
+        )
+
+        theta = np.array(_SENS_THETA)
+        omega = 0.04 * np.eye(2)
+        sigma = np.array([[0.01]])
+        n_obs = 7
+
+        # Stub evaluate_observation_model to return sensible arrays so the
+        # laplacian try-block does not raise before reaching the Hessian step.
+        fake_pred     = np.ones(n_obs) * 2.0
+        fake_var      = np.ones(n_obs) * 0.04
+        fake_obs_mask = np.ones(n_obs, dtype=bool)
+        indiv.evaluate_observation_model = lambda *a, **kw: (
+            fake_pred, fake_obs_mask, fake_pred, fake_pred, fake_var
+        )
+        # Provide finite obs_dv so residuals are well-defined
+        indiv.subject_events.obs_dv = np.ones(n_obs) * 2.0
+
+        class Params:
+            def n_eta(self):
+                return 2
+        p = Params()
+        p.theta = theta; p.omega = omega; p.sigma = sigma
+
+        pop_model = MagicMock()
+        pop_model.trans = 2
+        pop_model.individual_model.return_value = indiv
+
+        method = LaplacianMethod.__new__(LaplacianMethod)
+        method.interaction = True
+
+        hessian_calls = []
+        orig = indiv.eta_objective_hessian
+
+        def spy(*args, **kwargs):
+            hessian_calls.append(1)
+            return orig(*args, **kwargs)
+
+        indiv.eta_objective_hessian = spy
+
+        omega_inv = np.linalg.inv(omega)
+        eta_hat = {1: np.zeros(2)}
+
+        method._outer_ofv_subject_term(pop_model, p, eta_hat, 1, omega_inv)
+        assert len(hessian_calls) == 1, (
+            "eta_objective_hessian was not called by _outer_ofv_subject_term"
+        )

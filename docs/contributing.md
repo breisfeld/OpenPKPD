@@ -67,27 +67,46 @@ just run-example 01
 Remaining external prerequisites depend on the recipe:
 
 - `build-core` / `build-wheel` require the **Rust toolchain** (`rustup`)
-- `build-core-cvode-wrap-spike` also requires the Rust toolchain and is only
-  intended for the current native CVODES spike path
+- `build-core-native-cvodes` also requires the Rust toolchain and enables the
+  optional native CVODES path
 - `install-hooks` requires `git`
 - `build-docs-pdf` requires a working LaTeX installation
 - `watch-docs` and the `*-and-open` recipes require browser/open support on the host
 - `run-gui` requires a working desktop/Qt environment
 
-For the current `cvode-wrap` spike, the development workflow is:
+For the current native CVODES path, the development workflow is:
 
 ```bash
-just build-core-cvode-wrap-spike
+just build-core-native-cvodes
+just smoke-native-cvodes
 ```
 
-The package now preloads SUNDIALS shared libraries from both:
+With that recipe, development mode allows the package to preload SUNDIALS
+shared libraries from both:
 
 - local Cargo build outputs
 - package-adjacent library directories such as `openpkpd.libs` / `.libs`
 
-That means normal `uv run ...` commands do not need a manual
-`LD_LIBRARY_PATH` for the spike path during development. This is still a
-development-time convenience, not the final wheel/distribution solution.
+Released wheels should rely on packaged library directories only. Cargo-target
+discovery is intentionally development-only and is activated through
+`OPENPKPD_NATIVE_DEV=1` by the `just` recipe above.
+
+At the moment, `native-cvodes` is development-validated but not yet considered
+PyPI-wheel ready. The remaining work is wheel packaging for bundled SUNDIALS
+libraries across Linux, macOS, and Windows. Until that is finished, release
+validation should treat `build-core-native-cvodes` plus `smoke-native-cvodes`
+as a pre-publish smoke path rather than a publishable wheel guarantee.
+
+For wheel-oriented work, the current first target is Linux:
+
+```bash
+just build-wheel-native-cvodes
+just smoke-installed-native-cvodes-wheel
+```
+
+On Linux, `maturin` needs `patchelf` available to repair bundled shared-library
+references for the wheel. The repository CI should provide that for native
+wheel jobs; local contributor machines may need to install it explicitly.
 
 ## Running tests
 

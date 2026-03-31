@@ -548,6 +548,65 @@ class TestIndividualModel:
         np.testing.assert_allclose(pred, f)
         assert "return_amounts" not in pk.last_solve_kwargs
 
+    def test_evaluate_observation_model_uses_mixed_dvid_fast_path_with_amounts(self) -> None:
+        events = _make_subject_events(
+            [1.0, 2.0],
+            [10.0, 20.0],
+            obs_covariates=[{"DVID": 1.0}, {"DVID": 2.0}],
+        )
+        compiler = NMTRANCompiler()
+
+        class _MixedPK(PKSubroutine):
+            advan = 6
+
+            def __init__(self) -> None:
+                self.last_solve_kwargs: dict[str, object] = {}
+
+            def solve(
+                self,
+                pk_params: dict[str, float],
+                dose_events: list,
+                obs_times: np.ndarray,
+                pk_callable=None,
+                des_callable=None,
+                **kwargs,
+            ) -> PKSolution:
+                self.last_solve_kwargs = dict(kwargs)
+                obs_times = np.asarray(obs_times, dtype=float)
+                f = np.array([10.0, 20.0], dtype=float)
+                amounts = np.array(
+                    [
+                        [1.0, 2.0, 3.0, 4.0],
+                        [5.0, 6.0, 7.0, 8.0],
+                    ],
+                    dtype=float,
+                )
+                return PKSolution(times=obs_times, amounts=amounts, ipred=f, f=f)
+
+            def apply_trans(self, raw_params: dict[str, float], trans: int) -> dict[str, float]:
+                return dict(raw_params)
+
+        error_callable = compiler.compile_error(
+            "PKPROP = THETA(9)\n"
+            "PKADD = THETA(10)\n"
+            "PDADD = THETA(11)\n"
+            "IPRED = THETA(8) + A(4)\n"
+            "W = PDADD\n"
+            "Y = IPRED + W*EPS(2)\n"
+            "IF (DVID == 1) W = SQRT((PKPROP*F)**2 + PKADD**2)\n"
+            "IF (DVID == 1) Y = F + W*EPS(1)"
+        )
+        model = IndividualModel(events, _MixedPK(), None, error_callable, n_eps=2)
+        theta = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 100.0, 0.2, 3.0, 5.0], dtype=float)
+        sigma = np.diag([0.25, 0.04])
+
+        _, _, f, pred, var = model.evaluate_observation_model(theta, np.array([]), sigma)
+
+        assert model._common_error_model == ("mixed_pkpd_dvid_theta", (7, 3, 8, 9, 10))
+        np.testing.assert_allclose(f, [10.0, 20.0])
+        np.testing.assert_allclose(pred, [10.0, 108.0])
+        np.testing.assert_allclose(var, [((0.2 * 10.0) ** 2 + 3.0**2) * 0.25, 5.0**2 * 0.04])
+
     def test_log_likelihood_m6_counts_only_first_blq(self) -> None:
         events = _make_subject_events([1.0, 2.0, 3.0], [0.25, 0.10, 2.0])
         pk = _DummyPK()
@@ -569,6 +628,89 @@ class TestIndividualModel:
         expected_ll = blq_log_likelihood(0.25, 1.0, 1.0, 0.5, BLQMethod.M6)
         expected_ll += log_likelihood_normal(2.0, 1.0, 1.0)
         assert result == pytest.approx(-2.0 * expected_ll)
+
+    def test_evaluate_observation_model_uses_native_warfarin_pkpd_probe_when_available(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        compiler = NMTRANCompiler()
+        events = SubjectEvents(
+            subject_id=1,
+            dose_events=[DoseEvent(time=0.0, amount=100.0, compartment=1)],
+            obs_times=np.array([0.5, 24.0], dtype=float),
+            obs_dv=np.array([0.0, 44.0], dtype=float),
+            obs_cmt=np.array([3, 4], dtype=int),
+            obs_mdv=np.zeros(2, dtype=int),
+            obs_covariates=[{"DVID": 1.0}, {"DVID": 2.0}],
+        )
+
+        class _NativeMixedPK(PKSubroutine):
+            advan = 6
+            n_compartments = 10
+
+            def solve(self, *args, **kwargs):
+                raise AssertionError("native probe should bypass python solve()")
+
+            def apply_trans(self, raw_params: dict[str, float], trans: int) -> dict[str, float]:
+                return dict(raw_params)
+
+        calls: list[tuple[list[float], float, list[float]]] = []
+
+        def _fake_probe(times: list[float], dose_amt: float, theta8: list[float]) -> list[list[float]]:
+            calls.append((list(times), float(dose_amt), list(theta8)))
+            return [
+                [80.0, 10.0, 30.0, -5.0],
+                [0.1, 0.2, 12.0, -7.5],
+            ]
+
+        monkeypatch.setattr(
+            "openpkpd.model.individual._cvode_wrap_warfarin_pkpd_probe_rust",
+            _fake_probe,
+        )
+
+        error_callable = compiler.compile_error(
+            "PKPROP = THETA(9)\n"
+            "PKADD = THETA(10)\n"
+            "PDADD = THETA(11)\n"
+            "IPRED = THETA(8) + A(4)\n"
+            "W = PDADD\n"
+            "Y = IPRED + W*EPS(2)\n"
+            "IF (DVID == 1) W = SQRT((PKPROP*F)**2 + PKADD**2)\n"
+            "IF (DVID == 1) Y = F + W*EPS(1)"
+        )
+
+        def pk_callable(theta, eta, t=0.0, covariates=None):
+            return {
+                "KTR": 0.8968,
+                "KA": 0.8887,
+                "CL": 0.1337,
+                "V": 8.6756,
+                "EMAX": 0.999,
+                "EC50": 1.5735,
+                "KOUT": 0.0552,
+                "E0": 101.3225,
+                "PCMT": 3.0,
+            }
+
+        model = IndividualModel(
+            subject_events=events,
+            pk_subroutine=_NativeMixedPK(),
+            pk_callable=pk_callable,
+            error_callable=error_callable,
+            n_eps=2,
+        )
+
+        theta = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 101.3225, 0.2, 3.0, 5.0], dtype=float)
+        sigma = np.diag([0.25, 0.04])
+        ipred, _, f, pred, _ = model.evaluate_observation_model(theta, np.array([]), sigma, trans=1)
+
+        assert len(calls) == 1
+        assert calls[0][0] == [0.5, 24.0]
+        assert calls[0][1] == pytest.approx(100.0)
+        np.testing.assert_allclose(calls[0][2], [0.8968, 0.8887, 0.1337, 8.6756, 0.999, 1.5735, 0.0552, 101.3225])
+        np.testing.assert_allclose(ipred, [30.0 / 8.6756, 12.0 / 8.6756])
+        np.testing.assert_allclose(f, ipred)
+        np.testing.assert_allclose(pred, [30.0 / 8.6756, 101.3225 - 7.5])
 
     def test_obj_eta_with_iov_etas_sums_block_penalties(
         self, monkeypatch: pytest.MonkeyPatch

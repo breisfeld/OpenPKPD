@@ -196,6 +196,7 @@ class ModelBuilder:
         self._data_kwargs: dict[str, Any] = {}
         self._advan: int = 2
         self._trans: int = 2
+        self._subroutine_kwargs: dict[str, Any] = {}
         self._pk_code: str | None = None
         self._error_code: str | None = None
         self._des_code: str | None = None
@@ -248,10 +249,11 @@ class ModelBuilder:
         self._dataset = ds
         return self
 
-    def subroutines(self, advan: int = 2, trans: int = 2) -> ModelBuilder:
-        """Set ADVAN and TRANS subroutine numbers."""
+    def subroutines(self, advan: int = 2, trans: int = 2, **kwargs: Any) -> ModelBuilder:
+        """Set ADVAN and TRANS subroutine numbers and optional subroutine kwargs."""
         self._advan = advan
         self._trans = trans
+        self._subroutine_kwargs = dict(kwargs)
         return self
 
     def pk(self, code: str) -> ModelBuilder:
@@ -445,6 +447,13 @@ class ModelBuilder:
 
         # Get PK subroutine
         pk_sub = get_advan(self._advan)
+        if self._subroutine_kwargs:
+            for key, value in self._subroutine_kwargs.items():
+                if not hasattr(pk_sub, key):
+                    raise ModelError(
+                        f"ADVAN{self._advan} does not support subroutine option {key!r}"
+                    )
+                setattr(pk_sub, key, value)
 
         # Compile code blocks
         compiler = NMTRANCompiler()

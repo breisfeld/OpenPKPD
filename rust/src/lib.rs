@@ -18,6 +18,59 @@
 use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
 use std::f64::consts::SQRT_2;
+#[cfg(feature = "cvode-wrap-spike")]
+use std::time::Instant;
+
+#[cfg(feature = "cvode-wrap-spike")]
+use cvode_wrap::{
+    AbsTolerance, LinearMultistepMethod, RhsResult, SolverNoSensi, StepKind,
+};
+
+#[cfg(feature = "cvode-wrap-spike")]
+struct WarfarinPkpdTheta {
+    ktr: f64,
+    ka: f64,
+    cl: f64,
+    v: f64,
+    emax: f64,
+    ec50: f64,
+    kout: f64,
+    e0: f64,
+}
+
+#[cfg(feature = "cvode-wrap-spike")]
+fn cvode_wrap_warfarin_pkpd_rhs(
+    _t: f64,
+    y: &[f64; 4],
+    dy: &mut [f64; 4],
+    theta: &WarfarinPkpdTheta,
+) -> RhsResult {
+    let a1 = y[0];
+    let a2 = y[1];
+    let a3 = y[2];
+    let a4 = y[3];
+    let conc = a3 / theta.v;
+    let pd = 1.0 - theta.emax * conc / (theta.ec50 + conc);
+
+    *dy = [
+        -theta.ktr * a1,
+        theta.ktr * a1 - theta.ka * a2,
+        theta.ka * a2 - (theta.cl / theta.v) * a3,
+        theta.kout * theta.e0 * (pd - 1.0) - theta.kout * a4,
+    ];
+    RhsResult::Ok
+}
+
+#[cfg(feature = "cvode-wrap-spike")]
+fn cvode_wrap_linear_rhs(
+    _t: f64,
+    y: &[f64; 2],
+    dy: &mut [f64; 2],
+    _data: &(),
+) -> RhsResult {
+    *dy = [-0.5 * y[0], 0.5 * y[0] - 0.25 * y[1]];
+    RhsResult::Ok
+}
 
 // ln(2π)
 const LOG2PI: f64 = 1.837_877_066_409_345_5_f64;
@@ -169,10 +222,197 @@ fn neg2ll_obs_loop(
     -2.0 * ll
 }
 
+#[cfg(feature = "cvode-wrap-spike")]
+#[pyfunction]
+fn cvode_wrap_linear_probe(tout: f64) -> PyResult<Vec<f64>> {
+    if !tout.is_finite() || tout < 0.0 {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "tout must be finite and non-negative",
+        ));
+    }
+
+    let y0 = [1.0_f64, 0.0_f64];
+    let mut solver = SolverNoSensi::new(
+        LinearMultistepMethod::Bdf,
+        cvode_wrap_linear_rhs,
+        0.0,
+        &y0,
+        1e-8,
+        AbsTolerance::scalar(1e-10),
+        (),
+    )
+    .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(format!("{err:?}")))?;
+
+    let (_tret, y) = solver
+        .step(tout, StepKind::Normal)
+        .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(format!("{err:?}")))?;
+
+    Ok(y.to_vec())
+}
+
+#[cfg(feature = "cvode-wrap-spike")]
+#[pyfunction]
+fn cvode_wrap_warfarin_pkpd_probe(
+    times: Vec<f64>,
+    dose_amt: f64,
+    theta: Vec<f64>,
+) -> PyResult<Vec<Vec<f64>>> {
+    if theta.len() != 8 {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "theta must have exactly 8 values: KTR, KA, CL, V, EMAX, EC50, KOUT, E0",
+        ));
+    }
+    if !dose_amt.is_finite() || dose_amt < 0.0 {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "dose_amt must be finite and non-negative",
+        ));
+    }
+    if times.iter().any(|t| !t.is_finite() || *t < 0.0) {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "times must be finite and non-negative",
+        ));
+    }
+    if times.windows(2).any(|w| w[1] < w[0]) {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "times must be sorted in non-decreasing order",
+        ));
+    }
+
+    let theta = WarfarinPkpdTheta {
+        ktr: theta[0],
+        ka: theta[1],
+        cl: theta[2],
+        v: theta[3],
+        emax: theta[4],
+        ec50: theta[5],
+        kout: theta[6],
+        e0: theta[7],
+    };
+    let y0 = [dose_amt, 0.0_f64, 0.0_f64, 0.0_f64];
+
+    let mut solver = SolverNoSensi::new(
+        LinearMultistepMethod::Bdf,
+        cvode_wrap_warfarin_pkpd_rhs,
+        0.0,
+        &y0,
+        1e-8,
+        AbsTolerance::scalar(1e-10),
+        theta,
+    )
+    .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(format!("{err:?}")))?;
+
+    let mut out = Vec::with_capacity(times.len());
+    for &tout in &times {
+        if tout == 0.0 {
+            out.push(y0.to_vec());
+            continue;
+        }
+        let (_tret, y) = solver
+            .step(tout, StepKind::Normal)
+            .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(format!("{err:?}")))?;
+        out.push(y.to_vec());
+    }
+    Ok(out)
+}
+
+#[cfg(feature = "cvode-wrap-spike")]
+#[pyfunction]
+fn cvode_wrap_warfarin_pkpd_repeat_probe(
+    times: Vec<f64>,
+    dose_amt: f64,
+    theta: Vec<f64>,
+    n_repeats: usize,
+) -> PyResult<(f64, Vec<f64>)> {
+    if n_repeats == 0 {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "n_repeats must be >= 1",
+        ));
+    }
+    if theta.len() != 8 {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "theta must have exactly 8 values: KTR, KA, CL, V, EMAX, EC50, KOUT, E0",
+        ));
+    }
+    if !dose_amt.is_finite() || dose_amt < 0.0 {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "dose_amt must be finite and non-negative",
+        ));
+    }
+    if times.is_empty() {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "times must not be empty",
+        ));
+    }
+    if times.iter().any(|t| !t.is_finite() || *t < 0.0) {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "times must be finite and non-negative",
+        ));
+    }
+    if times.windows(2).any(|w| w[1] < w[0]) {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "times must be sorted in non-decreasing order",
+        ));
+    }
+
+    let base_theta = WarfarinPkpdTheta {
+        ktr: theta[0],
+        ka: theta[1],
+        cl: theta[2],
+        v: theta[3],
+        emax: theta[4],
+        ec50: theta[5],
+        kout: theta[6],
+        e0: theta[7],
+    };
+    let y0 = [dose_amt, 0.0_f64, 0.0_f64, 0.0_f64];
+    let mut last_state = y0.to_vec();
+    let t0 = Instant::now();
+
+    for _ in 0..n_repeats {
+        let mut solver = SolverNoSensi::new(
+            LinearMultistepMethod::Bdf,
+            cvode_wrap_warfarin_pkpd_rhs,
+            0.0,
+            &y0,
+            1e-8,
+            AbsTolerance::scalar(1e-10),
+            WarfarinPkpdTheta {
+                ktr: base_theta.ktr,
+                ka: base_theta.ka,
+                cl: base_theta.cl,
+                v: base_theta.v,
+                emax: base_theta.emax,
+                ec50: base_theta.ec50,
+                kout: base_theta.kout,
+                e0: base_theta.e0,
+            },
+        )
+        .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(format!("{err:?}")))?;
+
+        for &tout in &times {
+            let (_, y) = if tout == 0.0 {
+                (0.0, &y0)
+            } else {
+                solver.step(tout, StepKind::Normal)
+                    .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(format!("{err:?}")))?
+            };
+            last_state = y.to_vec();
+        }
+    }
+
+    Ok((t0.elapsed().as_secs_f64(), last_state))
+}
+
 // ── module registration ───────────────────────────────────────────────────────
 
 #[pymodule]
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(neg2ll_obs_loop, m)?)?;
+    #[cfg(feature = "cvode-wrap-spike")]
+    m.add_function(wrap_pyfunction!(cvode_wrap_linear_probe, m)?)?;
+    #[cfg(feature = "cvode-wrap-spike")]
+    m.add_function(wrap_pyfunction!(cvode_wrap_warfarin_pkpd_probe, m)?)?;
+    #[cfg(feature = "cvode-wrap-spike")]
+    m.add_function(wrap_pyfunction!(cvode_wrap_warfarin_pkpd_repeat_probe, m)?)?;
     Ok(())
 }

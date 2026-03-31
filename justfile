@@ -251,6 +251,11 @@ test-notebooks: install-notebooks
 build-core:
     env -u CONDA_PREFIX uv run maturin develop --release
 
+# Build and install the openpkpd._core Rust extension with the cvode-wrap spike
+# feature enabled for native CVODES experiments.
+build-core-cvode-wrap-spike:
+    env -u CONDA_PREFIX uv run maturin develop --release --features cvode-wrap-spike
+
 # Build a distributable wheel for the current platform only (not manylinux).
 # For production manylinux wheels use the CI pipeline.
 build-wheel:

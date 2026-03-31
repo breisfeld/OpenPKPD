@@ -99,6 +99,16 @@ class ADVAN6(PKSubroutine):
         self.method = method
         self.jit = jit
         self.max_steps = max_steps
+        self._schedule_cache: dict[
+            tuple[object, ...],
+            tuple[
+                list[float],
+                dict[float, list[DoseEvent]],
+                list[tuple[float, float, np.ndarray, np.ndarray, np.ndarray]],
+                np.ndarray,
+                set[float],
+            ],
+        ] = {}
 
     def solve(
         self,
@@ -185,101 +195,51 @@ class ADVAN6(PKSubroutine):
             if alag_val is not None:
                 alag[i] = float(alag_val)
 
-        # Filter reset events and apply bioavailability/lag
-        active_doses = _prepare_doses(dose_events, f_factors, alag)
-
-        # Build sorted list of breakpoints: dose times + observation times + infusion end times
+        (
+            all_breakpoints,
+            doses_by_breakpoint,
+            interval_plans,
+            trailing_obs_indices,
+            cov_change_set,
+        ) = self._build_schedule(
+            dose_events,
+            obs_times,
+            f_factors=f_factors,
+            alag=alag,
+            covariate_change_times=covariate_change_times,
+            refresh_covariates=(covariate_fn is not None),
+        )
         t_start = 0.0
-        t_end = float(np.max(obs_times))
-
-        # Collect all event times
-        event_times: list[float] = [t_start]
-        for d in active_doses:
-            event_times.append(float(d.time))
-            if d.is_infusion:
-                event_times.append(float(d.infusion_end_time))
-        event_times.append(t_end)
-
-        # Add covariate change times as extra breakpoints (time-varying covariates)
-        if covariate_change_times:
-            event_times.extend(float(tc) for tc in covariate_change_times)
-
-        # Build a set of times at which pk_params should be refreshed
-        cov_change_set: set[float] = set()
-        if covariate_fn is not None and covariate_change_times:
-            cov_change_set = {float(tc) for tc in covariate_change_times}
-
-        # Build piecewise integration grid
-        all_breakpoints = sorted(set(event_times))
-        # Filter to valid range
-        all_breakpoints = [t for t in all_breakpoints if t_start <= t <= t_end + 1e-12]
 
         # Initial state
         y_current = np.zeros(self.n_compartments)
 
-        # Storage for results at obs_times
-        obs_times_sorted_idx = np.argsort(obs_times)
-        obs_times_sorted = obs_times[obs_times_sorted_idx]
-
         y_out = np.zeros((len(obs_times), self.n_compartments))
-
-        # Map obs time → output index (use sorted obs times)
-        obs_queue = list(zip(obs_times_sorted, obs_times_sorted_idx, strict=False))
-        obs_ptr = 0
 
         # Track active infusions: {cmt_idx: (rate, end_time)}
         active_infusions: dict[int, tuple[float, float]] = {}
 
-        # Iterate over piecewise intervals
-        prev_t = t_start
-
         # Apply any doses at t=0 before starting integration
-        for d in active_doses:
+        for d in doses_by_breakpoint.get(t_start, []):
             if abs(d.time - t_start) < 1e-12:
                 _apply_dose_event(d, y_current, active_infusions)
 
-        for bp in all_breakpoints:
-            if bp <= prev_t + 1e-14:
-                continue
-
-            t_interval_start = prev_t
-            t_interval_end = bp
-
-            # Find obs times in this interval (strictly after t_interval_start, up to bp)
-            eval_times_in_interval: list[float] = []
-            eval_indices: list[int] = []
-
-            while obs_ptr < len(obs_queue):
-                t_obs, orig_idx = obs_queue[obs_ptr]
-                if t_obs <= t_interval_end + 1e-12 and t_obs > t_interval_start - 1e-12:
-                    if t_obs > t_interval_start + 1e-14:
-                        eval_times_in_interval.append(float(t_obs))
-                        eval_indices.append(orig_idx)
-                    obs_ptr += 1
-                elif t_obs <= t_interval_start + 1e-12:
-                    # Observation at or before current start: record current state
-                    y_out[orig_idx, :] = y_current
-                    obs_ptr += 1
-                else:
-                    break
+        for t_interval_start, t_interval_end, t_eval_arr, eval_indices, prefill_indices in interval_plans:
+            bp = t_interval_end
+            if prefill_indices.size:
+                y_out[prefill_indices, :] = y_current
 
             if t_interval_end > t_interval_start + 1e-14:
                 # Build RHS for this interval (with active infusions)
                 rhs = _make_rhs(des_callable, pk_params, active_infusions, self.n_compartments)
-
-                t_eval_arr = (
-                    np.array(eval_times_in_interval) if eval_times_in_interval
-                    else np.array([t_interval_end])
-                )
                 try:
                     y_seg = self._integrate_segment(
                         rhs, t_interval_start, t_interval_end,
                         y_current.copy(), t_eval_arr, jit_tier,
                         des_callable, pk_params, active_infusions,
                     )
-                    if eval_times_in_interval:
-                        for k, orig_idx in enumerate(eval_indices):
-                            y_out[orig_idx, :] = y_seg[k]
+                    if eval_indices.size:
+                        y_out[eval_indices, :] = y_seg[: len(eval_indices)]
                     y_current = y_seg[-1].copy()
                 except PKError:
                     raise
@@ -287,9 +247,8 @@ class ADVAN6(PKSubroutine):
                     raise PKError(f"ADVAN6 ODE integration failed: {exc}") from exc
 
             # Apply dose events and infusion state changes at breakpoint bp
-            for d in active_doses:
-                if abs(d.time - bp) < 1e-12:
-                    _apply_dose_event(d, y_current, active_infusions)
+            for d in doses_by_breakpoint.get(bp, []):
+                _apply_dose_event(d, y_current, active_infusions)
 
             # Remove expired infusions
             active_infusions = {
@@ -305,16 +264,14 @@ class ADVAN6(PKSubroutine):
                 with contextlib.suppress(Exception):
                     pk_params = covariate_fn(bp)
 
-            prev_t = bp
-
         # Any remaining obs times after the last breakpoint get current state
-        while obs_ptr < len(obs_queue):
-            _, orig_idx = obs_queue[obs_ptr]
-            y_out[orig_idx, :] = y_current
-            obs_ptr += 1
+        if trailing_obs_indices.size:
+            y_out[trailing_obs_indices, :] = y_current
 
-        # Ensure non-negative amounts (numerical noise)
-        y_out = np.maximum(y_out, 0.0)
+        # Only clip tiny negative roundoff. Some ODE states, especially PD
+        # deviation states, are legitimately signed and must not be forced to 0.
+        clip_tol = max(float(self.atol) * 10.0, 1e-12)
+        y_out = np.where((y_out < 0.0) & (np.abs(y_out) <= clip_tol), 0.0, y_out)
 
         # IPRED = A[output_cmt - 1] / V
         ipred = y_out[:, out_cmt_idx] / v
@@ -324,6 +281,113 @@ class ADVAN6(PKSubroutine):
             amounts=y_out,
             ipred=ipred,
         )
+
+    def _build_schedule(
+        self,
+        dose_events: list[DoseEvent],
+        obs_times: np.ndarray,
+        *,
+        f_factors: dict[int, float],
+        alag: dict[int, float],
+        covariate_change_times: list[float] | None,
+        refresh_covariates: bool,
+    ) -> tuple[
+        list[float],
+        dict[float, list[DoseEvent]],
+        list[tuple[float, float, np.ndarray, np.ndarray, np.ndarray]],
+        np.ndarray,
+        set[float],
+    ]:
+        """Return cached schedule structures for a subject/event layout."""
+        key = _schedule_cache_key(
+            dose_events,
+            obs_times,
+            f_factors=f_factors,
+            alag=alag,
+            covariate_change_times=covariate_change_times,
+            refresh_covariates=refresh_covariates,
+        )
+        cached = self._schedule_cache.get(key)
+        if cached is not None:
+            return cached
+
+        active_doses = _prepare_doses(dose_events, f_factors, alag)
+        t_start = 0.0
+        t_end = float(np.max(obs_times))
+
+        event_times: list[float] = [t_start]
+        doses_by_breakpoint: dict[float, list[DoseEvent]] = {}
+        for d in active_doses:
+            t_dose = float(d.time)
+            event_times.append(t_dose)
+            doses_by_breakpoint.setdefault(t_dose, []).append(d)
+            if d.is_infusion:
+                event_times.append(float(d.infusion_end_time))
+        event_times.append(t_end)
+
+        cov_change_set: set[float] = set()
+        if covariate_change_times:
+            cov_times = [float(tc) for tc in covariate_change_times]
+            event_times.extend(cov_times)
+            if refresh_covariates:
+                cov_change_set = set(cov_times)
+
+        all_breakpoints = sorted(set(event_times))
+        all_breakpoints = [t for t in all_breakpoints if t_start <= t <= t_end + 1e-12]
+
+        obs_times_sorted_idx = np.argsort(obs_times)
+        obs_times_sorted = np.asarray(obs_times[obs_times_sorted_idx], dtype=float)
+
+        interval_plans: list[tuple[float, float, np.ndarray, np.ndarray, np.ndarray]] = []
+        obs_queue = list(zip(obs_times_sorted, obs_times_sorted_idx, strict=False))
+        obs_ptr = 0
+        prev_t = t_start
+        for bp in all_breakpoints:
+            if bp <= prev_t + 1e-14:
+                continue
+            prefill_indices: list[int] = []
+            eval_times_in_interval: list[float] = []
+            eval_indices: list[int] = []
+            while obs_ptr < len(obs_queue):
+                t_obs, orig_idx = obs_queue[obs_ptr]
+                if t_obs <= bp + 1e-12 and t_obs > prev_t - 1e-12:
+                    if t_obs > prev_t + 1e-14:
+                        eval_times_in_interval.append(float(t_obs))
+                        eval_indices.append(int(orig_idx))
+                    else:
+                        prefill_indices.append(int(orig_idx))
+                    obs_ptr += 1
+                elif t_obs <= prev_t + 1e-12:
+                    prefill_indices.append(int(orig_idx))
+                    obs_ptr += 1
+                else:
+                    break
+            t_eval_arr = (
+                np.asarray(eval_times_in_interval, dtype=float)
+                if eval_times_in_interval
+                else np.asarray([bp], dtype=float)
+            )
+            interval_plans.append(
+                (
+                    prev_t,
+                    bp,
+                    t_eval_arr,
+                    np.asarray(eval_indices, dtype=int),
+                    np.asarray(prefill_indices, dtype=int),
+                )
+            )
+            prev_t = bp
+        trailing_obs_indices = np.asarray([int(orig_idx) for _, orig_idx in obs_queue[obs_ptr:]], dtype=int)
+
+        value = (
+            all_breakpoints,
+            doses_by_breakpoint,
+            interval_plans,
+            trailing_obs_indices,
+            cov_change_set,
+        )
+        self._schedule_cache[key] = value
+        return value
 
 
     # ── JIT helpers ────────────────────────────────────────────────────────────
@@ -490,6 +554,35 @@ def _prepare_doses(
         )
         result.append(adjusted)
     return sorted(result, key=lambda e: e.time)
+
+
+def _schedule_cache_key(
+    dose_events: list[DoseEvent],
+    obs_times: np.ndarray,
+    *,
+    f_factors: dict[int, float],
+    alag: dict[int, float],
+    covariate_change_times: list[float] | None,
+    refresh_covariates: bool,
+) -> tuple[object, ...]:
+    dose_key = tuple(
+        (
+            float(d.time),
+            float(d.amount),
+            float(d.rate),
+            float(d.duration),
+            int(d.compartment),
+            bool(d.ss),
+            float(d.ii),
+            bool(d.reset),
+        )
+        for d in dose_events
+    )
+    obs_key = tuple(float(t) for t in np.asarray(obs_times, dtype=float).tolist())
+    f_key = tuple(sorted((int(cmt), float(val)) for cmt, val in f_factors.items()))
+    alag_key = tuple(sorted((int(cmt), float(val)) for cmt, val in alag.items()))
+    cov_key = tuple(float(t) for t in (covariate_change_times or []))
+    return (dose_key, obs_key, f_key, alag_key, cov_key, bool(refresh_covariates))
 
 
 def _apply_dose_event(

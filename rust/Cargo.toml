@@ -16,6 +16,16 @@ crate-type = ["cdylib"]
 pyo3   = { version = "0.22", features = ["extension-module"] }
 numpy  = "0.22"
 libm   = "0.2"
+cvode-wrap = { version = "0.1.3", optional = true }
+sundials-sys = { version = "0.2.3", default-features = false, features = ["cvodes"], optional = true }
+
+[features]
+default = []
+cvode-wrap-spike = [
+    "dep:cvode-wrap",
+    "dep:sundials-sys",
+    "sundials-sys/build_libraries",
+]
 
 [profile.release]
 opt-level = 3

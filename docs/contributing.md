@@ -67,10 +67,27 @@ just run-example 01
 Remaining external prerequisites depend on the recipe:
 
 - `build-core` / `build-wheel` require the **Rust toolchain** (`rustup`)
+- `build-core-cvode-wrap-spike` also requires the Rust toolchain and is only
+  intended for the current native CVODES spike path
 - `install-hooks` requires `git`
 - `build-docs-pdf` requires a working LaTeX installation
 - `watch-docs` and the `*-and-open` recipes require browser/open support on the host
 - `run-gui` requires a working desktop/Qt environment
+
+For the current `cvode-wrap` spike, the development workflow is:
+
+```bash
+just build-core-cvode-wrap-spike
+```
+
+The package now preloads SUNDIALS shared libraries from both:
+
+- local Cargo build outputs
+- package-adjacent library directories such as `openpkpd.libs` / `.libs`
+
+That means normal `uv run ...` commands do not need a manual
+`LD_LIBRARY_PATH` for the spike path during development. This is still a
+development-time convenience, not the final wheel/distribution solution.
 
 ## Running tests
 

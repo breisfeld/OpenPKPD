@@ -320,6 +320,43 @@ def test_advan6_honors_pcmt_override_for_output_compartment():
     assert sol_default.ipred[0] > sol_pcmt2.ipred[0]
 
 
+@pytest.mark.unit
+def test_advan6_preserves_signed_pd_state_while_pk_output_stays_valid():
+    """Signed PD deviation states must not be clamped to zero."""
+    compiler = NMTRANCompiler()
+    des_fn = compiler.compile_des(
+        "\n".join(
+            [
+                "DADT(1) = -KTR*A(1)",
+                "DADT(2) = KTR*A(1) - KA*A(2)",
+                "DADT(3) = KA*A(2) - (CL/V)*A(3)",
+                "PD = 1 - EMAX*(A(3)/V)/(EC50 + (A(3)/V))",
+                "DADT(4) = KOUT*E0*(PD - 1) - KOUT*A(4)",
+            ]
+        ),
+        n_compartments=4,
+    )
+    advan6 = ADVAN6(n_compartments=4, rtol=1e-8, atol=1e-10, jit="scipy")
+    times = np.array([0.5, 1.0, 2.0, 6.0, 24.0, 48.0, 96.0, 144.0])
+    pk_params = {
+        "KTR": 0.8968,
+        "KA": 0.8887,
+        "CL": 0.1337,
+        "V": 8.6756,
+        "EMAX": 0.999,
+        "EC50": 1.5735,
+        "KOUT": 0.0552,
+        "E0": 101.3225,
+        "PCMT": 3,
+    }
+
+    sol = advan6.solve(pk_params, make_bolus(amt=100.0), times, des_callable=des_fn)
+
+    assert np.all(sol.amounts[:, :3] >= -1e-9), "PK transit/central states should stay non-negative"
+    assert np.min(sol.amounts[:, 3]) < -1.0, "PD deviation state should remain signed on inhibition"
+    assert np.all(sol.ipred >= -1e-9), "PK output should stay non-negative"
+
+
 # ── ADVAN8 ────────────────────────────────────────────────────────────────────
 
 

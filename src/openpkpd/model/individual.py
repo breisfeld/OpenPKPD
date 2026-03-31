@@ -24,8 +24,9 @@ from openpkpd.data.blq import blq_log_likelihood, is_blq
 from openpkpd.data.event_processor import SubjectEvents
 from openpkpd.math.autodiff import jacobian
 from openpkpd.math.matrix import numerical_hessian
+from openpkpd._native import import_core_symbol
 from openpkpd.model.residuals import log_likelihood_normal
-from openpkpd.pk.base import PKSubroutine
+from openpkpd.pk.base import PKSolution, PKSubroutine
 from openpkpd.utils.constants import BLQMethod
 from openpkpd.utils.errors import PKError
 
@@ -37,11 +38,16 @@ from openpkpd.utils.errors import PKError
 #            ../src/openpkpd/_core.cpython-312-x86_64-linux-gnu.so
 # ---------------------------------------------------------------------------
 try:
-    from openpkpd._core import neg2ll_obs_loop as _neg2ll_obs_loop_rust
+    _neg2ll_obs_loop_rust = import_core_symbol("neg2ll_obs_loop")
 
     _RUST_CORE_AVAILABLE = True
 except ImportError:
     _RUST_CORE_AVAILABLE = False
+
+try:
+    _cvode_wrap_warfarin_pkpd_probe_rust = import_core_symbol("cvode_wrap_warfarin_pkpd_probe")
+except ImportError:
+    _cvode_wrap_warfarin_pkpd_probe_rust = None
 
 # BLQMethod string → integer code expected by the Rust function
 _BLQ_METHOD_CODE: dict[str | None, int] = {
@@ -87,6 +93,20 @@ _W_PROP_THETA_RE = re.compile(r"^w=f\*theta\[(\d+)\]$", re.IGNORECASE)
 _W_THETA_RE = re.compile(r"^w=theta\[(\d+)\]$", re.IGNORECASE)
 _W_SQRT_RE = re.compile(
     r"^w=math\.sqrt\(theta\[(\d+)\]\*\*2\+\(f\*theta\[(\d+)\]\)\*\*2\)$",
+    re.IGNORECASE,
+)
+_DVID_THEN_RE = re.compile(r"^if\(dvid==(\d+)\):$", re.IGNORECASE)
+_MIXED_PKPD_IPRED_RE = re.compile(r"^f=theta\[(\d+)\]\+a\[(\d+)\]$", re.IGNORECASE)
+_MIXED_PKPD_SQRT_RE = re.compile(
+    r"^w=math\.sqrt\(\(([a-z_][a-z0-9_]*)\*f\)\*\*2\+([a-z_][a-z0-9_]*)\*\*2\)$",
+    re.IGNORECASE,
+)
+_MIXED_PKPD_Y_BRANCH_RE = re.compile(
+    r"^y=f\+w\*eps\[(\d+)\]$",
+    re.IGNORECASE,
+)
+_MIXED_PKPD_ALIAS_RE = re.compile(
+    r"^([a-z_][a-z0-9_]*)=theta\[(\d+)\]$",
     re.IGNORECASE,
 )
 
@@ -144,6 +164,7 @@ class IndividualModel:
             subject_events.observation_covariates_at(i)
             for i in range(len(subject_events.obs_times))
         )
+        self._observation_dvid = self._build_observation_dvid()
         self._unique_occasions = (
             np.unique(occasion_indices)
             if occasion_indices is not None
@@ -162,6 +183,7 @@ class IndividualModel:
             tuple(1.0 if i == j else 0.0 for i in range(self.n_eps)) for j in range(self.n_eps)
         )
         self._common_error_model = self._infer_common_error_model(error_callable, self.n_eps)
+        self._native_warfarin_pkpd_contract = self._build_native_warfarin_pkpd_contract()
 
     def __getstate__(self) -> dict[str, Any]:
         """Drop rebuildable caches so worker-process pickling stays robust."""
@@ -200,6 +222,93 @@ class IndividualModel:
             return True
         return "a" in signature.parameters
 
+    def _build_observation_dvid(self) -> np.ndarray | None:
+        if len(self._observation_covariates) == 0:
+            return np.array([], dtype=float)
+        dvid_values: list[float] = []
+        for covariates in self._observation_covariates:
+            if "DVID" not in covariates:
+                return None
+            try:
+                dvid_values.append(float(covariates["DVID"]))
+            except (TypeError, ValueError):
+                return None
+        return np.asarray(dvid_values, dtype=float)
+
+    def _build_native_warfarin_pkpd_contract(self) -> dict[str, Any] | None:
+        if _cvode_wrap_warfarin_pkpd_probe_rust is None:
+            return None
+        if getattr(self.pk_subroutine, "advan", None) != 6:
+            return None
+        if self._common_error_model is None or self._common_error_model[0] != "mixed_pkpd_dvid_theta":
+            return None
+        if self.occasion_indices is not None:
+            return None
+
+        cov_df = self.subject_events.covariate_df
+        if cov_df is not None:
+            unsupported_covs = [
+                str(col).upper()
+                for col in cov_df.columns
+                if str(col).upper() not in {"TIME", "DVID"}
+            ]
+            if unsupported_covs:
+                return None
+        if len(self._dose_events) != 1:
+            return None
+
+        dose = self._dose_events[0]
+        if dose.is_infusion or abs(float(dose.time)) > 1e-12 or int(dose.compartment) != 1:
+            return None
+
+        obs_times = np.asarray(self.subject_events.obs_times, dtype=float)
+        if len(obs_times) == 0 or np.any(np.diff(obs_times) < 0.0):
+            return None
+
+        return {
+            "dose_amount": float(dose.amount),
+            "obs_times": obs_times.copy(),
+            "obs_times_list": obs_times.tolist(),
+            "n_compartments": int(getattr(self.pk_subroutine, "n_compartments", 4)),
+            "required_names": ("KTR", "KA", "CL", "V", "EMAX", "EC50", "KOUT", "E0"),
+        }
+
+    def _try_native_warfarin_pkpd_probe(
+        self,
+        pk_params: dict[str, float],
+        obs_times: np.ndarray,
+    ) -> PKSolution | None:
+        contract = self._native_warfarin_pkpd_contract
+        probe = _cvode_wrap_warfarin_pkpd_probe_rust
+        if contract is None or probe is None:
+            return None
+        if (
+            len(obs_times) != len(contract["obs_times"])
+            or not np.array_equal(obs_times, contract["obs_times"])
+        ):
+            return None
+
+        required = contract["required_names"]
+        if any(name not in pk_params for name in required):
+            return None
+        pcmt = int(pk_params.get("PCMT", 0))
+        if pcmt != 3:
+            return None
+
+        theta = [float(pk_params[name]) for name in required]
+        amounts4 = np.asarray(
+            probe(contract["obs_times_list"], contract["dose_amount"], theta),
+            dtype=float,
+        )
+        if amounts4.shape != (len(obs_times), 4):
+            return None
+
+        n_comp = contract["n_compartments"]
+        amounts = np.zeros((len(obs_times), max(n_comp, 4)), dtype=float)
+        amounts[:, :4] = amounts4
+        ipred = amounts4[:, 2] / float(pk_params["V"])
+        return PKSolution(times=obs_times.copy(), amounts=amounts, ipred=ipred, f=ipred.copy())
+
     @staticmethod
     def _infer_common_error_model(
         error_callable: Callable | None,
@@ -236,8 +345,42 @@ class IndividualModel:
                     ("y=f+w*eps[0]", "ires=dv-f", "iwres=ires/w"),
                 }:
                     return "combined_theta", (int(sqrt_match.group(1)), int(sqrt_match.group(2)))
-        elif n_eps == 2 and normalized_lines == ("y=f+eps[0]+f*eps[1]",):
-            return "combined_eps", ()
+        elif n_eps == 2:
+            if normalized_lines == ("y=f+eps[0]+f*eps[1]",):
+                return "combined_eps", ()
+
+            if len(normalized_lines) == 10:
+                alias_matches = tuple(_MIXED_PKPD_ALIAS_RE.fullmatch(line) for line in normalized_lines[:3])
+                ipred_match = _MIXED_PKPD_IPRED_RE.fullmatch(normalized_lines[3])
+                y_pd_match = _MIXED_PKPD_Y_BRANCH_RE.fullmatch(normalized_lines[5])
+                dvid_w_match = _DVID_THEN_RE.fullmatch(normalized_lines[6])
+                sqrt_match = _MIXED_PKPD_SQRT_RE.fullmatch(normalized_lines[7])
+                dvid_y_match = _DVID_THEN_RE.fullmatch(normalized_lines[8])
+                y_pk_match = _MIXED_PKPD_Y_BRANCH_RE.fullmatch(normalized_lines[9])
+                if all(match is not None for match in alias_matches) and ipred_match is not None:
+                    pkprop_name = alias_matches[0].group(1)
+                    pkadd_name = alias_matches[1].group(1)
+                    pdadd_name = alias_matches[2].group(1)
+                    if (
+                        normalized_lines[4] == f"w={pdadd_name}"
+                        and y_pd_match is not None
+                        and int(y_pd_match.group(1)) == 1
+                        and dvid_w_match is not None
+                        and dvid_y_match is not None
+                        and dvid_w_match.group(1) == dvid_y_match.group(1) == "1"
+                        and sqrt_match is not None
+                        and sqrt_match.group(1) == pkprop_name
+                        and sqrt_match.group(2) == pkadd_name
+                        and y_pk_match is not None
+                        and int(y_pk_match.group(1)) == 0
+                    ):
+                        return "mixed_pkpd_dvid_theta", (
+                            int(ipred_match.group(1)),
+                            int(ipred_match.group(2)),
+                            int(alias_matches[0].group(2)),
+                            int(alias_matches[1].group(2)),
+                            int(alias_matches[2].group(2)),
+                        )
         return None
 
     def _fast_obs_model(
@@ -245,6 +388,7 @@ class IndividualModel:
         f: np.ndarray,
         theta: np.ndarray,
         sigma: np.ndarray,
+        amounts: np.ndarray | None = None,
     ) -> tuple[np.ndarray, np.ndarray] | None:
         """Return (pred, var) arrays for common error models without looping.
 
@@ -293,6 +437,35 @@ class IndividualModel:
             s01 = float(sigma[0, 1]) if sigma.size >= 4 else 0.0
             s11 = float(sigma[1, 1]) if sigma.size >= 4 else s00
             return f_arr.copy(), np.maximum(s00 + 2.0 * s01 * f_arr + s11 * f_arr * f_arr, 1e-10)
+
+        if kind == "mixed_pkpd_dvid_theta":
+            if amounts is None:
+                return None
+            amount_arr = np.asarray(amounts, dtype=float)
+            if amount_arr.ndim == 1:
+                amount_arr = amount_arr[:, None]
+            e0_idx, amount_idx, pk_prop_idx, pk_add_idx, pd_add_idx = theta_idx
+            if amount_idx >= amount_arr.shape[1]:
+                return None
+            dvid = self._observation_dvid
+            if dvid is None:
+                return None
+            if len(dvid) != n:
+                return None
+            s11 = float(sigma[1, 1]) if sigma.size >= 4 else s00
+            pred = f_arr.copy()
+            var = np.empty(n, dtype=float)
+            pk_mask = dvid == 1.0
+            pd_mask = ~pk_mask
+            pk_prop = float(theta[pk_prop_idx])
+            pk_add = float(theta[pk_add_idx])
+            pd_add = float(theta[pd_add_idx])
+            if np.any(pk_mask):
+                var[pk_mask] = np.maximum(((pk_prop * f_arr[pk_mask]) ** 2 + pk_add * pk_add) * s00, 1e-10)
+            if np.any(pd_mask):
+                pred[pd_mask] = float(theta[e0_idx]) + amount_arr[pd_mask, amount_idx]
+                var[pd_mask] = max(pd_add * pd_add * s11, 1e-10)
+            return pred, var
 
         return None
 
@@ -452,6 +625,12 @@ class IndividualModel:
             solve_kwargs["covariate_fn"] = _covariate_fn
             solve_kwargs["covariate_change_times"] = self._covariate_change_times
 
+        native_pk_sol = self._try_native_warfarin_pkpd_probe(micro_params, obs_times)
+        if native_pk_sol is not None:
+            ipred = native_pk_sol.ipred
+            f = native_pk_sol.f if native_pk_sol.f is not None else ipred
+            return ipred, obs_mask, f, native_pk_sol.amounts if include_amounts else None
+
         try:
             pk_sol = solve(
                 micro_params,
@@ -540,8 +719,8 @@ class IndividualModel:
         # zero (all FOCE/SAEM inner-loop calls), skip the per-observation Python
         # loop entirely and compute pred/var with vectorised NumPy operations.
         # This eliminates ~13 µs/call (FOCE: saves ~5.5M µs across 424k calls).
-        if eps_val is None and self._common_error_model is not None and not self._error_requires_amounts:
-            _fast = self._fast_obs_model(f, theta, sigma)
+        if eps_val is None and self._common_error_model is not None:
+            _fast = self._fast_obs_model(f, theta, sigma, amounts=amounts)
             if _fast is not None:
                 return ipred, obs_mask, f, _fast[0], _fast[1]
 

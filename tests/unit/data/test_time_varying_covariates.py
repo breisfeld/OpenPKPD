@@ -244,3 +244,31 @@ class TestAdvan6TimeVaryingCovariates:
         # After the covariate change (K doubles), concentrations should be lower
         assert sol_cv.ipred[0] < sol_plain.ipred[0]  # at t=5
         assert sol_cv.ipred[1] < sol_plain.ipred[1]  # at t=10
+
+    def test_repeated_solve_reuses_cached_schedule_for_identical_event_layout(self, monkeypatch):
+        from openpkpd.data.event_processor import DoseEvent
+        import openpkpd.pk.ode.advan6 as advan6_mod
+        from openpkpd.pk.ode.advan6 import ADVAN6
+
+        advan = ADVAN6(n_compartments=1)
+        dose_events = [DoseEvent(time=0.0, amount=100.0, compartment=1)]
+        obs_times = np.array([1.0, 5.0, 10.0])
+        pk_params = {"K": 0.15, "V": 12.0}
+
+        def des_callable(t, a, pk, theta, eta):
+            return [-pk["K"] * a[0]]
+
+        call_count = {"prepare": 0}
+        real_prepare = advan6_mod._prepare_doses
+
+        def counted_prepare(*args, **kwargs):
+            call_count["prepare"] += 1
+            return real_prepare(*args, **kwargs)
+
+        monkeypatch.setattr(advan6_mod, "_prepare_doses", counted_prepare)
+
+        sol_1 = advan.solve(pk_params, dose_events, obs_times, des_callable=des_callable)
+        sol_2 = advan.solve(pk_params, dose_events, obs_times, des_callable=des_callable)
+
+        np.testing.assert_allclose(sol_1.ipred, sol_2.ipred)
+        assert call_count["prepare"] == 1

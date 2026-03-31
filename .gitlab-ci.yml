@@ -101,16 +101,35 @@ test:integration:
     - reports/
     expire_in: 1 week
 
+test:native-cvodes:smoke:
+  stage: test
+  image: python:3.12-slim
+  rules:
+  - when: manual
+    allow_failure: true
+  before_script:
+  - pip install --quiet uv
+  - uv sync --extra dev
+  script:
+  - env -u CONDA_PREFIX OPENPKPD_NATIVE_DEV=1 uv run maturin develop --release --features native-cvodes
+  - env OPENPKPD_NATIVE_DEV=1 uv run --extra dev python scripts/check_native_cvodes.py --require-native-cvodes
+  - env OPENPKPD_NATIVE_DEV=1 uv run --extra dev pytest tests/unit/test_native.py tests/unit/model/test_individual_population.py -q
+  artifacts:
+    when: always
+    expire_in: 1 week
+
 # ---------------------------------------------------------------------------
 # Build — Rust extension wheels (per-platform) + source distribution
 #
-# Linux:   runs inside ghcr.io/pyo3/maturin (manylinux_2_28 container).
-# macOS:   runs on self-hosted runners; Rust toolchain must be pre-installed.
-# Windows: runs on self-hosted runner; Rust toolchain must be pre-installed.
+# Linux:   manylinux_2_28 inside ghcr.io/pyo3/maturin; native-cvodes included
+#          (SUNDIALS built from source inside the container).
+# Windows: cross-compiled from the Linux runner using MinGW-w64; native-cvodes
+#          included via static linking (sundials-sys/static_libraries) so no
+#          DLLs need bundling and no Windows runner is required.
+# macOS:   self-hosted runners (arm64 + x86_64); base extension only until
+#          delocate + CMake are confirmed on those runners.
 #
 # All wheel jobs trigger on version tags and can be run manually on any branch.
-# The pure-Python fallback (no _core) is covered by test:unit which runs
-# without building the Rust extension.
 # ---------------------------------------------------------------------------
 
 .wheel_rules: &wheel_rules
@@ -122,11 +141,38 @@ test:integration:
 build:wheel:linux:
   stage: build
   image: ghcr.io/pyo3/maturin
-  before_script: []   # override default — maturin image needs no uv bootstrap
+  before_script: [] # maturin image needs no uv bootstrap
   <<: *wheel_rules
   script:
-  # manylinux_2_28 wheel — compatible with most modern Linux distributions
-  - maturin build --release --compatibility manylinux_2_28 --out dist/
+  # manylinux_2_28 — compatible with Ubuntu 20.04+, RHEL 8+, Debian 11+.
+  # native-cvodes: SUNDIALS built from source inside the container and bundled.
+  - maturin build --release --features native-cvodes --compatibility manylinux_2_28 --out dist/
+  tags:
+  - linux-x86_64
+  artifacts:
+    paths:
+    - dist/*.whl
+    expire_in: 4 weeks
+
+build:wheel:windows:
+  stage: build
+  image: python:3.12-slim
+  before_script:
+  - pip install --quiet uv
+  - uv sync --extra dev
+  # MinGW-w64 cross-compiler for x86_64-pc-windows-gnu Rust target.
+  - apt-get update -qq && apt-get install -y --no-install-recommends mingw-w64
+  - rustup target add x86_64-pc-windows-gnu
+  <<: *wheel_rules
+  script:
+  # native-cvodes: SUNDIALS is statically linked into the .pyd via
+  # sundials-sys/static_libraries — no DLLs to bundle, no delvewheel needed.
+  - >
+    env -u CONDA_PREFIX CARGO_TARGET_DIR=rust/target/windows-wheel CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-gcc CXX_x86_64_pc_windows_gnu=x86_64-w64-mingw32-g++ PYO3_CROSS_PYTHON_VERSION=3.12 uv run maturin build --release
+      --target x86_64-pc-windows-gnu
+      --features native-cvodes
+      -i python3.12
+      --out dist/
   tags:
   - linux-x86_64
   artifacts:
@@ -159,21 +205,6 @@ build:wheel:macos-x86:
   - maturin build --release --out dist/
   tags:
   - macos-x86_64
-  artifacts:
-    paths:
-    - dist/*.whl
-    expire_in: 4 weeks
-
-build:wheel:windows:
-  stage: build
-  image: null
-  before_script:
-  - pip install --quiet "maturin>=1.5,<2"
-  <<: *wheel_rules
-  script:
-  - maturin build --release --out dist/
-  tags:
-  - windows-x64
   artifacts:
     paths:
     - dist/*.whl

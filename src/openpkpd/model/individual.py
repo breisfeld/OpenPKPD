@@ -58,6 +58,13 @@ try:
 except ImportError:
     _native_cvodes_advan6_mixed_pkpd_probe_multidose_rust = None
 
+try:
+    _native_cvodes_advan6_sensitivity_probe_multidose_rust = import_core_symbol(
+        "native_cvodes_advan6_mixed_pkpd_sensitivity_probe_multidose"
+    )
+except ImportError:
+    _native_cvodes_advan6_sensitivity_probe_multidose_rust = None
+
 # Error-model patterns for which the native ODE path is supported.
 # "mixed_pkpd_dvid_theta" uses dual-DVID routing; the rest are single-output.
 _NATIVE_SUPPORTED_ERROR_MODELS: frozenset[str] = frozenset({
@@ -374,6 +381,127 @@ class IndividualModel:
         which dataset or prototype first motivated the native path.
         """
         return self._try_native_advan6_mixed_pkpd_probe(pk_params, obs_times)
+
+    def native_advan6_prediction_eta_jacobian(
+        self,
+        theta: np.ndarray,
+        eta: np.ndarray,
+        obs_mask: np.ndarray,
+        n_eta: int,
+        eps: float = 1e-5,
+    ) -> np.ndarray | None:
+        """Compute G_i = ∂IPRED/∂η using the CVODES forward sensitivity probe.
+
+        Replaces the standard ``n_eta`` full-ODE finite-difference calls in
+        ``_compute_G_i`` with **one** Rust CVODES sensitivity integration plus
+        ``n_eta`` cheap pk_callable evaluations.
+
+        Algorithm (chain rule):
+          G_i[:, k] = Σ_j  (∂F/∂ODE_param_j)  ×  (∂ODE_param_j/∂η_k)
+
+        where:
+          - ∂F/∂ODE_param_j  — from the CVODES sensitivity tensor (single solve)
+          - ∂ODE_param_j/∂η_k — central FD on the pk_callable (no ODE)
+          - F = A3/V for all single-output ADVAN6 models
+
+        Only available for non-mixed-pkpd ADVAN6 models; returns ``None``
+        otherwise so the caller can fall through to the standard FD path.
+
+        Args:
+            theta:    Population THETA vector.
+            eta:      Per-subject ETA vector (evaluated at η̂_i, not η=0).
+            obs_mask: Boolean mask of non-MDV observations aligned to obs_times.
+            n_eta:    Length of eta vector.
+            eps:      Step size for pk_callable central finite differences.
+
+        Returns:
+            G_i array of shape (n_obs, n_eta), or ``None`` if unavailable.
+        """
+        if _native_cvodes_advan6_sensitivity_probe_multidose_rust is None:
+            return None
+
+        contract = self._native_advan6_mixed_pkpd_contract
+        if contract is None or contract.get("is_mixed_pkpd", False):
+            # Mixed PK/PD model needs DVID-aware output; defer to FD path.
+            return None
+
+        if self.pk_callable is None:
+            return None
+
+        theta_list = [float(t) for t in theta]
+        eta_list = [float(e) for e in eta]
+
+        try:
+            pk_params_0 = self.pk_callable(
+                theta_list, eta_list, t=0.0, covariates=self._base_covariates
+            )
+        except Exception:
+            return None
+
+        required = contract["required_names"]
+        if any(name not in pk_params_0 for name in required):
+            return None
+
+        ode_theta = [float(pk_params_0[name]) for name in required]
+        V = float(pk_params_0["V"])
+        v_idx = list(required).index("V")
+
+        # Filter observation times to non-MDV rows
+        all_obs_times = np.asarray(self.subject_events.obs_times, dtype=float)
+        obs_times_masked = all_obs_times[obs_mask]
+        n_obs = int(obs_mask.sum())
+
+        if n_obs == 0:
+            return np.zeros((0, n_eta))
+
+        # Probe requires sorted observation times
+        order = np.argsort(obs_times_masked, kind="stable")
+        inv_order = np.empty_like(order)
+        inv_order[order] = np.arange(n_obs)
+        sorted_times = obs_times_masked[order]
+
+        try:
+            states_raw, sens_raw = _native_cvodes_advan6_sensitivity_probe_multidose_rust(
+                sorted_times.tolist(),
+                contract["dose_times"],
+                contract["dose_amts"],
+                ode_theta,
+            )
+        except Exception:
+            return None
+
+        states = np.array(states_raw, dtype=float)[inv_order]              # (n_obs, 4)
+        sens = np.array(sens_raw, dtype=float).reshape(n_obs, 8, 4)[inv_order]  # (n_obs, 8, 4)
+
+        A3 = states[:, 2]  # (n_obs,)
+
+        # ∂F/∂(ODE_param_j) where F = A3/V; quotient-rule correction for V
+        dF_dODE = sens[:, :, 2] / V           # (n_obs, 8) — broadcast A3 sensitivity
+        dF_dODE[:, v_idx] -= A3 / (V * V)     # d(A3/V)/dV = dA3/dV/V − A3/V²
+
+        # ∂(ODE_param_j)/∂η_k via central FD on the cheap pk_callable (no ODE)
+        J_pk_eta = np.zeros((8, n_eta))
+        for k in range(n_eta):
+            eta_p = eta_list.copy()
+            eta_m = eta_list.copy()
+            eta_p[k] += eps
+            eta_m[k] -= eps
+            try:
+                pp = self.pk_callable(
+                    theta_list, eta_p, t=0.0, covariates=self._base_covariates
+                )
+                pm = self.pk_callable(
+                    theta_list, eta_m, t=0.0, covariates=self._base_covariates
+                )
+                for j, name in enumerate(required):
+                    J_pk_eta[j, k] = (
+                        float(pp.get(name, 0.0)) - float(pm.get(name, 0.0))
+                    ) / (2.0 * eps)
+            except Exception:
+                pass
+
+        # G_i = (n_obs, 8) @ (8, n_eta) → (n_obs, n_eta)
+        return dF_dODE @ J_pk_eta
 
     @staticmethod
     def _infer_common_error_model(

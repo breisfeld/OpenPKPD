@@ -244,6 +244,19 @@ def _compute_G_i(
     n_obs = len(pred0_obs)
     G = np.zeros((n_obs, n_eta))
 
+    # ── Try native ADVAN6 CVODES sensitivity path ─────────────────────────────
+    # One Rust sensitivity solve gives ∂IPRED/∂η analytically for all η
+    # simultaneously, replacing n_eta full ODE probes in the FD fallback.
+    # Only activates for non-mixed ADVAN6 models with a valid native contract.
+    native_G_fn = getattr(indiv, "native_advan6_prediction_eta_jacobian", None)
+    if native_G_fn is not None:
+        try:
+            result = native_G_fn(theta, eta, obs_mask, n_eta)
+            if result is not None:
+                return result
+        except Exception:
+            pass  # fall through to ADVAN13 or FD path
+
     # ── Try sensitivity-assisted gradient (ADVAN13 path) ─────────────────────
     pk_sub = getattr(indiv, "pk_subroutine", None)
     sws = getattr(pk_sub, "solve_with_sensitivity", None) if pk_sub is not None else None

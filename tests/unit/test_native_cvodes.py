@@ -803,60 +803,7 @@ class TestPFIMNativeSensitivityPath:
 
     def _make_native_individual(self):
         """Build a minimal IndividualModel with a native ADVAN6 contract."""
-        import numpy as np
-        from unittest.mock import MagicMock
-
-        from openpkpd.model.individual import IndividualModel
-
-        # Build subject events compatible with the native contract
-        SubjectEvents = MagicMock()
-        se = SubjectEvents()
-        se.obs_times = np.array([0.5, 1.0, 2.0, 4.0, 8.0, 12.0, 24.0])
-        se.obs_dv = np.full(7, np.nan)
-        se.obs_mdv = np.zeros(7, dtype=int)
-        se.obs_cmt = np.ones(7, dtype=int)
-        se.observation_mask.return_value = np.ones(7, dtype=bool)
-        se.covariate_df = None
-        se.covariate_at.return_value = {}
-        se.covariate_change_times.return_value = []
-
-        dose_event = MagicMock()
-        dose_event.time = 0.0
-        dose_event.amount = 100.0
-        dose_event.is_infusion = False
-        dose_event.compartment = 1
-        se.dose_events = [dose_event]
-
-        # PK callable: identity map — pop THETA[0..7] = ODE params directly
-        param_names = ("KTR", "KA", "CL", "V", "EMAX", "EC50", "KOUT", "E0")
-
-        def pk_callable(theta, eta, t=0.0, covariates=None):
-            # eta shifts CL (index 2) and V (index 3) log-normally for testing
-            th = list(theta)
-            result = {name: th[i] for i, name in enumerate(param_names)}
-            result["CL"] = th[2] * np.exp(eta[0] if len(eta) > 0 else 0.0)
-            result["V"]  = th[3] * np.exp(eta[1] if len(eta) > 1 else 0.0)
-            return result
-
-        # Error callable — proportional error model, recognised by _infer_common_error_model.
-        # _source must contain a normalised form that matches the pattern detector.
-        def error_callable(theta, eta, eps, f, ipred, y, t, a=None, covariates=None, sigma=None):
-            return {"Y": f * (1 + eps[0]), "IPRED": f}
-        error_callable._source = "Y = F * (1 + EPS[0])"
-
-        # pk_subroutine stub
-        pk_sub = MagicMock()
-        pk_sub.advan = 6
-        pk_sub.n_compartments = 4
-
-        indiv = IndividualModel(
-            subject_events=se,
-            pk_subroutine=pk_sub,
-            pk_callable=pk_callable,
-            error_callable=error_callable,
-            n_eps=1,
-        )
-        return indiv, pk_callable, param_names
+        return _build_native_individual()
 
     def _make_pfim_engine(self, indiv, pk_callable, param_names):
         """Build a PFIMEngine around the native individual."""
@@ -1045,7 +992,204 @@ class TestPFIMNativeSensitivityPath:
 
 
 # ===========================================================================
-# Section 7 — Sensitivity probe performance
+# Section 7 — FOCE/FOCEI G_i native path
+# ===========================================================================
+
+def _build_native_individual():
+    """
+    Build a minimal but real IndividualModel with a native ADVAN6 contract.
+
+    Reused by PFIM and FOCE test sections so the fixture lives once.
+    pk_callable is an identity map: theta[0..7] → ODE params, with
+    log-normal eta shifts on CL (eta[0]) and V (eta[1]).
+    """
+    from openpkpd.model.individual import IndividualModel
+
+    se = MagicMock()
+    se.obs_times = np.array([0.5, 1.0, 2.0, 4.0, 8.0, 12.0, 24.0])
+    se.obs_dv = np.full(7, np.nan)
+    se.obs_mdv = np.zeros(7, dtype=int)
+    se.obs_cmt = np.ones(7, dtype=int)
+    se.observation_mask.return_value = np.ones(7, dtype=bool)
+    se.covariate_df = None
+    se.covariate_at.return_value = {}
+    se.covariate_change_times.return_value = []
+
+    dose_event = MagicMock()
+    dose_event.time = 0.0
+    dose_event.amount = 100.0
+    dose_event.is_infusion = False
+    dose_event.compartment = 1
+    se.dose_events = [dose_event]
+
+    param_names = ("KTR", "KA", "CL", "V", "EMAX", "EC50", "KOUT", "E0")
+
+    def pk_callable(theta, eta, t=0.0, covariates=None):
+        th = list(theta)
+        result = {name: float(th[i]) for i, name in enumerate(param_names)}
+        result["CL"] = float(th[2]) * np.exp(eta[0] if len(eta) > 0 else 0.0)
+        result["V"]  = float(th[3]) * np.exp(eta[1] if len(eta) > 1 else 0.0)
+        return result
+
+    def error_callable(theta, eta, eps, f, ipred, y, t, a=None, covariates=None, sigma=None):
+        return {"Y": f * (1 + eps[0]), "IPRED": f}
+    error_callable._source = "Y = F * (1 + EPS[0])"
+
+    pk_sub = MagicMock()
+    pk_sub.advan = 6
+    pk_sub.n_compartments = 4
+
+    indiv = IndividualModel(
+        subject_events=se,
+        pk_subroutine=pk_sub,
+        pk_callable=pk_callable,
+        error_callable=error_callable,
+        n_eps=1,
+    )
+    return indiv, pk_callable, param_names
+
+
+class TestFOCENativeGiPath:
+    """
+    native_advan6_prediction_eta_jacobian() and its integration into _compute_G_i.
+
+    G_i = ∂IPRED/∂η is the per-subject sensitivity matrix used by FOCEI to
+    build the marginal variance V_i = G_i Ω G_i^T + σ²I.  The native path
+    replaces n_eta full-ODE FD evaluations with one CVODES sensitivity solve.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _skip(self):
+        if _sens_probe is None or _multidose is None:
+            pytest.skip("sensitivity probe not available")
+        try:
+            from openpkpd.model.individual import IndividualModel
+        except ImportError:
+            pytest.skip("IndividualModel not importable")
+
+    def _G_i_fd(self, pk_callable, param_names, theta, eta, obs_mask, eps=1e-5):
+        """FD reference for G_i using _multidose + pk_callable (no IndividualModel.evaluate)."""
+        n_eta = len(eta)
+        obs_times = np.array([0.5, 1.0, 2.0, 4.0, 8.0, 12.0, 24.0])[obs_mask]
+        dose_times = [0.0]
+        dose_amts  = [100.0]
+
+        def F(eta_val):
+            pk_params = pk_callable(list(theta), list(eta_val), t=0.0)
+            ode_theta = [float(pk_params[n]) for n in param_names]
+            V = float(pk_params["V"])
+            order = np.argsort(obs_times, kind="stable")
+            inv = np.empty_like(order); inv[order] = np.arange(len(obs_times))
+            states_raw = _multidose(obs_times[order].tolist(), dose_times, dose_amts, ode_theta)
+            A3 = np.array(states_raw)[:, 2][inv]
+            return A3 / V
+
+        G = np.zeros((len(obs_times), n_eta))
+        f0 = F(eta)
+        for k in range(n_eta):
+            ep = np.array(eta, dtype=float); ep[k] += eps
+            em = np.array(eta, dtype=float); em[k] -= eps
+            G[:, k] = (F(ep) - F(em)) / (2.0 * eps)
+        return G
+
+    def test_G_i_matches_fd_at_eta_zero(self):
+        """native G_i at η=0 matches central FD reference (rtol=1e-3)."""
+        indiv, pk_callable, param_names = _build_native_individual()
+        theta = np.array(_SENS_THETA)
+        eta   = np.zeros(2)
+        obs_mask = np.ones(7, dtype=bool)
+
+        G_native = indiv.native_advan6_prediction_eta_jacobian(theta, eta, obs_mask, n_eta=2)
+        assert G_native is not None, "native G_i should be available"
+        assert G_native.shape == (7, 2)
+
+        G_fd = self._G_i_fd(pk_callable, param_names, theta, eta, obs_mask)
+        np.testing.assert_allclose(G_native, G_fd, rtol=1e-3, atol=1e-8,
+                                   err_msg="native G_i at η=0 deviates from FD")
+
+    def test_G_i_matches_fd_at_nonzero_eta(self):
+        """native G_i evaluated at η̂≠0 matches FD (tests correct non-zero-eta evaluation)."""
+        indiv, pk_callable, param_names = _build_native_individual()
+        theta = np.array(_SENS_THETA)
+        eta   = np.array([0.15, -0.20])   # realistic ETA values
+        obs_mask = np.ones(7, dtype=bool)
+
+        G_native = indiv.native_advan6_prediction_eta_jacobian(theta, eta, obs_mask, n_eta=2)
+        assert G_native is not None
+
+        G_fd = self._G_i_fd(pk_callable, param_names, theta, eta, obs_mask)
+        np.testing.assert_allclose(G_native, G_fd, rtol=1e-3, atol=1e-8,
+                                   err_msg="native G_i at η̂≠0 deviates from FD")
+
+    def test_G_i_differs_at_nonzero_vs_zero_eta(self):
+        """G_i is genuinely evaluated at the provided η (not cached at η=0)."""
+        indiv, pk_callable, param_names = _build_native_individual()
+        theta = np.array(_SENS_THETA)
+        obs_mask = np.ones(7, dtype=bool)
+
+        G0 = indiv.native_advan6_prediction_eta_jacobian(theta, np.zeros(2), obs_mask, n_eta=2)
+        Ghat = indiv.native_advan6_prediction_eta_jacobian(theta, np.array([0.3, -0.3]), obs_mask, n_eta=2)
+        assert G0 is not None and Ghat is not None
+        # CL and V both shift with eta — G must change
+        assert not np.allclose(G0, Ghat), "G_i must depend on the provided η"
+
+    def test_G_i_respects_obs_mask(self):
+        """obs_mask filters the output rows — masked observations are excluded."""
+        indiv, pk_callable, param_names = _build_native_individual()
+        theta = np.array(_SENS_THETA)
+        eta   = np.zeros(2)
+        full_mask    = np.ones(7, dtype=bool)
+        partial_mask = np.array([True, False, True, True, False, True, True])
+
+        G_full    = indiv.native_advan6_prediction_eta_jacobian(theta, eta, full_mask,    n_eta=2)
+        G_partial = indiv.native_advan6_prediction_eta_jacobian(theta, eta, partial_mask, n_eta=2)
+        assert G_full.shape    == (7, 2)
+        assert G_partial.shape == (5, 2)
+        # Rows that appear in both should be identical
+        np.testing.assert_allclose(G_full[partial_mask], G_partial, rtol=1e-10)
+
+    def test_G_i_returns_none_for_mixed_pkpd_contract(self):
+        """native path declines mixed PK/PD model (DVID-aware output not implemented)."""
+        indiv, _, _ = _build_native_individual()
+        # Force the model to look like mixed PK/PD
+        if indiv._native_advan6_mixed_pkpd_contract is not None:
+            indiv._native_advan6_mixed_pkpd_contract["is_mixed_pkpd"] = True
+        theta = np.array(_SENS_THETA)
+        result = indiv.native_advan6_prediction_eta_jacobian(
+            theta, np.zeros(2), np.ones(7, dtype=bool), n_eta=2
+        )
+        assert result is None, "must return None for mixed PK/PD (DVID routing not supported)"
+
+    def test_G_i_returns_none_when_no_contract(self):
+        """native G_i returns None gracefully when contract is absent."""
+        indiv, _, _ = _build_native_individual()
+        indiv._native_advan6_mixed_pkpd_contract = None
+        result = indiv.native_advan6_prediction_eta_jacobian(
+            np.array(_SENS_THETA), np.zeros(2), np.ones(7, dtype=bool), n_eta=2
+        )
+        assert result is None
+
+    def test_compute_G_i_uses_native_path(self):
+        """_compute_G_i() delegates to native path for ADVAN6 native-contract models."""
+        from openpkpd.estimation.foce import _compute_G_i
+        indiv, pk_callable, param_names = _build_native_individual()
+        theta    = np.array(_SENS_THETA)
+        eta      = np.zeros(2)
+        sigma    = np.array([[0.01]])
+        obs_mask = np.ones(7, dtype=bool)
+        pred0    = np.array([0.01, 0.05, 0.15, 0.30, 0.20, 0.12, 0.03])
+
+        G = _compute_G_i(indiv, theta, eta, sigma, 2, obs_mask, pred0)
+        assert G.shape == (7, 2), "G_i should have shape (n_obs, n_eta)"
+
+        # Verify against direct FD using the same multidose probe
+        G_fd = self._G_i_fd(pk_callable, param_names, theta, eta, obs_mask)
+        np.testing.assert_allclose(G, G_fd, rtol=1e-3, atol=1e-8,
+                                   err_msg="_compute_G_i result deviates from FD reference")
+
+
+# ===========================================================================
+# Section 8 — Sensitivity probe performance
 # ===========================================================================
 
 class TestSensitivityProbePerformance:

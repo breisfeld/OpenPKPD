@@ -20,6 +20,7 @@ Reference: Combes et al. (2011), Lavielle (2014)
 from __future__ import annotations
 
 import math
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -75,6 +76,9 @@ class IMPMethod(EstimationMethod):
         self._subj_seeds: dict[int, int] = {}
         self._last_ess_by_subject: dict[int, float] = {}
         self._warm_start_diagnostics: dict[str, Any] = {}
+        self._proposal_cache: dict[tuple[int, bytes], tuple[np.ndarray, np.ndarray]] = {}
+        self._proposal_warm_start: dict[int, np.ndarray] = {}
+        self._proposal_cache_lock = threading.Lock()
         # Populated during estimate(): list of (subj_id, ess) for low-ESS subjects
         self._low_ess_subjects: list[tuple[int, float]] = []
         if is_map:
@@ -97,6 +101,8 @@ class IMPMethod(EstimationMethod):
         self._ofv_history = []
         self._last_ess_by_subject = {}
         self._warm_start_diagnostics = {}
+        self._proposal_cache = {}
+        self._proposal_warm_start = {}
         self._low_ess_subjects = []
 
         if self.is_map:
@@ -323,52 +329,64 @@ class IMPMethod(EstimationMethod):
         """
         indiv = population_model.individual_model(subj_id)
         n_eta = params.n_eta()
-
-        # Find MAP (proposal center)
-        eta0 = np.zeros(n_eta)
-
-        def neg_log_joint(eta: np.ndarray) -> float:
-            return float(
-                indiv.obj_eta(
-                    eta,
-                    params.theta,
-                    params.omega,
-                    params.sigma,
-                    trans=population_model.trans,
-                )
-            )
-
-        map_result = minimize(
-            neg_log_joint,
-            eta0,
-            method="L-BFGS-B",
-            options={"maxiter": 100, "ftol": 1e-8},
-        )
-        eta_map = map_result.x
-
-        # Proposal covariance from the MAP Hessian.
-        # ``obj_eta`` is an OFV-like quantity (-2 log posterior up to
-        # constants), so the local Gaussian covariance is 2 * H^{-1}.
-        eta_hessian = getattr(indiv, "eta_objective_hessian", None)
-        if callable(eta_hessian):
-            H = np.asarray(
-                eta_hessian(
-                    params.theta,
-                    eta_map,
-                    params.omega,
-                    params.sigma,
-                    trans=population_model.trans,
-                ),
+        cache_key = (subj_id, self._proposal_cache_key(params))
+        with self._proposal_cache_lock:
+            cached_proposal = self._proposal_cache.get(cache_key)
+            eta0 = np.asarray(
+                self._proposal_warm_start.get(subj_id, np.zeros(n_eta, dtype=float)),
                 dtype=float,
-            )
+            ).copy()
+
+        if cached_proposal is not None:
+            eta_map = np.asarray(cached_proposal[0], dtype=float).copy()
+            V_prop = np.asarray(cached_proposal[1], dtype=float).copy()
         else:
-            H = numerical_hessian(neg_log_joint, eta_map, eps=1e-4)
-        H = repair_pd(H, epsilon=1e-6)
-        try:
-            V_prop = 2.0 * np.linalg.inv(H)
-            V_prop = repair_pd(V_prop, epsilon=1e-8)
-        except Exception:
-            V_prop = params.omega.copy()
+            def neg_log_joint(eta: np.ndarray) -> float:
+                return float(
+                    indiv.obj_eta(
+                        eta,
+                        params.theta,
+                        params.omega,
+                        params.sigma,
+                        trans=population_model.trans,
+                    )
+                )
+
+            map_result = minimize(
+                neg_log_joint,
+                eta0,
+                method="L-BFGS-B",
+                options={"maxiter": 100, "ftol": 1e-8},
+            )
+            eta_map = np.asarray(map_result.x, dtype=float)
+
+            eta_hessian = getattr(indiv, "eta_objective_hessian", None)
+            if callable(eta_hessian):
+                H = np.asarray(
+                    eta_hessian(
+                        params.theta,
+                        eta_map,
+                        params.omega,
+                        params.sigma,
+                        trans=population_model.trans,
+                    ),
+                    dtype=float,
+                )
+            else:
+                H = numerical_hessian(neg_log_joint, eta_map, eps=1e-4)
+            H = repair_pd(H, epsilon=1e-6)
+            try:
+                V_prop = 2.0 * np.linalg.inv(H)
+                V_prop = repair_pd(V_prop, epsilon=1e-8)
+            except Exception:
+                V_prop = params.omega.copy()
+
+            with self._proposal_cache_lock:
+                self._proposal_cache[cache_key] = (
+                    eta_map.copy(),
+                    np.asarray(V_prop, dtype=float).copy(),
+                )
+                self._proposal_warm_start[subj_id] = eta_map.copy()
 
         # Draw samples from a deterministic per-subject stream so that the
         # same parameter vector sees the same Monte Carlo noise across outer
@@ -425,6 +443,16 @@ class IMPMethod(EstimationMethod):
             self._low_ess_subjects.append((subj_id, ess))
 
         return float(log_marg)
+
+    @staticmethod
+    def _proposal_cache_key(params: Any) -> bytes:
+        to_vector = getattr(params, "to_vector", None)
+        if callable(to_vector):
+            return np.asarray(to_vector(), dtype=float).tobytes()
+        theta = np.asarray(getattr(params, "theta"), dtype=float)
+        omega = np.asarray(getattr(params, "omega"), dtype=float)
+        sigma = np.asarray(getattr(params, "sigma"), dtype=float)
+        return b"|".join((theta.tobytes(), omega.tobytes(), sigma.tobytes()))
 
     def _map_etas(self, population_model: Any, params: ParameterSet) -> dict[int, np.ndarray]:
         """Compute MAP estimates of eta for all subjects."""

@@ -145,6 +145,27 @@ def test_fo_individual_uses_native_prediction_eta_jacobian_when_available(
     assert pop_model.individual_model(1).native_jacobian_calls == 1
 
 
+def test_fo_individual_reuses_base_prediction_for_fd_jacobian(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    method = FOMethod(maxeval=1)
+    params = _make_params(theta_init=1.2)
+    pop_model = _LinearPredictionPopulationModel({1: 1.0})
+    captured: dict[str, object] = {}
+
+    def _tracking_jacobian(*args: object, **kwargs: object) -> np.ndarray:
+        captured["f0"] = kwargs.get("f0")
+        captured["method"] = kwargs.get("method")
+        return np.array([[1.5]], dtype=float)
+
+    monkeypatch.setattr("openpkpd.estimation.fo.jacobian", _tracking_jacobian)
+
+    method._fo_ofv_individual(pop_model, params, subj_id=1, eta_zero=np.zeros(1))
+
+    np.testing.assert_allclose(np.asarray(captured["f0"]), np.array([1.2]))
+    assert captured["method"] == "forward"
+
+
 def test_estimate_returns_zero_post_hoc_etas_for_all_subjects() -> None:
     method = FOMethod(maxeval=25, print_interval=999)
     params = _make_params(theta_init=0.8)

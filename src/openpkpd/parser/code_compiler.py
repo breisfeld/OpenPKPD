@@ -189,11 +189,40 @@ def _translate_block(code: str, intrinsics: dict[str, str]) -> str:
     """Translate a full NM-TRAN code block to Python."""
     lines = code.splitlines()
     result: list[str] = []
+    indent_level = 0
     for line in lines:
         if _is_comment_line(line):
             continue
-        translated = _translate_line(line.strip(), intrinsics)
-        result.append(translated)
+        stripped = line.strip()
+
+        m_if_then = re.match(r"^IF\s*\((.+)\)\s*THEN\s*$", stripped, re.IGNORECASE)
+        if m_if_then:
+            cond = _translate_line(m_if_then.group(1).strip(), intrinsics)
+            result.append("    " * indent_level + f"if ({cond}):")
+            indent_level += 1
+            continue
+
+        if re.match(r"^ELSE\s*$", stripped, re.IGNORECASE):
+            indent_level = max(indent_level - 1, 0)
+            result.append("    " * indent_level + "else:")
+            indent_level += 1
+            continue
+
+        m_elseif = re.match(r"^ELSE\s*IF\s*\((.+)\)\s*THEN\s*$", stripped, re.IGNORECASE)
+        if m_elseif:
+            indent_level = max(indent_level - 1, 0)
+            cond = _translate_line(m_elseif.group(1).strip(), intrinsics)
+            result.append("    " * indent_level + f"elif ({cond}):")
+            indent_level += 1
+            continue
+
+        if re.match(r"^ENDIF\s*$", stripped, re.IGNORECASE):
+            indent_level = max(indent_level - 1, 0)
+            continue
+
+        translated = _translate_line(stripped, intrinsics)
+        for translated_line in translated.splitlines():
+            result.append("    " * indent_level + translated_line)
     return "\n".join(result)
 
 

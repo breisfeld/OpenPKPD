@@ -189,6 +189,10 @@ class SAEMMethod(EstimationMethod):
         # Initialize per-subject chain states
         # eta_chains[sid]: shape (n_chains, n_eta) — one row per chain
         subj_ids = population_model.subject_ids()
+        individual_models = {
+            sid: population_model.individual_model(sid)
+            for sid in subj_ids
+        }
         if n_eta > 0:
             omega_init = repair_pd(params.omega)
             eta_chains = {
@@ -278,7 +282,7 @@ class SAEMMethod(EstimationMethod):
                     sid,
                     eta_chains[sid],
                     mh_scales[sid],
-                    population_model.individual_model(sid),
+                    individual_models[sid],
                     _theta,
                     _omega,
                     _sigma,
@@ -321,7 +325,7 @@ class SAEMMethod(EstimationMethod):
                     th[free_theta_idx] = free_th
                     total = 0.0
                     for sid in subj_ids:
-                        indiv = population_model.individual_model(sid)
+                        indiv = individual_models[sid]
                         # Average subject OFV across chains (RB estimator)
                         for c in range(n_chains):
                             try:
@@ -384,7 +388,7 @@ class SAEMMethod(EstimationMethod):
                     )
                     total = 0.0
                     for sid in subj_ids:
-                        indiv = population_model.individual_model(sid)
+                        indiv = individual_models[sid]
                         for c in range(n_chains):
                             try:
                                 ll = indiv.log_likelihood(
@@ -415,7 +419,7 @@ class SAEMMethod(EstimationMethod):
             # Compute current OFV for monitoring (average chain 0 across subjects)
             ofv = 0.0
             for sid in subj_ids:
-                indiv = population_model.individual_model(sid)
+                indiv = individual_models[sid]
                 try:
                     ofv += indiv.obj_eta(
                         eta_chains[sid][0],

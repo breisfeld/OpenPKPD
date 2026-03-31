@@ -290,6 +290,375 @@ def test_approx_hessian_covariance_respects_ofv_scaling(
     assert cov[0, 0] == pytest.approx(target_var, rel=1e-2, abs=1e-2)
 
 
+def test_approx_hessian_covariance_caches_repeated_theta_evaluations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import openpkpd.estimation.foce as foce_module
+
+    theta_map = np.array([2.0])
+    outer_calls = 0
+
+    class _DummyFOCE:
+        def __init__(self) -> None:
+            self._current_eta_hat = {}
+
+        def _inner_loop(self, population_model, params):
+            return {1: np.array([params.theta[0]], dtype=float)}
+
+        def _outer_ofv(self, population_model, params, eta_hat):
+            nonlocal outer_calls
+            outer_calls += 1
+            diff = float(params.theta[0] - theta_map[0])
+            return 7.0 + diff**2
+
+    monkeypatch.setattr(foce_module, "FOCEMethod", _DummyFOCE)
+
+    method = BAYESMethod(backend="laplace", prior_sd_theta=1e8)
+    init_params = ParameterSet(theta=theta_map.copy(), omega=np.eye(1), sigma=np.eye(1))
+    foce_result = EstimationResult(
+        theta_final=theta_map.copy(),
+        omega_final=np.eye(1),
+        sigma_final=np.eye(1),
+        ofv=7.0,
+    )
+
+    method._approx_hessian_covariance(
+        population_model=None,
+        init_params=init_params,
+        theta_map=theta_map,
+        foce_result=foce_result,
+    )
+
+    assert outer_calls == 5
+    assert method._last_laplace_covariance_diagnostics["ofv_evaluations"] == 5
+    assert method._last_laplace_covariance_diagnostics["exact_cache_misses"] == 5
+    assert method._last_laplace_covariance_diagnostics["exact_cache_hits"] == 0
+    assert method._last_laplace_covariance_diagnostics["foce_inner_loop_calls"] == 5
+    assert method._last_laplace_covariance_diagnostics["n_theta"] == 1
+
+
+def test_approx_hessian_covariance_warm_starts_from_nearest_cached_theta(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import openpkpd.estimation.foce as foce_module
+
+    theta_map = np.array([2.0, 0.5])
+    seeded_eta: list[dict[int, np.ndarray]] = []
+
+    class _DummyFOCE:
+        def __init__(self) -> None:
+            self._current_eta_hat = {}
+
+        def _inner_loop(self, population_model, params):
+            seeded_eta.append(
+                {sid: np.asarray(value, dtype=float).copy() for sid, value in self._current_eta_hat.items()}
+            )
+            return {1: np.array([params.theta[0]], dtype=float)}
+
+        def _outer_ofv(self, population_model, params, eta_hat):
+            diff = np.asarray(params.theta, dtype=float) - theta_map
+            return 7.0 + float(diff @ diff)
+
+    monkeypatch.setattr(foce_module, "FOCEMethod", _DummyFOCE)
+
+    method = BAYESMethod(backend="laplace", prior_sd_theta=1e8)
+    init_params = ParameterSet(theta=theta_map.copy(), omega=np.eye(1), sigma=np.eye(1))
+    foce_result = EstimationResult(
+        theta_final=theta_map.copy(),
+        omega_final=np.eye(1),
+        sigma_final=np.eye(1),
+        ofv=7.0,
+        post_hoc_etas={1: np.zeros(1)},
+    )
+
+    method._approx_hessian_covariance(
+        population_model=None,
+        init_params=init_params,
+        theta_map=theta_map,
+        foce_result=foce_result,
+    )
+
+    assert len(seeded_eta) >= 2
+    np.testing.assert_allclose(seeded_eta[0][1], np.zeros(1))
+    assert any(np.allclose(seed[1], np.array([2.0])) for seed in seeded_eta[1:])
+
+
+def test_estimate_laplace_forwards_foce_control_kwargs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import openpkpd.estimation.foce as foce_module
+
+    captured_kwargs: dict[str, object] = {}
+
+    class _DummyFOCE:
+        def __init__(self, **kwargs: object) -> None:
+            captured_kwargs.update(kwargs)
+
+        def estimate(self, population_model, init_params):
+            return EstimationResult(
+                theta_final=np.array([1.0, 2.0]),
+                omega_final=np.eye(1),
+                sigma_final=np.eye(1),
+                ofv=12.0,
+                converged=False,
+            )
+
+    monkeypatch.setattr(foce_module, "FOCEMethod", _DummyFOCE)
+
+    def _fake_covariance(self, *args, **kwargs):
+        self._last_laplace_covariance_diagnostics = {
+            "ofv_evaluations": 9,
+            "exact_cache_hits": 2,
+        }
+        return np.eye(2)
+
+    monkeypatch.setattr(BAYESMethod, "_approx_hessian_covariance", _fake_covariance)
+
+    method = BAYESMethod(
+        backend="laplace",
+        n_samples=4,
+        maxeval=7,
+        interaction=True,
+        inner_maxiter=11,
+        n_parallel=3,
+        prior_sd_theta=1e8,
+        seed=0,
+    )
+    init_params = ParameterSet(theta=np.array([1.0, 2.0]), omega=np.eye(1), sigma=np.eye(1))
+
+    result = method._estimate_laplace(population_model=None, init_params=init_params)
+
+    assert result.backend_used == "laplace"
+    assert captured_kwargs["maxeval"] == 7
+    assert captured_kwargs["interaction"] is True
+    assert captured_kwargs["inner_maxiter"] == 11
+    assert captured_kwargs["n_parallel"] == 3
+    assert result.diagnostics["laplace"]["covariance_source"] == "finite_difference_hessian"
+    assert result.diagnostics["laplace"]["ofv_evaluations"] == 9
+    assert result.diagnostics["laplace"]["exact_cache_hits"] == 2
+
+
+def test_approx_hessian_covariance_forwards_foce_control_kwargs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import openpkpd.estimation.foce as foce_module
+
+    captured_kwargs: dict[str, object] = {}
+
+    class _DummyFOCE:
+        def __init__(self, **kwargs: object) -> None:
+            captured_kwargs.update(kwargs)
+            self._current_eta_hat = {}
+
+        def _inner_loop(self, population_model, params):
+            return {1: np.array([0.0])}
+
+        def _outer_ofv(self, population_model, params, eta_hat):
+            diff = np.asarray(params.theta, dtype=float) - np.array([1.0])
+            return 10.0 + float(diff @ diff)
+
+    monkeypatch.setattr(foce_module, "FOCEMethod", _DummyFOCE)
+
+    method = BAYESMethod(
+        backend="laplace",
+        maxeval=9,
+        interaction=True,
+        inner_maxiter=13,
+        n_parallel=2,
+        prior_sd_theta=1e8,
+    )
+    init_params = ParameterSet(theta=np.array([1.0]), omega=np.eye(1), sigma=np.eye(1))
+    foce_result = EstimationResult(
+        theta_final=np.array([1.0]),
+        omega_final=np.eye(1),
+        sigma_final=np.eye(1),
+        ofv=10.0,
+        post_hoc_etas={1: np.zeros(1)},
+    )
+
+    cov = method._approx_hessian_covariance(
+        population_model=None,
+        init_params=init_params,
+        theta_map=np.array([1.0]),
+        foce_result=foce_result,
+    )
+
+    assert cov.shape == (1, 1)
+    assert captured_kwargs["maxeval"] == 9
+    assert captured_kwargs["interaction"] is True
+    assert captured_kwargs["inner_maxiter"] == 13
+    assert captured_kwargs["n_parallel"] == 2
+
+
+def test_estimate_nuts_forwards_supported_foce_control_kwargs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import openpkpd.estimation.foce as foce_module
+    import openpkpd.estimation.nuts as nuts_module
+
+    captured_kwargs: dict[str, object] = {}
+
+    class _DummyFOCE:
+        def __init__(self, **kwargs: object) -> None:
+            captured_kwargs.update(kwargs)
+            self._current_eta_hat = {}
+            self.interaction = bool(kwargs.get("interaction", False))
+
+        def _inner_loop(self, population_model, params):
+            return {1: np.zeros(1)}
+
+        def _outer_ofv(self, population_model, params, eta_hat):
+            return 5.0
+
+    class _DummySampler:
+        def __init__(self, log_prob_fn, grad_log_prob_fn=None, **kwargs):
+            self._log_prob_raw = log_prob_fn
+            self.last_diagnostics = {
+                "n_warmup": 2,
+                "n_samples": 4,
+                "step_size_initial": 0.1,
+                "step_size_final": 0.1,
+                "target_accept": 0.8,
+                "max_tree_depth": 10,
+                "max_tree_depth_hit_count": 0,
+                "max_tree_depth_hit_fraction": 0.0,
+                "mean_tree_depth_warmup": 0.0,
+                "mean_tree_depth_sampling": 0.0,
+                "mean_accept_stat_warmup": 1.0,
+                "mean_accept_stat_sampling": 1.0,
+                "total_leaf_evaluations": 1,
+                "used_fd_gradient": True,
+                "log_prob_cache_hits": 0,
+                "log_prob_cache_misses": 0,
+                "unique_log_prob_evals": 0,
+            }
+
+        def sample(self, init_theta, n_samples=1000, n_warmup=500, init_step_size=0.1):
+            theta0 = np.asarray(init_theta, dtype=float)
+            self._log_prob_raw(theta0)
+            return np.tile(theta0, (n_samples, 1))
+
+    class _MockPopulation:
+        trans = 2
+
+        def subject_ids(self):
+            return [1]
+
+        def individual_model(self, sid):
+            class _Indiv:
+                def supports_theta_data_objective_gradient(self, trans=2):
+                    return False
+
+            return _Indiv()
+
+    init_params = ParameterSet(theta=np.array([1.0]), omega=np.eye(1), sigma=np.eye(1))
+    method = BAYESMethod(
+        backend="nuts",
+        n_samples=4,
+        n_chains=1,
+        tune=2,
+        inner_maxiter=17,
+        n_parallel=3,
+        interaction=True,
+    )
+
+    monkeypatch.setattr(foce_module, "FOCEMethod", _DummyFOCE)
+    monkeypatch.setattr(nuts_module, "NUTSSampler", _DummySampler)
+
+    result = method._estimate_nuts(_MockPopulation(), init_params)
+
+    assert result.backend_used == "nuts"
+    assert captured_kwargs["inner_maxiter"] == 17
+    assert captured_kwargs["n_parallel"] == 3
+    assert captured_kwargs["interaction"] is True
+    assert "maxeval" not in captured_kwargs
+
+
+def test_laplace_uses_foce_inverse_hessian_when_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import openpkpd.estimation.foce as foce_module
+
+    class _DummyFOCE:
+        def __init__(self, **kwargs: object) -> None:
+            pass
+
+        def estimate(self, population_model, init_params):
+            return EstimationResult(
+                theta_final=np.array([1.0, 2.0]),
+                omega_final=np.eye(1),
+                sigma_final=np.eye(1),
+                ofv=12.0,
+                converged=True,
+                diagnostics={"optimizer": {"inverse_hessian": np.array([[2.0, 0.5], [0.5, 1.5]])}},
+            )
+
+    monkeypatch.setattr(foce_module, "FOCEMethod", _DummyFOCE)
+
+    def _should_not_run_fd(*args, **kwargs):
+        raise AssertionError("finite-difference Hessian fallback should not run")
+
+    monkeypatch.setattr(BAYESMethod, "_approx_hessian_covariance", _should_not_run_fd)
+
+    method = BAYESMethod(
+        backend="laplace",
+        n_samples=8,
+        prior_sd_theta=1e8,
+        seed=0,
+    )
+    init_params = ParameterSet(theta=np.array([1.0, 2.0]), omega=np.eye(1), sigma=np.eye(1))
+
+    result = method._estimate_laplace(population_model=None, init_params=init_params)
+
+    assert result.backend_used == "laplace"
+    assert result.posterior_samples["theta"].shape == (8, 2)
+    assert result.diagnostics["laplace"]["covariance_source"] == "optimizer_inverse_hessian"
+
+
+def test_covariance_from_foce_inverse_hessian_scales_ofv_curvature() -> None:
+    method = BAYESMethod(backend="laplace")
+    foce_result = EstimationResult(
+        theta_final=np.array([1.0]),
+        omega_final=np.eye(1),
+        sigma_final=np.eye(1),
+        ofv=1.0,
+        diagnostics={"optimizer": {"inverse_hessian": np.array([[3.0]])}},
+    )
+
+    cov = method._covariance_from_foce_inverse_hessian(foce_result)
+
+    assert cov is not None
+    assert cov.shape == (1, 1)
+    assert cov[0, 0] == pytest.approx(6.0)
+
+
+def test_covariance_from_foce_inverse_hessian_uses_theta_block_only() -> None:
+    method = BAYESMethod(backend="laplace")
+    foce_result = EstimationResult(
+        theta_final=np.array([1.0, 2.0]),
+        omega_final=np.eye(1),
+        sigma_final=np.eye(1),
+        ofv=1.0,
+        diagnostics={
+            "optimizer": {
+                "inverse_hessian": np.array(
+                    [
+                        [2.0, 0.5, 9.0],
+                        [0.5, 3.0, 8.0],
+                        [9.0, 8.0, 7.0],
+                    ]
+                )
+            }
+        },
+    )
+
+    cov = method._covariance_from_foce_inverse_hessian(foce_result)
+
+    assert cov is not None
+    assert cov.shape == (2, 2)
+    np.testing.assert_allclose(cov, 2.0 * np.array([[2.0, 0.5], [0.5, 3.0]]))
+
+
 # ---------------------------------------------------------------------------
 # get_estimation_method routing
 # ---------------------------------------------------------------------------

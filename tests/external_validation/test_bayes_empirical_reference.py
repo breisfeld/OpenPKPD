@@ -119,6 +119,87 @@ def _build_theophylline_bayes_nuts_model(n_samples: int = 24, tune: int = 16):
     )
 
 
+def _build_warfarin_pkpd_4_bayes_laplace_model(
+    n_samples: int = 10,
+    maxeval: int = 1,
+    n_parallel: int = 4,
+):
+    """Return a reduced mixed-endpoint warfarin PK/PD BAYES(Laplace) model."""
+    from openpkpd import ModelBuilder
+    from openpkpd.data.dataset import NONMEMDataset
+
+    data_path = os.path.join(DATA_DIR, "warfarin_pkpd_4.csv")
+    if not os.path.exists(data_path):
+        pytest.skip(f"Data file not found: {data_path}")
+
+    ref = _load_ref("warfarin_pkpd_4_fo.json")
+    th = ref["theta"]
+    ds = NONMEMDataset.from_csv(data_path)
+
+    return (
+        ModelBuilder()
+        .problem("Warfarin joint PK/PD 4-subject reduced — empirical BAYES(Laplace) validation")
+        .dataset(ds)
+        .covariates(["DVID"])
+        .subroutines(advan=6, trans=1, jit="llc")
+        .pk(
+            "KTR = THETA(1)\n"
+            "KA = THETA(2)\n"
+            "CL = THETA(3)\n"
+            "V  = THETA(4)\n"
+            "EMAX = THETA(5)\n"
+            "EC50 = THETA(6)\n"
+            "KOUT = THETA(7)\n"
+            "E0 = THETA(8)\n"
+            "PCMT = 3"
+        )
+        .des(
+            "DADT(1) = -KTR*A(1)\n"
+            "DADT(2) = KTR*A(1) - KA*A(2)\n"
+            "DADT(3) = KA*A(2) - (CL/V)*A(3)\n"
+            "PD = 1 - EMAX*(A(3)/V)/(EC50 + (A(3)/V))\n"
+            "DADT(4) = KOUT*E0*(PD - 1) - KOUT*A(4)"
+        )
+        .error(
+            "PKPROP = THETA(9)\n"
+            "PKADD = THETA(10)\n"
+            "PDADD = THETA(11)\n"
+            "IPRED = THETA(8) + A(4)\n"
+            "W = PDADD\n"
+            "Y = IPRED + W*EPS(2)\n"
+            "IF (DVID .EQ. 1) W = SQRT((PKPROP*F)**2 + PKADD**2)\n"
+            "IF (DVID .EQ. 1) Y = F + W*EPS(1)"
+        )
+        .theta(
+            [
+                (0.1, th["KTR"], 3.0),
+                (0.1, th["KA"], 3.0),
+                (0.01, th["CL"], 1.0),
+                (2.0, th["V"], 30.0),
+                (0.5, th["EMAX"], 0.999),
+                (0.05, th["EC50"], 10.0),
+                (0.005, th["KOUT"], 1.0),
+                (10.0, th["E0"], 200.0),
+                (0.001, th["PK_PROP_ERR"], 1.0),
+                (0.05, th["PK_ADD_ERR"], 5.0),
+                (0.5, th["PD_ADD_ERR"], 30.0),
+            ]
+        )
+        .omega([1e-8], fixed=True)
+        .sigma([[1.0, 0.0], [0.0, 1.0]], fixed=True)
+        .estimation(
+            method="BAYES",
+            backend="laplace",
+            n_samples=n_samples,
+            maxeval=maxeval,
+            n_parallel=n_parallel,
+            prior_sd_theta=1e8,
+            seed=42,
+        )
+        .build()
+    )
+
+
 @pytest.mark.external_validation
 @pytest.mark.slow
 class TestTheophyllineBayesLaplaceEmpirical:
@@ -315,6 +396,79 @@ class TestTheophyllineBayesNUTSEmpirical:
         assert diag["foce_inner_calls"] > 0
         assert diag["warm_start_nearest_hits"] > 0
         assert all(chain["used_fd_gradient"] is False for chain in diag["chain_diagnostics"])
+
+
+@pytest.mark.external_validation
+@pytest.mark.slow
+class TestWarfarinPKPDReducedBayesLaplaceEmpirical:
+    """Reduced mixed-endpoint warfarin PK/PD BAYES(Laplace) benchmark."""
+
+    @pytest.fixture(scope="class")
+    def fit_result(self):
+        warnings.filterwarnings("ignore")
+        return _build_warfarin_pkpd_4_bayes_laplace_model().fit()
+
+    @pytest.fixture(scope="class")
+    def nlmixr2_ref(self):
+        return _load_ref("warfarin_pkpd_4_fo.json")
+
+    def test_backend_shape_and_covariance_source(self, fit_result):
+        theta_samples = fit_result.posterior_samples.get("theta")
+        assert fit_result.backend_used == "laplace"
+        assert fit_result.method == "BAYES(Laplace)"
+        assert theta_samples is not None
+        assert theta_samples.shape == (10, 11)
+        assert fit_result.diagnostics["laplace"]["covariance_source"] == "optimizer_inverse_hessian"
+
+    def test_ofv_is_finite_and_not_penalty(self, fit_result):
+        assert np.isfinite(fit_result.ofv)
+        assert fit_result.ofv < 1e6, f"OFV={fit_result.ofv:.4f} looks like a penalty path"
+
+    def test_theta_tracks_reduced_external_reference(self, fit_result, nlmixr2_ref):
+        theta = nlmixr2_ref["theta"]
+        observed = [float(value) for value in fit_result.theta_final]
+        expected = [
+            float(theta["KTR"]),
+            float(theta["KA"]),
+            float(theta["CL"]),
+            float(theta["V"]),
+            float(theta["EMAX"]),
+            float(theta["EC50"]),
+            float(theta["KOUT"]),
+            float(theta["E0"]),
+            float(theta["PK_PROP_ERR"]),
+            float(theta["PK_ADD_ERR"]),
+            float(theta["PD_ADD_ERR"]),
+        ]
+        tolerances = [0.01, 0.01, 0.01, 0.01, 1e-6, 0.01, 0.01, 0.01, 0.02, 0.02, 0.02]
+        for name, obs, exp, tol in zip(
+            (
+                "KTR",
+                "KA",
+                "CL",
+                "V",
+                "EMAX",
+                "EC50",
+                "KOUT",
+                "E0",
+                "PK_PROP_ERR",
+                "PK_ADD_ERR",
+                "PD_ADD_ERR",
+            ),
+            observed,
+            expected,
+            tolerances,
+            strict=True,
+        ):
+            rel_err = abs(obs - exp) / exp
+            assert rel_err < tol, (
+                f"{name}={obs:.6f} vs nlmixr2={exp:.6f} "
+                f"(rel_err={rel_err:.2%}, tolerance={tol:.2%})"
+            )
+
+    def test_fixed_iiv_contract_is_preserved(self, fit_result):
+        assert fit_result.omega_final.shape == (1, 1)
+        assert float(fit_result.omega_final[0, 0]) <= 1e-6
 
 
 

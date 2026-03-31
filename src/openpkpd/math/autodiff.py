@@ -53,6 +53,9 @@ def jacobian(
     f: Callable,
     x: np.ndarray,
     eps: float = 1e-5,
+    *,
+    f0: np.ndarray | None = None,
+    method: str = "central",
 ) -> np.ndarray:
     """
     Compute Jacobian matrix of f at x.
@@ -61,21 +64,28 @@ def jacobian(
         f:       Vector-valued function returning array of shape (m,).
         x:       Point of shape (n,) at which to evaluate Jacobian.
         eps:     Finite-difference step size.
+        f0:      Optional cached value ``f(x)``.
+        method:  Finite-difference scheme: ``"central"`` or ``"forward"``.
 
     Returns:
         Jacobian matrix of shape (m, n).
     """
-    # Numerical Jacobian via central differences
-    f0 = np.asarray(f(x), dtype=float)
-    m = len(f0)
+    if method not in {"central", "forward"}:
+        raise ValueError(f"Unsupported jacobian method: {method!r}")
+
+    f0_arr = np.asarray(f(x), dtype=float) if f0 is None else np.asarray(f0, dtype=float)
+    m = len(f0_arr)
     n = len(x)
     J = np.zeros((m, n))
     for j in range(n):
         xp = x.copy()
         xp[j] += eps
+        if method == "forward":
+            J[:, j] = (np.asarray(f(xp), dtype=float) - f0_arr) / eps
+            continue
         xm = x.copy()
         xm[j] -= eps
-        J[:, j] = (np.asarray(f(xp)) - np.asarray(f(xm))) / (2 * eps)
+        J[:, j] = (np.asarray(f(xp), dtype=float) - np.asarray(f(xm), dtype=float)) / (2 * eps)
     return J
 
 

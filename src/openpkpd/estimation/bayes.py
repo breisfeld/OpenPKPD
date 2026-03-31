@@ -17,6 +17,7 @@ References:
 from __future__ import annotations
 
 from collections import OrderedDict
+import inspect
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -194,6 +195,7 @@ class BAYESMethod(EstimationMethod):
         self.backend = backend
         self.prior_sd_theta = prior_sd_theta
         self._extra_kwargs = kwargs
+        self._last_laplace_covariance_diagnostics: dict[str, Any] = {}
 
     # ------------------------------------------------------------------
     # EstimationMethod interface
@@ -515,7 +517,9 @@ class BAYESMethod(EstimationMethod):
             subject_ids = list(population_model.subject_ids())
             # inner_maxiter=50: warm-started iterations converge faster than
             # the cold-start default (200); keeps per-step cost bounded.
-            foce = FOCEMethod(inner_maxiter=50)
+            foce_kwargs = self._foce_kwargs_for_nuts()
+            foce_kwargs.setdefault("inner_maxiter", 50)
+            foce = FOCEMethod(**foce_kwargs)
             foce._current_eta_hat = {
                 sid: np.zeros(n_eta)
                 for sid in subject_ids
@@ -882,18 +886,27 @@ class BAYESMethod(EstimationMethod):
         t0 = time.time()
         rng = np.random.default_rng(self.seed)
 
-        foce = FOCEMethod()
+        foce = FOCEMethod(**self._foce_kwargs_for_laplace())
         foce_result = foce.estimate(population_model, init_params)
 
         theta_map = foce_result.theta_final
         n_theta = len(theta_map)
 
-        # Estimate covariance from finite-difference Hessian on the FOCE OFV.
-        # The FOCE outer objective is OFV-like (-2 log posterior), so the
-        # local Gaussian covariance is 2 * H^{-1}.
-        hess_cov = self._approx_hessian_covariance(
-            population_model, init_params, theta_map, foce_result
-        )
+        # Prefer the quasi-Newton inverse-Hessian approximation already
+        # produced by the FOCE outer optimizer when available. This is a
+        # standard local Laplace approximation and avoids an additional
+        # expensive finite-difference Hessian pass on ODE-heavy models.
+        hess_cov = self._covariance_from_foce_inverse_hessian(foce_result)
+        covariance_source = "optimizer_inverse_hessian"
+        if hess_cov is None:
+            # Fall back to an explicit finite-difference Hessian on the FOCE OFV.
+            # The FOCE outer objective is OFV-like (-2 log posterior), so the
+            # local Gaussian covariance is 2 * H^{-1}.
+            hess_cov = self._approx_hessian_covariance(
+                population_model, init_params, theta_map, foce_result
+            )
+            covariance_source = "finite_difference_hessian"
+        covariance_diagnostics = dict(self._last_laplace_covariance_diagnostics)
 
         # Draw approximate posterior samples
         try:
@@ -926,6 +939,12 @@ class BAYESMethod(EstimationMethod):
             posterior_ci_lo=ci_lo,
             posterior_ci_hi=ci_hi,
             backend_used="laplace",
+            diagnostics={
+                "laplace": {
+                    "covariance_source": covariance_source,
+                    **covariance_diagnostics,
+                }
+            },
         )
 
     # ------------------------------------------------------------------
@@ -957,15 +976,49 @@ class BAYESMethod(EstimationMethod):
         """
         n_theta = len(theta_map)
         eps = 1e-4
+        diag_t0 = time.perf_counter()
+        self._last_laplace_covariance_diagnostics = {}
 
         try:
             from openpkpd.estimation.foce import FOCEMethod
             from openpkpd.model.parameters import ParameterSet
 
-            foce_inner = FOCEMethod()
+            foce_inner = FOCEMethod(**self._foce_kwargs_for_laplace())
             foce_inner._current_eta_hat = foce_result.post_hoc_etas or {}
+            exact_cache: OrderedDict[tuple[float, ...], tuple[float, dict[int, np.ndarray]]] = (
+                OrderedDict()
+            )
+            exact_cache_max = 64
+            exact_cache_hits = 0
+            exact_cache_misses = 0
+            inner_loop_calls = 0
+
+            def _theta_key(theta_value: np.ndarray) -> tuple[float, ...]:
+                return tuple(np.asarray(theta_value, dtype=float).tolist())
+
+            def _nearest_eta_seed(theta_value: np.ndarray) -> dict[int, np.ndarray] | None:
+                if not exact_cache:
+                    return None
+                theta_arr = np.asarray(theta_value, dtype=float)
+                nearest_key = min(
+                    exact_cache,
+                    key=lambda key: float(np.linalg.norm(theta_arr - np.asarray(key, dtype=float))),
+                )
+                cached_eta = exact_cache[nearest_key][1]
+                return {sid: np.asarray(value, dtype=float).copy() for sid, value in cached_eta.items()}
 
             def ofv_at_theta(th: np.ndarray) -> float:
+                nonlocal exact_cache_hits, exact_cache_misses, inner_loop_calls
+                key = _theta_key(th)
+                cached = exact_cache.get(key)
+                if cached is not None:
+                    exact_cache_hits += 1
+                    exact_cache.move_to_end(key)
+                    foce_inner._current_eta_hat = {
+                        sid: np.asarray(value, dtype=float).copy()
+                        for sid, value in cached[1].items()
+                    }
+                    return cached[0]
                 try:
                     # Build a ParameterSet with new theta
                     new_params = ParameterSet(
@@ -976,8 +1029,21 @@ class BAYESMethod(EstimationMethod):
                         omega_specs=getattr(init_params, "omega_specs", []),
                         sigma_specs=getattr(init_params, "sigma_specs", []),
                     )
+                    nearest_seed = _nearest_eta_seed(th)
+                    if nearest_seed is not None:
+                        foce_inner._current_eta_hat = nearest_seed
+                    exact_cache_misses += 1
+                    inner_loop_calls += 1
                     eta_hat = foce_inner._inner_loop(population_model, new_params)
-                    return foce_inner._outer_ofv(population_model, new_params, eta_hat)
+                    ofv = foce_inner._outer_ofv(population_model, new_params, eta_hat)
+                    exact_cache[key] = (
+                        ofv,
+                        {sid: np.asarray(value, dtype=float).copy() for sid, value in eta_hat.items()},
+                    )
+                    exact_cache.move_to_end(key)
+                    if len(exact_cache) > exact_cache_max:
+                        exact_cache.popitem(last=False)
+                    return ofv
                 except Exception:
                     return float("nan")
 
@@ -1031,12 +1097,104 @@ class BAYESMethod(EstimationMethod):
             cov = 2.0 * np.linalg.inv(hess)
             # Symmetrise
             cov = 0.5 * (cov + cov.T)
+            self._last_laplace_covariance_diagnostics = {
+                "finite_difference_epsilon": eps,
+                "n_theta": n_theta,
+                "hessian_point_scheme": "5-point diagonal, 4-point mixed partials",
+                "ofv_evaluations": exact_cache_hits + exact_cache_misses,
+                "exact_cache_hits": exact_cache_hits,
+                "exact_cache_misses": exact_cache_misses,
+                "foce_inner_loop_calls": inner_loop_calls,
+                "unique_theta_points": len(exact_cache),
+                "elapsed_seconds": time.perf_counter() - diag_t0,
+            }
             return cov
 
         except Exception:
             # Fallback: diagonal covariance proportional to theta_map^2
             diag = (0.1 * np.maximum(np.abs(theta_map), 1e-8)) ** 2
+            self._last_laplace_covariance_diagnostics = {
+                "finite_difference_epsilon": eps,
+                "n_theta": n_theta,
+                "hessian_point_scheme": "fallback_diagonal",
+                "ofv_evaluations": 0,
+                "exact_cache_hits": 0,
+                "exact_cache_misses": 0,
+                "foce_inner_loop_calls": 0,
+                "unique_theta_points": 0,
+                "elapsed_seconds": time.perf_counter() - diag_t0,
+            }
             return np.diag(diag)
+
+    def _foce_kwargs_for_laplace(self) -> dict[str, Any]:
+        """
+        Return supported FOCE kwargs carried through BAYES(Laplace).
+
+        The user-facing BAYES API accepts control arguments such as ``maxeval``
+        and ``interaction``.  The Laplace path uses FOCE internally, so these
+        controls must be forwarded rather than silently falling back to
+        ``FOCEMethod`` defaults.
+        """
+        from openpkpd.estimation.foce import FOCEMethod
+
+        signature = inspect.signature(FOCEMethod.__init__)
+        if any(
+            param.kind == inspect.Parameter.VAR_KEYWORD
+            for param in signature.parameters.values()
+        ):
+            return dict(self._extra_kwargs)
+        supported = set(signature.parameters)
+        supported.discard("self")
+        return {
+            key: value
+            for key, value in self._extra_kwargs.items()
+            if key in supported
+        }
+
+    def _foce_kwargs_for_nuts(self) -> dict[str, Any]:
+        """
+        Return supported FOCE kwargs carried through the FOCE-backed NUTS path.
+
+        The native NUTS backend evaluates a FOCE-approximated population
+        log-posterior repeatedly, so it should inherit the same supported FOCE
+        control knobs as the Laplace path rather than hard-coding a serial
+        helper.
+        """
+        kwargs = self._foce_kwargs_for_laplace()
+        kwargs.pop("maxeval", None)
+        return kwargs
+
+    def _covariance_from_foce_inverse_hessian(
+        self,
+        foce_result: EstimationResult,
+    ) -> np.ndarray | None:
+        """
+        Convert an FOCE outer-optimizer inverse Hessian into Laplace covariance.
+
+        The FOCE optimizer works on an OFV-like objective, so if ``H`` is the
+        optimizer Hessian then the local Gaussian posterior covariance is
+        ``2 * H^{-1}``.
+        """
+        optimizer_diag = foce_result.diagnostics.get("optimizer", {})
+        inverse_hessian = optimizer_diag.get("inverse_hessian")
+        if inverse_hessian is None:
+            return None
+        arr = np.asarray(inverse_hessian, dtype=float)
+        n_theta = int(np.asarray(foce_result.theta_final, dtype=float).size)
+        if (
+            arr.ndim != 2
+            or arr.shape[0] != arr.shape[1]
+            or arr.shape[0] < n_theta
+            or not np.all(np.isfinite(arr))
+        ):
+            return None
+        arr = arr[:n_theta, :n_theta]
+        cov = 2.0 * arr
+        cov = 0.5 * (cov + cov.T)
+        eigvals = np.linalg.eigvalsh(cov)
+        if np.any(eigvals <= 0):
+            cov += np.eye(cov.shape[0]) * max(abs(float(eigvals.min())) + 1e-8, 1e-8)
+        return cov
 
     def _compute_posterior_summary(
         self,

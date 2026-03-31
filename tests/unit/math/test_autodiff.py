@@ -48,6 +48,34 @@ class TestAutodiffFallback:
 
         np.testing.assert_allclose(jacobian(f, x), expected, rtol=1e-5, atol=1e-7)
 
+    def test_jacobian_forward_difference_reuses_cached_base_value(self):
+        calls = 0
+
+        def f(x: np.ndarray) -> np.ndarray:
+            nonlocal calls
+            calls += 1
+            return np.array(
+                [
+                    x[0] ** 2 + x[1],
+                    x[0] - 2.0 * x[1] ** 3,
+                ]
+            )
+
+        x = np.array([1.2, -0.5])
+        f0 = f(x)
+        calls_after_base = calls
+
+        observed = jacobian(f, x, f0=f0, method="forward")
+        expected = np.array(
+            [
+                [2.0 * x[0], 1.0],
+                [1.0, -6.0 * x[1] ** 2],
+            ]
+        )
+
+        np.testing.assert_allclose(observed, expected, rtol=1e-4, atol=1e-5)
+        assert calls == calls_after_base + len(x)
+
     def test_value_and_gradient_matches_function_and_gradient(self):
         def f(x: np.ndarray) -> float:
             return float(x[0] ** 2 + 3.0 * x[0] * x[1] + x[1] ** 2)

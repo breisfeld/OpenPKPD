@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from scipy.optimize import minimize as scipy_minimize
 
 from openpkpd.estimation import get_estimation_method
 from openpkpd.estimation.imp import IMPMethod
@@ -138,6 +139,53 @@ def test_importance_sample_uses_native_eta_hessian_when_available(
         abs=1e-8,
     )
     assert pop_model.individual_model(1).hessian_calls == 1
+
+
+def test_importance_sample_reuses_exact_cached_proposal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pop_model = _NativeHessianGaussianPopulationModel(dv=1.25)
+    params = _GaussianParams(omega_var=0.6, sigma_var=0.4)
+    imp = IMPMethod(isample=32, seed=0)
+    calls = {"minimize": 0}
+
+    def _counting_minimize(*args, **kwargs):
+        calls["minimize"] += 1
+        return scipy_minimize(*args, **kwargs)
+
+    monkeypatch.setattr("openpkpd.estimation.imp.minimize", _counting_minimize)
+
+    first = imp._importance_sample(pop_model, params, 1)
+    second = imp._importance_sample(pop_model, params, 1)
+
+    assert first == pytest.approx(second, abs=1e-12)
+    assert calls["minimize"] == 1
+    assert pop_model.individual_model(1).hessian_calls == 1
+
+
+def test_importance_sample_warm_starts_map_from_previous_subject_proposal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pop_model = _NativeHessianGaussianPopulationModel(dv=1.25)
+    params_a = _GaussianParams(omega_var=0.6, sigma_var=0.4)
+    params_b = _GaussianParams(omega_var=0.6, sigma_var=0.4)
+    params_b.theta = np.array([0.5])
+    imp = IMPMethod(isample=8, seed=0)
+    x0_history: list[np.ndarray] = []
+
+    def _fake_minimize(fun, x0, method=None, options=None):
+        x0_arr = np.asarray(x0, dtype=float).copy()
+        x0_history.append(x0_arr)
+        return SimpleNamespace(x=x0_arr + 0.25)
+
+    monkeypatch.setattr("openpkpd.estimation.imp.minimize", _fake_minimize)
+
+    imp._importance_sample(pop_model, params_a, 1)
+    imp._importance_sample(pop_model, params_b, 1)
+
+    assert len(x0_history) == 2
+    np.testing.assert_allclose(x0_history[0], np.zeros(1), atol=1e-12)
+    np.testing.assert_allclose(x0_history[1], np.array([0.25]), atol=1e-12)
 
 
 # ---------------------------------------------------------------------------

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import time
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -150,12 +151,14 @@ class NonparametricMethod(EstimationMethod):
         n_support_points: int | None = None,
         max_iter: int = 100,
         tol: float = 1e-5,
+        n_parallel: int = 1,
         **kwargs: Any,
     ) -> None:
         self.base_method = base_method
         self.n_support_points = n_support_points
         self.max_iter = max_iter
         self.tol = tol
+        self.n_parallel = n_parallel
         self.kwargs = kwargs
 
     # ------------------------------------------------------------------
@@ -372,15 +375,16 @@ class NonparametricMethod(EstimationMethod):
         sigma = base_result.sigma_final
         sigma_diag = float(sigma[0, 0]) if sigma.size > 0 else 1.0
 
-        for i, sid in enumerate(subject_ids):
+        def _compute_subject_row(sid: Any) -> np.ndarray:
+            row = np.zeros(K, dtype=float)
             try:
                 indiv = population_model.individual_model(sid)
                 subj_ev = indiv.subject_events
                 obs_mask = subj_ev.observation_mask()
                 dv = subj_ev.obs_dv[obs_mask]
                 if len(dv) == 0:
-                    L_matrix[i, :] = 1.0
-                    continue
+                    row[:] = 1.0
+                    return row
 
                 for k in range(K):
                     eta_k = support_points[k]
@@ -399,11 +403,22 @@ class NonparametricMethod(EstimationMethod):
                             -0.5 * n_obs * np.log(2 * np.pi * sigma_diag)
                             - 0.5 * np.sum(residuals**2) / sigma_diag
                         )
-                        L_matrix[i, k] = np.exp(np.clip(log_lik, -500, 0))
+                        row[k] = np.exp(np.clip(log_lik, -500, 0))
                     except Exception:
-                        L_matrix[i, k] = 1e-300
+                        row[k] = 1e-300
             except Exception:
-                L_matrix[i, :] = 1.0 / K
+                row[:] = 1.0 / K
+            return row
+
+        if self.n_parallel == 1 or len(subject_ids) <= 1:
+            rows = [_compute_subject_row(sid) for sid in subject_ids]
+        else:
+            n_workers = self.n_parallel if self.n_parallel > 0 else None
+            with ThreadPoolExecutor(max_workers=n_workers) as pool:
+                rows = list(pool.map(_compute_subject_row, subject_ids))
+
+        for i, row in enumerate(rows):
+            L_matrix[i, :] = row
 
         # Guard against all-zero rows
         row_sums = L_matrix.sum(axis=1)

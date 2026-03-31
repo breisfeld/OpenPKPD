@@ -291,6 +291,28 @@ def test_compute_likelihood_matrix_prefers_matching_support_points() -> None:
     assert L[1, 1] > L[1, 0]
 
 
+def test_compute_likelihood_matrix_parallel_matches_serial() -> None:
+    support_points = np.array([[0.0], [np.log(2.0)]])
+    pop_model = _LikelihoodPopulationModel([1.0, 2.0, 1.0, 2.0])
+
+    serial = NonparametricMethod(max_iter=20, n_parallel=1)._compute_likelihood_matrix(
+        support_points=support_points,
+        population_model=pop_model,
+        init_params=_LikelihoodParams(),
+        base_result=_likelihood_base_result(),
+        subject_ids=pop_model.subject_ids(),
+    )
+    parallel = NonparametricMethod(max_iter=20, n_parallel=2)._compute_likelihood_matrix(
+        support_points=support_points,
+        population_model=pop_model,
+        init_params=_LikelihoodParams(),
+        base_result=_likelihood_base_result(),
+        subject_ids=pop_model.subject_ids(),
+    )
+
+    np.testing.assert_allclose(parallel, serial, atol=1e-12)
+
+
 def test_optimize_weights_recovers_symmetric_two_support_distribution() -> None:
     """Symmetric exact matches should recover approximately equal weights."""
     method = NonparametricMethod(max_iter=50, tol=1e-10)

@@ -207,7 +207,13 @@ class FOMethod(EstimationMethod):
                     return pred_eta[obs_mask]
 
                 try:
-                    R = jacobian(pred_of_eta, eta_zero, eps=1e-5)
+                    R = jacobian(
+                        pred_of_eta,
+                        eta_zero,
+                        eps=1e-5,
+                        f0=pred_obs,
+                        method="forward",
+                    )
                 except Exception:
                     R = np.zeros((n_obs, params.n_eta()))
 

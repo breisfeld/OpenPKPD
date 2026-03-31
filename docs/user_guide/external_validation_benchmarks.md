@@ -3,6 +3,9 @@
 This note records the current **cross-tool benchmark fixtures** that are bundled
 with the repository and exercised by `tests/external_validation/`.
 
+For the broader support classification across estimators and workflows, see
+[`validation_matrix.md`](validation_matrix.md).
+
 ## Validated estimator envelope
 
 The table below is the quickest summary of what currently has **empirical**
@@ -12,8 +15,8 @@ as a claim of blanket parity with commercial tools.
 | Estimator family | Empirical external anchors in-tree | Current interpretation |
 |---|---|---|
 | FO / FOCE / FOCEI | `nlmixr2`, `NONMEM`, `Pharmpy`, Bauer tutorial workflows, covariate models | strongest cross-tool evidence in the repository |
-| SAEM | `Monolix` theophylline; `nlmixr2` warfarin PK | credible on current benchmark slices, but not yet broad enough for blanket parity claims |
-| BAYES(Laplace) | `nlmixr2` theophylline and warfarin PK basins; `NONMEM` 402 empirical basin | useful weak-prior Bayesian summary path; still an approximation, not full MCMC parity |
+| SAEM | `Monolix` theophylline; `nlmixr2` warfarin PK; reduced `nlmixr2` warfarin PK/PD | credible on current benchmark slices, but not yet broad enough for blanket parity claims |
+| BAYES(Laplace) | `nlmixr2` theophylline, warfarin PK, and reduced warfarin PK/PD basins; `NONMEM` 402 empirical basin | useful weak-prior Bayesian summary path; still an approximation, not full MCMC parity |
 | BAYES(NUTS) | internal statistical validation, bounded synthetic benchmark, and second-tier empirical theophylline benchmark | real implementation, but currently a second-tier empirical path rather than a primary release-gated benchmark surface |
 | IMP / IMPMAP | theophylline and warfarin PK empirical basin checks; analytic Gaussian-reference tests | numerically credible on the current empirical slices, but still narrower than FO/FOCEI validation; benchmark budgets matter materially |
 | Nonparametric | Pharmpy `pheno` empirical benchmark plus regression/exact reference tests | credible on one real dataset now, but still thin relative to FO/FOCEI coverage |
@@ -52,28 +55,55 @@ values with a fixed seed and a moderate SAEM schedule (`200 + 100` iterations).
 ### SAEM
 
 - **Anchors:** public Monolix theophylline SAEM reference; `nlmixr2` warfarin
-  PK SAEM reference; Grasela & Donn (1985) neonatal phenobarbital FO NONMEM
-  reference
+  PK SAEM reference; reduced `nlmixr2` warfarin PK/PD mixed-endpoint basin;
+  Grasela & Donn (1985) neonatal phenobarbital FO NONMEM reference
 - **Tests:** `tests/external_validation/test_vs_monolix.py`,
   `tests/external_validation/test_saem_reference.py`,
   `tests/external_validation/test_vs_nlmixr2.py`
 - **Current interpretation:** SAEM now has three external anchors — Monolix
   theophylline, nlmixr2 warfarin PK (`TestWarfarinSAEMvsNlmixr2`: KA, V, and
-  σ within 30% of the reference; CL has a documented ~28% systematic gap that
-  is tracked explicitly rather than hidden), and Grasela & Donn (1985)
+  σ within 30% of the reference and CL now within the same tracked acceptance
+  envelope after the current direct M-step update), and Grasela & Donn (1985)
   phenobarbital (`TestPhenobarbitalSAEMvsLiterature`: CL/kg within 35%, V/kg
   within 25%, half-life within 40% of the published FO NONMEM values). Broader
-  mixed-endpoint and PBPK-style empirical coverage is still missing.
+  PBPK-style empirical coverage is still missing.
+- **Reduced mixed-endpoint benchmark (2026-03-31):**
+  - `TestSAEMWarfarinPKPDReducedVsNlmixr2` now validates a short-schedule SAEM
+    run on the 4-subject reduced warfarin PK/PD mixed-endpoint fixture with
+    `jit="llc"` and a `20 + 10` iteration schedule
+  - measured run time on the current local machine is about `3.5s`
+  - structural terms stay essentially on top of the bundled reduced `nlmixr2`
+    reference basin, while `PK_PROP_ERR` remains the loosest tracked term at
+    about `+16%` under the short speed-gating schedule
+  - this promotes SAEM into the reduced mixed-endpoint external-validation
+    surface, while still leaving broader mixed-endpoint and PBPK-style breadth
+    as open work
 
 ### BAYES(Laplace)
 
-- **Anchors:** `nlmixr2` FOCEI basins for theophylline and warfarin PK, plus
-  the `NONMEM` 402 two-compartment IV empirical basin
+- **Anchors:** `nlmixr2` FOCEI basins for theophylline and warfarin PK, the
+  reduced `nlmixr2` warfarin PK/PD mixed-endpoint basin, plus the `NONMEM` 402
+  two-compartment IV empirical basin
 - **Tests:** `tests/external_validation/test_bayes_empirical_reference.py`,
   `tests/external_validation/test_bayes_nonmem_402_diagnostics.py`
 - **Current interpretation:** the weak-prior Laplace path stays near validated
   empirical basins and produces stable posterior summaries, but it remains a
   Gaussian approximation rather than a full MCMC benchmark.
+- **Reduced mixed-endpoint benchmark (2026-03-31):**
+  - `TestWarfarinPKPDReducedBayesLaplaceEmpirical` now validates the
+    4-subject reduced warfarin PK/PD mixed-endpoint path against the bundled
+    `nlmixr2` reference basin with `jit="llc"`, `maxeval=1`, `n_samples=10`,
+    and `n_parallel=4`
+  - measured run time on the current local machine is about `3.7s`
+  - the covariance path now stays on `optimizer_inverse_hessian` rather than
+    falling back to the `265`-probe finite-difference Hessian path
+  - measured relative errors on the promoted slice are very small:
+    `KTR +0.02%`, `KA +0.02%`, `CL +0.06%`, `V -0.18%`, `EC50 -0.02%`,
+    `KOUT -0.05%`, `E0 +0.07%`, `PK_PROP_ERR +0.01%`, `PK_ADD_ERR +0.20%`,
+    `PD_ADD_ERR +0.04%`
+  - this closes the earlier "reduced mixed-endpoint Laplace is still too slow
+    to promote" note; the current reduced warfarin PK/PD Laplace path is now a
+    real external benchmark rather than only a profiling target
 - **Measured benchmark expansion (2026-03-29):**
   - the `NONMEM` 402 BAYES(Laplace) benchmark passes on the current local 402
     fixture (`4 passed` in `129.43s`)
@@ -145,6 +175,17 @@ values with a fixed seed and a moderate SAEM schedule (`200 + 100` iterations).
     (`raw IMP` plus `IMPMAP`) is about `259 s` on the current test machine, so
     the warm-started path should be treated as a higher-confidence, higher-cost
     validation surface rather than a quick smoke check
+  - **Reduced mixed-endpoint probe (2026-03-31):**
+    - reduced 4-subject warfarin PK/PD `IMPMAP(isample=30, maxeval=4, jit="llc")`
+      converges in about `50.8s` and lands close to the bundled reduced
+      `nlmixr2` basin
+    - however, the current run emits repeated native `CVODES mxstep` warnings,
+      and disabling the narrow native warfarin PK/PD seam caused the same probe
+      to time out at `90s`
+    - interpretation: this is strong evidence that the mixed-endpoint IMPMAP
+      path is scientifically plausible, but it is not yet quiet or cheap enough
+      to promote into the stable external-validation matrix beside the reduced
+      `BAYES(Laplace)` and `SAEM` tests
 
 ### Nonparametric
 
@@ -322,17 +363,24 @@ not the previous V2/Q-swapped local minimum.
 
 | Parameter | NONMEM 7.5.0 | OpenPKPD | Δ% |
 |-----------|-------------|----------|-----|
-| CL (L/h) | 3.03 | 3.11 | +2.6% ✅ |
-| V (L) | 32.4 | 38.8 | +19.8% ⚠️ |
-| CL~WT exp | 0.660 | 0.807 | +22% ⚠️ |
-| V~WT exp | 1.322 | 0.817 | −38% ❌ |
-| CL~AGE exp | −0.534 | −0.203 | −62% ❌ |
-| OFV | **1058.3** | 1139.5 | +7.7% ⚠️ |
+| CL (L/h) | 3.031 | 3.057 | +0.8% ✅ |
+| V (L) | 32.384 | 32.740 | +1.1% ✅ |
+| CL~WT exp | 0.660 | 0.670 | +1.6% ✅ |
+| V~WT exp | 1.322 | 1.323 | +0.1% ✅ |
+| CL~AGE exp | −0.534 | −0.537 | +0.5% ✅ |
+| OFV | **1058.3** | 1271.0 | +20.1% ⚠️ |
 
-**Root cause:** Weak gradient signal for covariate exponents combined with
-block OMEGA coupling leads to a suboptimal covariate structure. Better
-initialisation (CL~WT=0.75, V~WT=1.0, CL~AGE=−0.5) substantially improves
-convergence.
+**Current interpretation:** the maintained Python-API FOCEI benchmark now lands
+very close to the NONMEM 7.5.0 parameter basin on the full 60-subject
+covariate-rich dataset, even at `maxeval=1`, when started from physiologic
+covariate priors (`WT^0.8`, `V~WT^0.8`, `CL~AGE≈-0.5`, sex multipliers near
+0.9–0.95). The remaining issue on this case is a raw OFV gap, not parameter
+recovery.
+
+**Important scope note:** the older control-stream stress case (`temp/nonmem/504.ctl`)
+still uses rougher cold starts and remains useful as a parser/runtime benchmark
+for difficult covariate landscapes. That is a different support question from
+the maintained API benchmark above.
 
 ### Run 504f — Fixed covariate exponents
 
@@ -408,19 +456,21 @@ This lands in the validated basin reliably. Multi-start still helps on models
 with shallower alternative basins, but 402 is no longer primarily tracked as a
 “stuck local minimum” case.
 
-### P2 — Covariate Exponent Estimation (Run 504/504f) — **Partially addressed**
+### P2 — Covariate Exponent Estimation (Run 504/504f) — **Refined**
 
-Power-law covariate exponents (especially AGE) are poorly identified when
-subjects cluster near the reference value. Tracked as `FOCE-COVARIATE-CONV`.
+Run 504 is no longer primarily a “can OpenPKPD recover the covariate basin?”
+problem. The maintained Python-API FOCEI benchmark now reaches the NONMEM
+parameter basin tightly on the full 60-subject dataset.
 
-**Implemented in v0.3:**
-- `FOCEMethod(gtol=1e-6)` tightens the outer gradient convergence criterion
-  (default 1e-5), forcing the optimizer to take more steps in flat regions.
-- From control streams: `$ESTIMATION ... GTOL=1e-6`
+What remains difficult is narrower:
+- cold-start control-stream execution for `504.ctl` / `504f.ctl`
+- raw OFV comparability on the same converged basin
+- broader coverage of covariate-rich datasets beyond this single NONMEM family
 
-**Remaining workaround:** Start covariate exponents at physiological priors
-(WT^0.75 for CL, WT^1.0 for V) and use stepwise covariate model building.
-Combine with multi-start (`NSTARTS=3`) for difficult covariate landscapes.
+Operational guidance still stands:
+- initialize covariate exponents near physiological priors
+- tighten `GTOL` on flatter covariate landscapes
+- use multi-start when exploring unfamiliar covariate structures
 
 ### P3 — Block OMEGA with Covariates — **Medium**
 
@@ -455,8 +505,12 @@ OMEGA update step size. No fix yet.
 - **NONMEM 2-compartment (Run 402):** OpenPKPD now reaches the correct
   NONMEM-like parameter basin. The remaining note is a raw OFV offset due to
   differing Hessian-correction conventions, not a local-minimum failure.
-- **NONMEM covariate model (Run 504/504f):** 7–11% OFV gap; covariate
-  exponent estimation needs improved initialisation and convergence criteria.
+- **NONMEM covariate model (Run 504):** maintained FOCEI benchmark now reaches
+  the NONMEM parameter basin closely on the full 60-subject dataset; the
+  remaining note is an OFV gap rather than parameter recovery.
+- **NONMEM covariate model cold-start stress cases (Run 504/504f control
+  streams):** still useful runner-level benchmarks for difficult covariate
+  initialization and raw OFV comparability.
 
 ---
 

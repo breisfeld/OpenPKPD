@@ -28,6 +28,85 @@ from openpkpd.estimation.saem import SAEMMethod
 from openpkpd.model.parameters import OmegaSpec, ParameterSet, SigmaSpec, ThetaSpec
 from openpkpd.utils.errors import WarningCode
 
+
+def _load_warfarin_pkpd_4_reference() -> dict:
+    import json
+
+    ref_path = os.path.join(
+        os.path.dirname(__file__), "nlmixr2", "reference", "warfarin_pkpd_4_fo.json"
+    )
+    with open(ref_path) as f:
+        return json.load(f)
+
+
+def _build_warfarin_pkpd_4_saem_model():
+    from openpkpd import ModelBuilder
+    from openpkpd.data.dataset import NONMEMDataset
+
+    data_path = os.path.join(os.path.dirname(__file__), "data", "warfarin_pkpd_4.csv")
+    if not os.path.exists(data_path):
+        pytest.skip("Reduced warfarin PK/PD dataset not found")
+
+    ref = _load_warfarin_pkpd_4_reference()
+    th = ref["theta"]
+    dataset = NONMEMDataset.from_csv(data_path)
+
+    return (
+        ModelBuilder()
+        .problem("Warfarin joint PK/PD 4-subject reduced — SAEM validation")
+        .dataset(dataset)
+        .covariates(["DVID"])
+        .subroutines(advan=6, trans=1, jit="llc")
+        .pk(
+            "KTR = THETA(1)\n"
+            "KA = THETA(2)\n"
+            "CL = THETA(3)\n"
+            "V  = THETA(4)\n"
+            "EMAX = THETA(5)\n"
+            "EC50 = THETA(6)\n"
+            "KOUT = THETA(7)\n"
+            "E0 = THETA(8)\n"
+            "PCMT = 3"
+        )
+        .des(
+            "DADT(1) = -KTR*A(1)\n"
+            "DADT(2) = KTR*A(1) - KA*A(2)\n"
+            "DADT(3) = KA*A(2) - (CL/V)*A(3)\n"
+            "PD = 1 - EMAX*(A(3)/V)/(EC50 + (A(3)/V))\n"
+            "DADT(4) = KOUT*E0*(PD - 1) - KOUT*A(4)"
+        )
+        .error(
+            "PKPROP = THETA(9)\n"
+            "PKADD = THETA(10)\n"
+            "PDADD = THETA(11)\n"
+            "IPRED = THETA(8) + A(4)\n"
+            "W = PDADD\n"
+            "Y = IPRED + W*EPS(2)\n"
+            "IF (DVID .EQ. 1) W = SQRT((PKPROP*F)**2 + PKADD**2)\n"
+            "IF (DVID .EQ. 1) Y = F + W*EPS(1)"
+        )
+        .theta(
+            [
+                (0.1, th["KTR"], 3.0),
+                (0.1, th["KA"], 3.0),
+                (0.01, th["CL"], 1.0),
+                (2.0, th["V"], 30.0),
+                (0.5, th["EMAX"], 0.999),
+                (0.05, th["EC50"], 10.0),
+                (0.005, th["KOUT"], 1.0),
+                (10.0, th["E0"], 200.0),
+                (0.001, th["PK_PROP_ERR"], 1.0),
+                (0.05, th["PK_ADD_ERR"], 5.0),
+                (0.5, th["PD_ADD_ERR"], 30.0),
+            ]
+        )
+        .omega([1e-8], fixed=True)
+        .sigma([[1.0, 0.0], [0.0, 1.0]], fixed=True)
+        .estimation(method="SAEM", n_iter_phase1=20, n_iter_phase2=10, n_chains=1, seed=42)
+        .build()
+    )
+
+
 # ---------------------------------------------------------------------------
 # Fast analytic tests — M-step identities
 # ---------------------------------------------------------------------------
@@ -296,6 +375,79 @@ class TestSAEMWarfarinVsNlmixr2:
     def test_omega_is_positive_semidefinite(self, fit_result):
         eig = np.linalg.eigvalsh(fit_result.omega_final)
         assert np.all(eig >= -1e-8), eig
+
+
+@pytest.mark.external_validation
+@pytest.mark.slow
+class TestSAEMWarfarinPKPDReducedVsNlmixr2:
+    """Reduced mixed-endpoint warfarin PK/PD SAEM benchmark vs bundled nlmixr2 FO basin."""
+
+    @pytest.fixture(scope="class")
+    def reference(self):
+        return _load_warfarin_pkpd_4_reference()
+
+    @pytest.fixture(scope="class")
+    def fit_result(self):
+        return _build_warfarin_pkpd_4_saem_model().fit()
+
+    def test_ofv_is_finite_and_reasonable(self, fit_result):
+        assert np.isfinite(fit_result.ofv)
+        assert 0.0 < fit_result.ofv < 2000.0
+        assert len(fit_result.ofv_history or []) == 30
+
+    def test_structural_theta_tracks_reduced_reference(self, fit_result, reference):
+        theta = reference["theta"]
+        observed = [float(value) for value in fit_result.theta_final[:8]]
+        expected = [
+            float(theta["KTR"]),
+            float(theta["KA"]),
+            float(theta["CL"]),
+            float(theta["V"]),
+            float(theta["EMAX"]),
+            float(theta["EC50"]),
+            float(theta["KOUT"]),
+            float(theta["E0"]),
+        ]
+        tolerances = [0.01, 0.01, 0.01, 0.01, 1e-6, 0.01, 0.01, 0.01]
+        for name, obs, exp, tol in zip(
+            ("KTR", "KA", "CL", "V", "EMAX", "EC50", "KOUT", "E0"),
+            observed,
+            expected,
+            tolerances,
+            strict=True,
+        ):
+            rel_err = abs(obs - exp) / exp
+            assert rel_err < tol, (
+                f"{name}={obs:.6f} vs nlmixr2={exp:.6f} "
+                f"(rel_err={rel_err:.2%}, tolerance={tol:.2%})"
+            )
+
+    def test_error_terms_track_reduced_reference(self, fit_result, reference):
+        theta = reference["theta"]
+        observed = [float(value) for value in fit_result.theta_final[8:11]]
+        expected = [
+            float(theta["PK_PROP_ERR"]),
+            float(theta["PK_ADD_ERR"]),
+            float(theta["PD_ADD_ERR"]),
+        ]
+        tolerances = [0.20, 0.02, 0.02]
+        for name, obs, exp, tol in zip(
+            ("PK_PROP_ERR", "PK_ADD_ERR", "PD_ADD_ERR"),
+            observed,
+            expected,
+            tolerances,
+            strict=True,
+        ):
+            rel_err = abs(obs - exp) / exp
+            assert rel_err < tol, (
+                f"{name}={obs:.6f} vs nlmixr2={exp:.6f} "
+                f"(rel_err={rel_err:.2%}, tolerance={tol:.2%})"
+            )
+
+    def test_fixed_variance_contract_is_preserved(self, fit_result):
+        assert fit_result.omega_final.shape == (1, 1)
+        assert float(fit_result.omega_final[0, 0]) <= 1e-6
+        np.testing.assert_allclose(fit_result.sigma_final, np.eye(2), atol=1e-12)
 
 
 # ---------------------------------------------------------------------------

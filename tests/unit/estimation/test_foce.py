@@ -9,6 +9,7 @@ from openpkpd.estimation.foce import (
     FOCEMethod,
     _compute_G_i,
     _compute_G_i_via_sensitivity,
+    _can_skip_eta_optimization,
     _estimate_gradient_norm,
 )
 from openpkpd.model.derivative_kernels import DerivativeKernelCapabilities
@@ -243,6 +244,28 @@ def test_inner_loop_tolerates_individual_objective_exceptions() -> None:
     assert np.all(np.isfinite(eta_hat[1]))
 
 
+def test_inner_loop_skips_eta_optimization_for_fixed_near_zero_omega(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    params = ParameterSet.from_specs(
+        [ThetaSpec(init=1.0, lower=0.0, upper=5.0)],
+        [OmegaSpec(block_size=1, values=[1e-8], fixed=True)],
+        [SigmaSpec(block_size=1, values=[0.1], fixed=True)],
+    )
+    method = FOCEMethod(maxeval=1)
+
+    def fail_minimize(*args, **kwargs):
+        raise AssertionError("inner-loop minimize should be skipped")
+
+    monkeypatch.setattr("openpkpd.estimation.foce.minimize", fail_minimize)
+
+    eta_hat = method._inner_loop(_DummyPopulationModel(), params)
+
+    assert _can_skip_eta_optimization(params)
+    assert eta_hat.keys() == {1}
+    assert np.allclose(eta_hat[1], 0.0)
+
+
 def test_outer_ofv_matches_closed_form_for_diagonal_variance_case() -> None:
     method = FOCEMethod(maxeval=1)
 
@@ -258,6 +281,27 @@ def test_outer_ofv_matches_closed_form_for_diagonal_variance_case() -> None:
         + np.log(0.2)  # log|Omega|
     )
     assert ofv == pytest.approx(expected, abs=1e-10)
+
+
+def test_outer_ofv_parallel_matches_serial_for_multi_subject_population() -> None:
+    params = _PositiveOmegaParams()
+    eta_hat = {
+        1: np.array([0.25]),
+        2: np.array([0.25]),
+    }
+
+    serial = FOCEMethod(maxeval=1, n_parallel=1)._outer_ofv(
+        _TwoSubjectPopulationModel(),
+        params,
+        eta_hat,
+    )
+    parallel = FOCEMethod(maxeval=1, n_parallel=2)._outer_ofv(
+        _TwoSubjectPopulationModel(),
+        params,
+        eta_hat,
+    )
+
+    assert parallel == pytest.approx(serial, abs=1e-12)
 
 
 def test_outer_ofv_focei_interaction_uses_prediction_scaled_variance() -> None:
@@ -442,6 +486,88 @@ def test_run_single_retains_best_iterate_when_terminal_point_is_worse(
     assert "[best-iterate]" in result.message
     assert final_ofv == pytest.approx(1.0)
     assert float(final_params.theta[0]) == pytest.approx(1.0)
+
+
+def test_best_iterate_promotion_preserves_hessian_for_near_identical_point(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    params = ParameterSet.from_specs(
+        [ThetaSpec(init=2.0, lower=0.0, upper=5.0)],
+        [OmegaSpec(block_size=1, values=[0.2], fixed=True)],
+        [SigmaSpec(block_size=1, values=[0.1], fixed=True)],
+    )
+    method = FOCEMethod(interaction=True, maxeval=3, outer_fallback_optimizer=None)
+    best_x = params.to_vector()
+    method._best_outer_x = best_x.copy()
+    method._best_outer_ofv = 1.0
+    hess_inv = np.array([[3.0]])
+    near_x = best_x + np.array([5e-5])
+    monkeypatch.setattr(method, "_inner_loop", lambda population_model, cur_params: {})
+    monkeypatch.setattr(
+        method,
+        "_outer_ofv",
+        lambda population_model, cur_params, eta_hat: 1.0,
+    )
+
+    result, final_params, _eta_hat, final_ofv = method._maybe_promote_best_iterate(
+        SimpleNamespace(x=near_x, success=False, message="lbfgsb", hess_inv=hess_inv),
+        params,
+        _NoSubjectPopulation(),
+        final_params=params,
+        final_eta_hat={},
+        final_ofv=1.0 + 5e-6,
+    )
+
+    assert "[best-iterate]" in result.message
+    np.testing.assert_allclose(result.hess_inv, hess_inv)
+    assert final_ofv == pytest.approx(1.0)
+    assert float(final_params.theta[0]) == pytest.approx(2.0)
+
+
+def test_run_single_reuses_cached_outer_evaluation_for_terminal_point(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    params = ParameterSet.from_specs(
+        [ThetaSpec(init=2.0, lower=0.0, upper=5.0)],
+        [OmegaSpec(block_size=1, values=[0.2], fixed=True)],
+        [SigmaSpec(block_size=1, values=[0.1], fixed=True)],
+    )
+    method = FOCEMethod(
+        interaction=False,
+        maxeval=3,
+        outer_fallback_optimizer=None,
+        print_interval=999,
+    )
+    terminal_x = params.to_vector()
+    calls = {"inner": 0, "outer": 0}
+
+    def fake_inner_loop(_population_model, _params):
+        calls["inner"] += 1
+        return {1: np.array([0.25])}
+
+    def fake_outer_ofv(_population_model, cur_params, _eta_hat):
+        calls["outer"] += 1
+        return float(cur_params.theta[0])
+
+    def fake_minimize(fun, x0, *args, **kwargs):
+        trial = np.asarray(terminal_x, dtype=float)
+        assert float(fun(trial)) == pytest.approx(2.0)
+        return SimpleNamespace(x=trial, success=True, message="lbfgsb")
+
+    monkeypatch.setattr(method, "_inner_loop", fake_inner_loop)
+    monkeypatch.setattr(method, "_outer_ofv", fake_outer_ofv)
+    monkeypatch.setattr("openpkpd.estimation.foce.minimize", fake_minimize)
+
+    result, final_params, _eta_hat, final_ofv = method._run_single(
+        terminal_x,
+        params,
+        _NoSubjectPopulation(),
+    )
+
+    assert result.message == "lbfgsb"
+    assert final_ofv == pytest.approx(2.0)
+    assert float(final_params.theta[0]) == pytest.approx(2.0)
+    assert calls == {"inner": 1, "outer": 1}
 
 
 def test_run_single_structured_retry_improves_abnormal_focei_result(
@@ -640,9 +766,11 @@ def test_multistart_returns_best_ofv(monkeypatch: pytest.MonkeyPatch) -> None:
         retain_best_iterate=False,
     ).estimate(_DummyPopulationModel(), params)
 
-    # 3 starts: outer minimize was called 3 times (inner loop also calls minimize,
-    # so total calls = 3 starts × (1 outer + 2 inner) = 9)
-    assert call_count[0] == 9
+    # 3 starts: outer minimize was called 3 times and each objective evaluation
+    # triggers one inner-loop minimize. The terminal-point reevaluation is now
+    # served from the exact outer-evaluation cache, so total calls = 3 starts ×
+    # (1 outer + 1 inner) = 6.
+    assert call_count[0] == 6
     assert result.converged
     assert np.isfinite(result.ofv)
 
@@ -652,10 +780,12 @@ def test_multistart_gtol_is_passed_to_optimizer(
 ) -> None:
     """gtol parameter is forwarded to the scipy minimize call."""
     seen_gtol: list[float] = []
+    seen_jac_callable: list[bool] = []
 
     def fake_minimize(fun, x0, *args, **kwargs):
         opts = kwargs.get("options", {})
         seen_gtol.append(opts.get("gtol", -1.0))
+        seen_jac_callable.append(callable(kwargs.get("jac")))
         x = np.asarray(x0, dtype=float)
         fun(x)
         return SimpleNamespace(x=x, success=True, message="ok")
@@ -674,6 +804,7 @@ def test_multistart_gtol_is_passed_to_optimizer(
 
     assert seen_gtol, "minimize was never called"
     assert seen_gtol[0] == pytest.approx(1e-7)
+    assert seen_jac_callable[0] is True
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -19,7 +19,7 @@ Algorithm:
 from __future__ import annotations
 
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from types import SimpleNamespace
 from typing import Any
 
@@ -160,6 +160,26 @@ def _make_cached_obj_eta(
     trans: int,
 ):
     return _CachedObjEtaEvaluator(indiv, theta, omega, sigma, trans)
+
+
+def _can_skip_eta_optimization(params: ParameterSet, *, zero_tol: float = 1e-8) -> bool:
+    """
+    Return True when η optimisation can be skipped safely.
+
+    This fast path is intentionally narrow: it only applies when every OMEGA
+    block is fixed and the full OMEGA matrix is effectively zero. In that case,
+    the model is behaving as a no-IIV model and repeatedly optimising per-subject
+    η adds substantial cost with negligible mathematical benefit.
+    """
+    if params.n_eta() == 0:
+        return True
+    omega_specs = getattr(params, "omega_specs", None)
+    if not omega_specs:
+        return False
+    if any(not spec.fixed for spec in omega_specs):
+        return False
+    omega = np.asarray(params.omega, dtype=float)
+    return bool(np.max(np.abs(omega)) <= zero_tol)
 
 
 def _worker_optimize_eta(
@@ -358,6 +378,29 @@ def _estimate_gradient_norm(result: Any) -> float | None:
     return None
 
 
+def _extract_inverse_hessian(result: Any) -> np.ndarray | None:
+    """
+    Extract a dense inverse-Hessian approximation from scipy optimizer output.
+
+    L-BFGS-B exposes ``LbfgsInvHessProduct`` via ``result.hess_inv`` with a
+    ``todense()`` method. Other optimizers may expose an array-like object
+    directly. When no stable dense approximation is available, return ``None``.
+    """
+    hess_inv = getattr(result, "hess_inv", None)
+    if hess_inv is None:
+        return None
+    try:
+        if hasattr(hess_inv, "todense"):
+            arr = np.asarray(hess_inv.todense(), dtype=float)
+        else:
+            arr = np.asarray(hess_inv, dtype=float)
+    except Exception:
+        return None
+    if arr.ndim != 2 or arr.shape[0] != arr.shape[1] or not np.all(np.isfinite(arr)):
+        return None
+    return arr
+
+
 class FOCEMethod(EstimationMethod):
     """
     FOCE / FOCEI estimation method.
@@ -442,6 +485,9 @@ class FOCEMethod(EstimationMethod):
         self._ofv_history: list[float] = []
         self._current_eta_hat: dict[int, np.ndarray] = {}
         self._inner_loop_pool: ProcessPoolExecutor | None = None
+        self._outer_eval_cache: dict[
+            tuple[float, ...], tuple[float, dict[int, np.ndarray]]
+        ] = {}
         self._best_outer_x: np.ndarray | None = None
         self._best_outer_ofv: float = np.inf
 
@@ -542,6 +588,9 @@ class FOCEMethod(EstimationMethod):
             method=self.method_name,
             message=getattr(result, "message", ""),
         )
+        inverse_hessian = _extract_inverse_hessian(result)
+        if inverse_hessian is not None:
+            res.diagnostics.setdefault("optimizer", {})["inverse_hessian"] = inverse_hessian
 
         # ── Structured estimation warnings ────────────────────────────────────
         # Gradient norm at convergence
@@ -572,8 +621,34 @@ class FOCEMethod(EstimationMethod):
         self._current_eta_hat = {
             sid: np.zeros(init_params.n_eta()) for sid in population_model.subject_ids()
         }
+        self._outer_eval_cache = {}
         self._best_outer_x = None
         self._best_outer_ofv = np.inf
+
+    def _outer_eval_cache_get(
+        self,
+        x: np.ndarray,
+    ) -> tuple[float, dict[int, np.ndarray]] | None:
+        key = tuple(np.asarray(x, dtype=float).tolist())
+        cached = self._outer_eval_cache.get(key)
+        if cached is None:
+            return None
+        ofv, eta_hat = cached
+        return float(ofv), {
+            sid: np.asarray(value, dtype=float).copy() for sid, value in eta_hat.items()
+        }
+
+    def _outer_eval_cache_put(
+        self,
+        x: np.ndarray,
+        ofv: float,
+        eta_hat: dict[int, np.ndarray],
+    ) -> None:
+        key = tuple(np.asarray(x, dtype=float).tolist())
+        self._outer_eval_cache[key] = (
+            float(ofv),
+            {sid: np.asarray(value, dtype=float).copy() for sid, value in eta_hat.items()},
+        )
 
     def _run_single(
         self,
@@ -591,6 +666,11 @@ class FOCEMethod(EstimationMethod):
         self._reset_state(init_params, population_model)
 
         def objective(x: np.ndarray) -> float:
+            cached = self._outer_eval_cache_get(x)
+            if cached is not None:
+                ofv, eta_hat = cached
+                self._current_eta_hat = eta_hat
+                return ofv
             p = ParameterSet.from_vector(x, init_params).apply_bounds()
             eta_hat = self._inner_loop(population_model, p)
             self._current_eta_hat = eta_hat
@@ -609,6 +689,7 @@ class FOCEMethod(EstimationMethod):
                 eta_hat = self._inner_loop(population_model, p)
                 self._current_eta_hat = eta_hat
                 ofv = self._outer_ofv(population_model, p, eta_hat)
+            self._outer_eval_cache_put(x, ofv, eta_hat)
             self._iter += 1
             self._ofv_history.append(ofv)
             if ofv < self._best_outer_ofv:
@@ -633,8 +714,16 @@ class FOCEMethod(EstimationMethod):
         self._current_eta_hat = {
             sid: np.zeros(init_params.n_eta()) for sid in population_model.subject_ids()
         }
-        final_eta_hat = self._inner_loop(population_model, final_params)
-        final_ofv = self._outer_ofv(population_model, final_params, final_eta_hat)
+        cached_final = self._outer_eval_cache_get(result.x)
+        if cached_final is not None:
+            final_ofv, final_eta_hat = cached_final
+            self._current_eta_hat = {
+                sid: np.asarray(value, dtype=float).copy() for sid, value in final_eta_hat.items()
+            }
+        else:
+            final_eta_hat = self._inner_loop(population_model, final_params)
+            final_ofv = self._outer_ofv(population_model, final_params, final_eta_hat)
+            self._outer_eval_cache_put(result.x, final_ofv, final_eta_hat)
         result, final_params, final_eta_hat, final_ofv = self._maybe_promote_best_iterate(
             result, init_params, population_model, final_params, final_eta_hat, final_ofv
         )
@@ -728,11 +817,31 @@ class FOCEMethod(EstimationMethod):
             self._current_eta_hat = saved_eta_hat
         if best_ofv < final_ofv:
             logger.info("  Retaining best iterate OFV %.4f -> %.4f", final_ofv, best_ofv)
-            result = SimpleNamespace(
-                x=self._best_outer_x.copy(),
-                success=getattr(result, "success", False),
-                message=f"{getattr(result, 'message', '')} [best-iterate]".strip(),
+            promoted_fields: dict[str, Any] = {
+                "x": self._best_outer_x.copy(),
+                "success": getattr(result, "success", False),
+                "message": f"{getattr(result, 'message', '')} [best-iterate]".strip(),
+            }
+            result_x = getattr(result, "x", None)
+            result_x_arr = None if result_x is None else np.asarray(result_x, dtype=float)
+            same_point = result_x_arr is not None and np.allclose(
+                result_x_arr,
+                self._best_outer_x,
+                rtol=0.0,
+                atol=1e-12,
             )
+            near_point = result_x_arr is not None and np.allclose(
+                result_x_arr,
+                self._best_outer_x,
+                rtol=1e-4,
+                atol=1e-4,
+            )
+            tiny_ofv_improvement = abs(float(final_ofv) - float(best_ofv)) <= 1e-4
+            if same_point or (near_point and tiny_ofv_improvement):
+                hess_inv = getattr(result, "hess_inv", None)
+                if hess_inv is not None:
+                    promoted_fields["hess_inv"] = hess_inv
+            result = SimpleNamespace(**promoted_fields)
             return result, best_params, best_eta_hat, best_ofv
         return result, final_params, final_eta_hat, final_ofv
 
@@ -763,6 +872,52 @@ class FOCEMethod(EstimationMethod):
             ).apply_bounds()
             retry_vectors.append(retry_params.to_vector())
         return retry_vectors
+
+    def _outer_gradient_forward(
+        self,
+        objective: Any,
+        x: np.ndarray,
+        bounds: list[tuple[float | None, float | None]],
+        *,
+        rel_step: float = 1e-5,
+    ) -> np.ndarray:
+        """
+        Forward-difference gradient for the outer FOCE objective.
+
+        This explicitly reuses the cached base objective value at ``x`` rather
+        than relying on SciPy's generic numerical-difference wrapper. On the
+        ODE-heavy mixed-endpoint path this reduces duplicate bookkeeping and
+        lets the exact outer-evaluation cache absorb revisits cleanly.
+        """
+        x_arr = np.asarray(x, dtype=float)
+        f0 = float(objective(x_arr))
+        grad = np.zeros_like(x_arr)
+
+        for i, value in enumerate(x_arr):
+            step = rel_step * max(1.0, abs(float(value)))
+            lower, upper = bounds[i]
+            if upper is not None and value + step > upper:
+                if lower is not None and value - step >= lower:
+                    step = -step
+                elif lower is not None and lower < value:
+                    step = -(value - lower) * 0.5
+                elif upper > value:
+                    step = (upper - value) * 0.5
+            if lower is not None and value + step < lower:
+                if upper is not None and value - step <= upper:
+                    step = -step
+                elif upper is not None and value < upper:
+                    step = (upper - value) * 0.5
+                elif value > lower:
+                    step = -(value - lower) * 0.5
+            if step == 0.0:
+                step = 1e-8
+            x_step = x_arr.copy()
+            x_step[i] += step
+            f_step = float(objective(x_step))
+            grad[i] = (f_step - f0) / step
+
+        return grad
 
     def _run_outer_optimizer(
         self,
@@ -795,6 +950,7 @@ class FOCEMethod(EstimationMethod):
                 objective,
                 x0,
                 method="L-BFGS-B",
+                jac=lambda x: self._outer_gradient_forward(objective, x, bounds),
                 bounds=bounds,
                 options={"maxiter": maxeval, "ftol": 1e-9, "gtol": self.gtol},
             )
@@ -854,6 +1010,10 @@ class FOCEMethod(EstimationMethod):
         """
         subject_ids = population_model.subject_ids()
         n_eta = params.n_eta()
+
+        if _can_skip_eta_optimization(params):
+            zero_eta = np.zeros(n_eta, dtype=float)
+            return {sid: zero_eta.copy() for sid in subject_ids}
 
         # Serial path (default)
         if self.n_parallel == 1 or len(subject_ids) <= 1:
@@ -932,6 +1092,84 @@ class FOCEMethod(EstimationMethod):
             self._inner_loop_pool.shutdown()
             self._inner_loop_pool = None
 
+    def _sum_outer_subject_terms(
+        self,
+        subject_ids: list[int],
+        term_fn: Any,
+    ) -> float:
+        if self.n_parallel == 1 or len(subject_ids) <= 1:
+            return float(sum(float(term_fn(subj_id)) for subj_id in subject_ids))
+
+        n_workers = self.n_parallel if self.n_parallel > 0 else None
+        total = 0.0
+        with ThreadPoolExecutor(max_workers=n_workers) as pool:
+            for value in pool.map(term_fn, subject_ids):
+                total += float(value)
+        return float(total)
+
+    def _outer_ofv_subject_term(
+        self,
+        population_model: Any,
+        params: ParameterSet,
+        eta_hat: dict[int, np.ndarray],
+        subj_id: int,
+        n_eta: int,
+        omega_inv: np.ndarray,
+        log_det_omega: float,
+    ) -> float:
+        eta_i = eta_hat.get(subj_id, np.zeros(n_eta))
+        indiv = population_model.individual_model(subj_id)
+        subj_ev = indiv.subject_events
+        obs_mask = subj_ev.observation_mask()
+
+        if not np.any(obs_mask):
+            return 0.0
+
+        try:
+            _, _, _, pred, var = indiv.evaluate_observation_model(
+                params.theta, eta_i, params.sigma, trans=population_model.trans
+            )
+            dv = subj_ev.obs_dv[obs_mask]
+            pred_obs = pred[obs_mask]
+            var_obs = np.maximum(var[obs_mask], 1e-10)
+            n_obs = len(dv)
+            residuals = dv - pred_obs
+
+            if self.interaction and n_eta > 0:
+                G = _compute_G_i(
+                    indiv,
+                    params.theta,
+                    eta_i,
+                    params.sigma,
+                    population_model.trans,
+                    obs_mask,
+                    pred_obs,
+                )
+                G_T_Rinv = G.T / var_obs
+                M = omega_inv + G_T_Rinv @ G
+                try:
+                    _sm, log_det_M = np.linalg.slogdet(M)
+                    log_det_M = float(log_det_M) if _sm > 0 else 0.0
+                    quad = float(np.sum(residuals**2 / var_obs))
+                    log_det_R = float(np.sum(np.log(var_obs)))
+                    log_det_ci = log_det_R + log_det_omega + log_det_M
+                except np.linalg.LinAlgError:
+                    quad = float(np.sum(residuals**2 / var_obs))
+                    log_det_ci = float(np.sum(np.log(var_obs)))
+            else:
+                quad = float(np.sum(residuals**2 / var_obs))
+                log_det_ci = float(np.sum(np.log(var_obs)))
+
+            eta_penalty = float(eta_i @ omega_inv @ eta_i)
+            ofv_i = n_obs * LOG2PI + log_det_ci + quad + eta_penalty
+            if self.interaction:
+                ofv_i -= n_eta * LOG2PI
+            else:
+                ofv_i += log_det_omega
+            return float(ofv_i)
+        except Exception:
+            return 1e10
+
     def _outer_ofv(
         self,
         population_model: Any,
@@ -958,7 +1196,6 @@ class FOCEMethod(EstimationMethod):
           r^T C_i^{-1} r = r^T R_i^{-1} r - v^T M_i^{-1} v
                            where v = G_i^T R_i^{-1} r
         """
-        ofv = 0.0
         n_eta = params.n_eta()
         try:
             omega_rep = repair_pd(params.omega)
@@ -968,68 +1205,19 @@ class FOCEMethod(EstimationMethod):
         except np.linalg.LinAlgError:
             omega_inv = np.eye(n_eta)
             log_det_omega = 0.0
-
-        for subj_id in population_model.subject_ids():
-            eta_i = eta_hat.get(subj_id, np.zeros(n_eta))
-            indiv = population_model.individual_model(subj_id)
-            subj_ev = indiv.subject_events
-            obs_mask = subj_ev.observation_mask()
-
-            if not np.any(obs_mask):
-                continue
-
-            try:
-                _, _, _, pred, var = indiv.evaluate_observation_model(
-                    params.theta, eta_i, params.sigma, trans=population_model.trans
-                )
-                dv = subj_ev.obs_dv[obs_mask]
-                pred_obs = pred[obs_mask]
-                var_obs = np.maximum(var[obs_mask], 1e-10)
-                n_obs = len(dv)
-                residuals = dv - pred_obs
-
-                if self.interaction and n_eta > 0:
-                    # FOCEI: build C_i = G_i Ω G_i^T + R_i via sensitivity matrix
-                    G = _compute_G_i(
-                        indiv,
-                        params.theta,
-                        eta_i,
-                        params.sigma,
-                        population_model.trans,
-                        obs_mask,
-                        pred_obs,
-                    )
-                    # Woodbury: M = Ω^{-1} + G^T R^{-1} G  (n_eta × n_eta)
-                    G_T_Rinv = G.T / var_obs  # (n_eta, n_obs): G^T R^{-1} (R diagonal)
-                    M = omega_inv + G_T_Rinv @ G
-                    try:
-                        _sm, log_det_M = np.linalg.slogdet(M)
-                        log_det_M = float(log_det_M) if _sm > 0 else 0.0
-                        quad = float(np.sum(residuals**2 / var_obs))
-                        log_det_R = float(np.sum(np.log(var_obs)))
-                        # log|C_i| = log|R| + log|Ω| + log|M|
-                        log_det_ci = log_det_R + log_det_omega + log_det_M
-                    except np.linalg.LinAlgError:
-                        # Fallback to no-interaction
-                        quad = float(np.sum(residuals**2 / var_obs))
-                        log_det_ci = float(np.sum(np.log(var_obs)))
-                else:
-                    # FOCE (no interaction): C_i = R_i (diagonal)
-                    quad = float(np.sum(residuals**2 / var_obs))
-                    log_det_ci = float(np.sum(np.log(var_obs)))
-
-                eta_penalty = float(eta_i @ omega_inv @ eta_i)
-                ofv_i = n_obs * LOG2PI + log_det_ci + quad + eta_penalty
-                if self.interaction:
-                    # FOCEI is a conditional Laplace approximation over eta.
-                    # The reported marginal objective removes the integrated
-                    # Gaussian constant per eta dimension.
-                    ofv_i -= n_eta * LOG2PI
-                else:
-                    ofv_i += log_det_omega
-                ofv += ofv_i
-            except Exception:
-                ofv += 1e10
+        subject_ids = population_model.subject_ids()
+        ofv = self._sum_outer_subject_terms(
+            subject_ids,
+            lambda subj_id: self._outer_ofv_subject_term(
+                population_model,
+                params,
+                eta_hat,
+                subj_id,
+                n_eta,
+                omega_inv,
+                log_det_omega,
+            ),
+        )
 
         # A4: add prior penalty if model is PriorAugmentedModel
         if hasattr(population_model, "prior"):

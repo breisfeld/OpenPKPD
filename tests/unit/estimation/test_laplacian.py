@@ -107,6 +107,40 @@ def test_laplacian_uses_native_eta_hessian_when_available(monkeypatch: pytest.Mo
     assert pop._indiv.hessian_calls == 1
 
 
+def test_laplacian_outer_ofv_parallel_matches_serial_for_multi_subject_population() -> None:
+    class _TwoSubjectPopulation:
+        trans = 2
+
+        def __init__(self) -> None:
+            self._indiv = {
+                1: _ObservationModelIndividual(),
+                2: _ObservationModelIndividual(),
+            }
+
+        def subject_ids(self):
+            return [1, 2]
+
+        def individual_model(self, sid):
+            return self._indiv[sid]
+
+    eta_hat = {
+        1: np.array([0.25]),
+        2: np.array([0.25]),
+    }
+    serial = LaplacianMethod(interaction=False, maxeval=1, n_parallel=1)._outer_ofv(
+        _TwoSubjectPopulation(),
+        _Params(),
+        eta_hat,
+    )
+    parallel = LaplacianMethod(interaction=False, maxeval=1, n_parallel=2)._outer_ofv(
+        _TwoSubjectPopulation(),
+        _Params(),
+        eta_hat,
+    )
+
+    assert parallel == pytest.approx(serial, abs=1e-12)
+
+
 # ---------------------------------------------------------------------------
 # Additional unit tests for Laplacian accuracy
 # ---------------------------------------------------------------------------

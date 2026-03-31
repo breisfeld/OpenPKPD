@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from openpkpd.parser.code_compiler import _INTRINSICS, NMTRANCompiler, _translate_line
+from openpkpd.parser.code_compiler import _INTRINSICS, NMTRANCompiler, _translate_block, _translate_line
 
 
 @pytest.mark.unit
@@ -62,6 +62,21 @@ class TestTranslateLine:
 
 @pytest.mark.unit
 class TestNMTRANCompiler:
+    def test_translate_block_supports_if_then_else_endif(self):
+        code = """
+IF (DVID .EQ. 1) THEN
+  Y = F * (1 + EPS(1))
+ELSE
+  Y = F + EPS(2)
+ENDIF
+"""
+        translated = _translate_block(code, _INTRINSICS)
+
+        assert "if (DVID == 1):" in translated
+        assert "else:" in translated
+        assert "THEN" not in translated
+        assert "ENDIF" not in translated
+
     def test_compile_pk_basic(self):
         compiler = NMTRANCompiler()
         pk_code = """
@@ -193,3 +208,21 @@ Y = F + F*ERR(1) + ERR(2)
 
         assert no_amounts._uses_amounts is False
         assert with_amounts._uses_amounts is True
+
+    def test_compile_error_supports_multiline_if_then_endif(self):
+        compiler = NMTRANCompiler()
+        error_code = """
+IF (DVID .EQ. 1) THEN
+  Y = F * (1 + EPS(1))
+ENDIF
+IF (DVID .EQ. 2) THEN
+  Y = F + EPS(2)
+ENDIF
+"""
+        fn = compiler.compile_error(error_code)
+
+        result_pk = fn([], [], [0.1, 2.0], f=10.0, covariates={"DVID": 1.0})
+        result_pd = fn([], [], [0.1, 2.0], f=10.0, covariates={"DVID": 2.0})
+
+        assert result_pk.get("Y") == pytest.approx(11.0)
+        assert result_pd.get("Y") == pytest.approx(12.0)

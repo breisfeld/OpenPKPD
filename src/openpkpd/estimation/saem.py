@@ -363,10 +363,11 @@ class SAEMMethod(EstimationMethod):
                                 free_th: np.ndarray,
                                 _theta=theta,
                                 _sigma=sigma,
+                                _fidx=_free_idx,  # bind now — not a loop var
                             ) -> np.ndarray:
                                 th = _theta.copy()
-                                th[_free_idx] = free_th
-                                grad = np.zeros(len(_free_idx), dtype=float)
+                                th[_fidx] = free_th
+                                grad = np.zeros(len(_fidx), dtype=float)
                                 for sid in subj_ids:
                                     indiv = individual_models[sid]
                                     for c in range(n_chains):
@@ -377,7 +378,7 @@ class SAEMMethod(EstimationMethod):
                                                 _sigma,
                                                 trans=population_model.trans,
                                             )
-                                            grad += np.asarray(g, dtype=float)[_free_idx] / n_chains
+                                            grad += np.asarray(g, dtype=float)[_fidx] / n_chains
                                         except Exception:
                                             pass
                                 return grad

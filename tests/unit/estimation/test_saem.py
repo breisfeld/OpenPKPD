@@ -7,7 +7,6 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
-
 from scipy.optimize import minimize as scipy_minimize
 
 from openpkpd.estimation.base import EstimationResult
@@ -731,7 +730,7 @@ class TestSAEMThetaMStepNativeGradient:
         pop_fd = _ThetaTargetPopulationModel(target)
         params = _make_saem_theta_params(target)
 
-        saem_cfg = dict(n_iter_phase1=0, n_iter_phase2=1, n_chains=1, seed=0)
+        saem_cfg = {"n_iter_phase1": 0, "n_iter_phase2": 1, "n_chains": 1, "seed": 0}
         theta_native = SAEMMethod(**saem_cfg).estimate(pop_native, params).theta_final
         theta_fd = SAEMMethod(**saem_cfg).estimate(pop_fd, params).theta_final
 

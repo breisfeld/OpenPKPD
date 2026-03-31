@@ -486,9 +486,9 @@ class IMPMethod(EstimationMethod):
         to_vector = getattr(params, "to_vector", None)
         if callable(to_vector):
             return np.asarray(to_vector(), dtype=float).tobytes()
-        theta = np.asarray(getattr(params, "theta"), dtype=float)
-        omega = np.asarray(getattr(params, "omega"), dtype=float)
-        sigma = np.asarray(getattr(params, "sigma"), dtype=float)
+        theta = np.asarray(params.theta, dtype=float)
+        omega = np.asarray(params.omega, dtype=float)
+        sigma = np.asarray(params.sigma, dtype=float)
         return b"|".join((theta.tobytes(), omega.tobytes(), sigma.tobytes()))
 
     def _map_etas(self, population_model: Any, params: ParameterSet) -> dict[int, np.ndarray]:

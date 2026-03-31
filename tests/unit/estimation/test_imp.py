@@ -472,10 +472,7 @@ class TestIMPIsMap:
 
     def test_result_method_name_matches_is_map(self):
         """Result.method should reflect IMP vs IMPMAP."""
-        pop = _GaussianPopulationModel(dv=1.0)
-        params = _GaussianParams(omega_var=0.5, sigma_var=0.5)
-        # We can't call .estimate() without a proper ParameterSet, so test
-        # via method_name directly after construction
+        # method_name is a construction-time attribute; no model needed.
         assert IMPMethod(is_map=False).method_name == Method.IMP
         assert IMPMethod(is_map=True).method_name == Method.IMPMAP
 
@@ -503,13 +500,6 @@ class TestIMPWarn006:
 
     def test_warn006_emitted_when_ess_low(self):
         """Force low ESS by using a mismatched proposal distribution."""
-        pop = self._ConcentratedPop()
-        params = ParameterSet.from_specs(
-            [],
-            [OmegaSpec(block_size=1, values=[0.01])],
-            [SigmaSpec(block_size=1, values=[0.1], fixed=True)],
-        )
-
         imp = IMPMethod(isample=50, maxeval=1, seed=0)
         # Call _importance_sample directly to force low ESS tracking
         class _Adapter:
@@ -565,7 +555,7 @@ class TestIMPWarn006:
         assert WarningCode.WARN_006 not in codes
 
     def test_ess_warn_fraction_default_is_10_percent(self):
-        assert IMPMethod.ESS_WARN_FRACTION == pytest.approx(0.10)
+        assert pytest.approx(0.10) == IMPMethod.ESS_WARN_FRACTION
 
 
 class TestIMPNumericalAccuracy:

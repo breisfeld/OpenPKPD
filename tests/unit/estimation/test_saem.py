@@ -8,6 +8,8 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
+from scipy.optimize import minimize as scipy_minimize
+
 from openpkpd.estimation.base import EstimationResult
 from openpkpd.estimation.saem import SAEMMethod
 from openpkpd.model.parameters import OmegaSpec, ParameterSet, SigmaSpec, ThetaSpec
@@ -411,6 +413,32 @@ class _ThetaTargetPopulationModel:
         return self._indivs[sid]
 
 
+class _NativeGradientThetaTargetIndividualModel(_ThetaTargetIndividualModel):
+    """Extends _ThetaTargetIndividualModel with exact analytical theta gradient.
+
+    log_likelihood(theta) = Σ (theta_k - target_k)²
+    d(-2*LL)/d_theta_k    = 2*(theta_k - target_k)
+    """
+
+    def supports_theta_data_objective_gradient(self, trans=None) -> bool:  # noqa: ARG002
+        return True
+
+    def theta_data_objective_gradient(
+        self, theta, eta, sigma, trans=None  # noqa: ARG002
+    ) -> np.ndarray:
+        theta = np.asarray(theta, dtype=float)
+        return 2.0 * (theta - self.target)
+
+
+class _NativeGradientThetaTargetPopulationModel(_ThetaTargetPopulationModel):
+    def __init__(self, target: list[float] | np.ndarray, n_subjects: int = 2) -> None:
+        self._subject_ids = list(range(1, n_subjects + 1))
+        self._indivs = {
+            sid: _NativeGradientThetaTargetIndividualModel(np.asarray(target, dtype=float))
+            for sid in self._subject_ids
+        }
+
+
 class _SigmaTargetIndividualModel:
     def __init__(
         self,
@@ -604,3 +632,124 @@ class TestSAEMSigmaMStep:
         )
 
         assert result.sigma_final[0, 0] == pytest.approx(0.05)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# P6 — native analytical theta gradient in SAEM M-step
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _make_saem_theta_params(target: list[float]) -> ParameterSet:
+    n = len(target)
+    return ParameterSet(
+        theta=np.array([0.5] * n),
+        omega=np.eye(1) * 0.1,
+        sigma=np.eye(1) * 0.05,
+        theta_specs=[ThetaSpec(init=0.5, lower=0.0, upper=10.0) for _ in range(n)],
+        omega_specs=[OmegaSpec(block_size=1, values=[0.1])],
+        sigma_specs=[SigmaSpec(block_size=1, values=[0.05])],
+    )
+
+
+@pytest.mark.unit
+class TestSAEMThetaMStepNativeGradient:
+    """P6: analytical theta gradient in the SAEM M-step minimize call."""
+
+    # ── gradient accuracy ──────────────────────────────────────────────────
+
+    def test_gradient_consistent_with_finite_difference(self) -> None:
+        """Analytical gradient d(-2*LL)/d_theta matches central-FD at rtol=1e-5."""
+        target = np.array([1.5, 2.3])
+        indiv = _NativeGradientThetaTargetIndividualModel(target)
+        eta = np.array([0.0])
+        sigma = np.eye(1) * 0.05
+        eps = 1e-5
+
+        for theta_val in [np.array([0.1, 0.5]), np.array([1.5, 2.3]), np.array([3.0, 0.2])]:
+            grad = indiv.theta_data_objective_gradient(theta_val, eta, sigma)
+            fd = np.array([
+                (indiv.log_likelihood(theta_val + eps * np.eye(len(theta_val))[k], eta, sigma)
+                 - indiv.log_likelihood(theta_val - eps * np.eye(len(theta_val))[k], eta, sigma))
+                / (2.0 * eps)
+                for k in range(len(theta_val))
+            ])
+            np.testing.assert_allclose(
+                grad, fd, rtol=1e-5, atol=1e-8,
+                err_msg=f"gradient mismatch at theta={theta_val}"
+            )
+
+    # ── jac dispatch in theta M-step ──────────────────────────────────────
+
+    def test_theta_m_step_passes_jac_when_gradient_available(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When theta_data_objective_gradient is supported, SAEM passes jac to minimize."""
+        pop = _NativeGradientThetaTargetPopulationModel([2.0])
+        params = _make_saem_theta_params([2.0])
+        captured: list[dict] = []
+
+        def _spy(fun, x0, **kwargs):
+            captured.append(dict(kwargs))
+            return scipy_minimize(fun, x0, **kwargs)
+
+        monkeypatch.setattr("openpkpd.estimation.saem.minimize", _spy)
+        SAEMMethod(n_iter_phase1=0, n_iter_phase2=1, n_chains=1, seed=0).estimate(pop, params)
+
+        theta_calls = [kw for kw in captured if "bounds" in kw]  # theta M-step has bounds
+        assert len(theta_calls) >= 1, "theta M-step minimize must have been called"
+        assert theta_calls[0].get("jac") is not None, (
+            "jac must be forwarded when theta gradient is available"
+        )
+
+    def test_theta_m_step_does_not_pass_jac_without_gradient(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Without theta gradient support, SAEM must NOT pass jac to minimize."""
+        pop = _ThetaTargetPopulationModel([2.0])
+        params = _make_saem_theta_params([2.0])
+        captured: list[dict] = []
+
+        def _spy(fun, x0, **kwargs):
+            captured.append(dict(kwargs))
+            return scipy_minimize(fun, x0, **kwargs)
+
+        monkeypatch.setattr("openpkpd.estimation.saem.minimize", _spy)
+        SAEMMethod(n_iter_phase1=0, n_iter_phase2=1, n_chains=1, seed=0).estimate(pop, params)
+
+        theta_calls = [kw for kw in captured if "bounds" in kw]
+        assert len(theta_calls) >= 1
+        assert theta_calls[0].get("jac") is None, (
+            "jac must be None when theta gradient is unavailable"
+        )
+
+    # ── convergence with native gradient ──────────────────────────────────
+
+    def test_theta_m_step_with_native_gradient_reaches_correct_theta(self) -> None:
+        """Native gradient path converges to the same theta as the FD path."""
+        target = [1.8]
+        pop_native = _NativeGradientThetaTargetPopulationModel(target)
+        pop_fd = _ThetaTargetPopulationModel(target)
+        params = _make_saem_theta_params(target)
+
+        saem_cfg = dict(n_iter_phase1=0, n_iter_phase2=1, n_chains=1, seed=0)
+        theta_native = SAEMMethod(**saem_cfg).estimate(pop_native, params).theta_final
+        theta_fd = SAEMMethod(**saem_cfg).estimate(pop_fd, params).theta_final
+
+        np.testing.assert_allclose(theta_native, theta_fd, rtol=1e-4, atol=1e-6,
+                                   err_msg="native gradient and FD must converge to same theta")
+        assert theta_native[0] == pytest.approx(target[0], abs=1e-3)
+
+    def test_theta_m_step_multi_theta_native_gradient_converges(self) -> None:
+        """Multi-theta native gradient reaches all targets within tolerance."""
+        target = [1.5, 2.5]
+        pop = _NativeGradientThetaTargetPopulationModel(target)
+        params = _make_saem_theta_params(target)
+
+        result = SAEMMethod(
+            n_iter_phase1=0, n_iter_phase2=1, n_chains=1, seed=0
+        ).estimate(pop, params)
+
+        for k, t in enumerate(target):
+            assert result.theta_final[k] == pytest.approx(t, abs=1e-3), (
+                f"theta[{k}] should converge to {t}"
+            )

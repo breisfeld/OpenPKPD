@@ -340,10 +340,57 @@ class SAEMMethod(EstimationMethod):
                                 total += 1e6 / n_chains
                     return total
 
+                # Use analytical theta gradient when available: eliminates
+                # n_free_theta+1 FD ODE calls per L-BFGS-B step.
+                # Probe once to confirm return type is a proper ndarray with
+                # len(theta) elements — guards against partial implementations.
+                _theta_jac: Any = None
+                _rep_indiv = individual_models[subj_ids[0]] if subj_ids else None
+                _sg = getattr(_rep_indiv, "supports_theta_data_objective_gradient", None)
+                _tg = getattr(_rep_indiv, "theta_data_objective_gradient", None)
+                if callable(_sg) and _sg(population_model.trans) and callable(_tg):
+                    try:
+                        _probe = _tg(
+                            theta,
+                            eta_chains[subj_ids[0]][0],
+                            sigma,
+                            trans=population_model.trans,
+                        )
+                        if isinstance(_probe, np.ndarray) and len(_probe) == len(theta):
+                            _free_idx = list(free_theta_idx)
+
+                            def theta_jac(
+                                free_th: np.ndarray,
+                                _theta=theta,
+                                _sigma=sigma,
+                            ) -> np.ndarray:
+                                th = _theta.copy()
+                                th[_free_idx] = free_th
+                                grad = np.zeros(len(_free_idx), dtype=float)
+                                for sid in subj_ids:
+                                    indiv = individual_models[sid]
+                                    for c in range(n_chains):
+                                        try:
+                                            g = indiv.theta_data_objective_gradient(
+                                                th,
+                                                eta_chains[sid][c],
+                                                _sigma,
+                                                trans=population_model.trans,
+                                            )
+                                            grad += np.asarray(g, dtype=float)[_free_idx] / n_chains
+                                        except Exception:
+                                            pass
+                                return grad
+
+                            _theta_jac = theta_jac
+                    except Exception:
+                        pass
+
                 th_result = minimize(
                     theta_obj,
                     theta[free_theta_idx],
                     method="L-BFGS-B",
+                    jac=_theta_jac,
                     bounds=theta_bounds or None,
                     options={"maxiter": 20, "ftol": 1e-6},
                 )

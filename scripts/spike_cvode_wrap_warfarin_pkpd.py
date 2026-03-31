@@ -6,7 +6,7 @@ This script is intentionally narrow:
 - compares subject 1 only
 - uses the bundled nlmixr2 FO reference theta values
 - reports compartment- and endpoint-level differences between:
-  - the feature-gated Rust `_core.cvode_wrap_warfarin_pkpd_probe`
+  - the feature-gated Rust `_core.native_cvodes_advan6_mixed_pkpd_probe`
   - the current OpenPKPD mixed-endpoint path
 
 It is a spike artifact, not a user-facing API.
@@ -64,7 +64,7 @@ def main() -> None:
     dose_amt = float(ind.subject_events.dose_events[0].amount)
 
     rust_amounts = np.asarray(
-        core.cvode_wrap_warfarin_pkpd_probe(times.tolist(), dose_amt, theta[:8].tolist())
+        core.native_cvodes_advan6_mixed_pkpd_probe(times.tolist(), dose_amt, theta[:8].tolist())
     )
     py_amounts = np.asarray(amounts)[:, :4]
     py_pred = np.asarray(pred, dtype=float)
@@ -92,7 +92,7 @@ def main() -> None:
             theta, eta, sigma, trans=1, include_amounts=True
         )
     py_seconds = time.perf_counter() - t0
-    rust_seconds, last_rust_state = core.cvode_wrap_warfarin_pkpd_repeat_probe(
+    rust_seconds, last_rust_state = core.native_cvodes_advan6_mixed_pkpd_repeat_probe(
         times.tolist(), dose_amt, theta[:8].tolist(), n_repeats
     )
     print(f"repeat_n={n_repeats}")

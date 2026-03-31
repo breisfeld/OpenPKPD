@@ -80,7 +80,7 @@ def main() -> None:
     eligible = 0
     for sid in pm.subject_ids():
         indiv = pm.individual_model(sid)
-        if indiv._try_native_warfarin_pkpd_probe(  # noqa: SLF001 - spike script
+        if indiv._try_native_pk_backend(  # noqa: SLF001 - spike script
             {
                 "KTR": th["KTR"],
                 "KA": th["KA"],
@@ -112,8 +112,8 @@ def main() -> None:
         native_ofv = pm.ofv_fo(params)
     native_seconds = time.perf_counter() - t0
 
-    saved_probe = individual_mod._cvode_wrap_warfarin_pkpd_probe_rust
-    individual_mod._cvode_wrap_warfarin_pkpd_probe_rust = None
+    saved_probe = individual_mod._native_cvodes_advan6_mixed_pkpd_probe_rust
+    individual_mod._native_cvodes_advan6_mixed_pkpd_probe_rust = None
     try:
         t0 = time.perf_counter()
         for _ in range(n_repeats):
@@ -129,7 +129,7 @@ def main() -> None:
             python_ofv = pm.ofv_fo(params)
         python_seconds = time.perf_counter() - t0
     finally:
-        individual_mod._cvode_wrap_warfarin_pkpd_probe_rust = saved_probe
+        individual_mod._native_cvodes_advan6_mixed_pkpd_probe_rust = saved_probe
 
     print(label)
     print(f"repeat_n={n_repeats}")

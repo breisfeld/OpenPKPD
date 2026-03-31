@@ -18,16 +18,16 @@
 use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
 use std::f64::consts::SQRT_2;
-#[cfg(feature = "cvode-wrap-spike")]
+#[cfg(feature = "native-cvodes")]
 use std::time::Instant;
 
-#[cfg(feature = "cvode-wrap-spike")]
+#[cfg(feature = "native-cvodes")]
 use cvode_wrap::{
     AbsTolerance, LinearMultistepMethod, RhsResult, SolverNoSensi, StepKind,
 };
 
-#[cfg(feature = "cvode-wrap-spike")]
-struct WarfarinPkpdTheta {
+#[cfg(feature = "native-cvodes")]
+struct Advan6MixedPkpdTheta {
     ktr: f64,
     ka: f64,
     cl: f64,
@@ -38,12 +38,12 @@ struct WarfarinPkpdTheta {
     e0: f64,
 }
 
-#[cfg(feature = "cvode-wrap-spike")]
-fn cvode_wrap_warfarin_pkpd_rhs(
+#[cfg(feature = "native-cvodes")]
+fn cvode_wrap_advan6_mixed_pkpd_rhs(
     _t: f64,
     y: &[f64; 4],
     dy: &mut [f64; 4],
-    theta: &WarfarinPkpdTheta,
+    theta: &Advan6MixedPkpdTheta,
 ) -> RhsResult {
     let a1 = y[0];
     let a2 = y[1];
@@ -61,7 +61,7 @@ fn cvode_wrap_warfarin_pkpd_rhs(
     RhsResult::Ok
 }
 
-#[cfg(feature = "cvode-wrap-spike")]
+#[cfg(feature = "native-cvodes")]
 fn cvode_wrap_linear_rhs(
     _t: f64,
     y: &[f64; 2],
@@ -222,9 +222,9 @@ fn neg2ll_obs_loop(
     -2.0 * ll
 }
 
-#[cfg(feature = "cvode-wrap-spike")]
+#[cfg(feature = "native-cvodes")]
 #[pyfunction]
-fn cvode_wrap_linear_probe(tout: f64) -> PyResult<Vec<f64>> {
+fn native_cvodes_linear_probe(tout: f64) -> PyResult<Vec<f64>> {
     if !tout.is_finite() || tout < 0.0 {
         return Err(pyo3::exceptions::PyValueError::new_err(
             "tout must be finite and non-negative",
@@ -250,9 +250,9 @@ fn cvode_wrap_linear_probe(tout: f64) -> PyResult<Vec<f64>> {
     Ok(y.to_vec())
 }
 
-#[cfg(feature = "cvode-wrap-spike")]
+#[cfg(feature = "native-cvodes")]
 #[pyfunction]
-fn cvode_wrap_warfarin_pkpd_probe(
+fn native_cvodes_advan6_mixed_pkpd_probe(
     times: Vec<f64>,
     dose_amt: f64,
     theta: Vec<f64>,
@@ -278,7 +278,7 @@ fn cvode_wrap_warfarin_pkpd_probe(
         ));
     }
 
-    let theta = WarfarinPkpdTheta {
+    let theta = Advan6MixedPkpdTheta {
         ktr: theta[0],
         ka: theta[1],
         cl: theta[2],
@@ -292,7 +292,7 @@ fn cvode_wrap_warfarin_pkpd_probe(
 
     let mut solver = SolverNoSensi::new(
         LinearMultistepMethod::Bdf,
-        cvode_wrap_warfarin_pkpd_rhs,
+        cvode_wrap_advan6_mixed_pkpd_rhs,
         0.0,
         &y0,
         1e-8,
@@ -315,9 +315,9 @@ fn cvode_wrap_warfarin_pkpd_probe(
     Ok(out)
 }
 
-#[cfg(feature = "cvode-wrap-spike")]
+#[cfg(feature = "native-cvodes")]
 #[pyfunction]
-fn cvode_wrap_warfarin_pkpd_repeat_probe(
+fn native_cvodes_advan6_mixed_pkpd_repeat_probe(
     times: Vec<f64>,
     dose_amt: f64,
     theta: Vec<f64>,
@@ -354,7 +354,7 @@ fn cvode_wrap_warfarin_pkpd_repeat_probe(
         ));
     }
 
-    let base_theta = WarfarinPkpdTheta {
+    let base_theta = Advan6MixedPkpdTheta {
         ktr: theta[0],
         ka: theta[1],
         cl: theta[2],
@@ -371,12 +371,12 @@ fn cvode_wrap_warfarin_pkpd_repeat_probe(
     for _ in 0..n_repeats {
         let mut solver = SolverNoSensi::new(
             LinearMultistepMethod::Bdf,
-            cvode_wrap_warfarin_pkpd_rhs,
+            cvode_wrap_advan6_mixed_pkpd_rhs,
             0.0,
             &y0,
             1e-8,
             AbsTolerance::scalar(1e-10),
-            WarfarinPkpdTheta {
+            Advan6MixedPkpdTheta {
                 ktr: base_theta.ktr,
                 ka: base_theta.ka,
                 cl: base_theta.cl,
@@ -408,11 +408,11 @@ fn cvode_wrap_warfarin_pkpd_repeat_probe(
 #[pymodule]
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(neg2ll_obs_loop, m)?)?;
-    #[cfg(feature = "cvode-wrap-spike")]
-    m.add_function(wrap_pyfunction!(cvode_wrap_linear_probe, m)?)?;
-    #[cfg(feature = "cvode-wrap-spike")]
-    m.add_function(wrap_pyfunction!(cvode_wrap_warfarin_pkpd_probe, m)?)?;
-    #[cfg(feature = "cvode-wrap-spike")]
-    m.add_function(wrap_pyfunction!(cvode_wrap_warfarin_pkpd_repeat_probe, m)?)?;
+    #[cfg(feature = "native-cvodes")]
+    m.add_function(wrap_pyfunction!(native_cvodes_linear_probe, m)?)?;
+    #[cfg(feature = "native-cvodes")]
+    m.add_function(wrap_pyfunction!(native_cvodes_advan6_mixed_pkpd_probe, m)?)?;
+    #[cfg(feature = "native-cvodes")]
+    m.add_function(wrap_pyfunction!(native_cvodes_advan6_mixed_pkpd_repeat_probe, m)?)?;
     Ok(())
 }

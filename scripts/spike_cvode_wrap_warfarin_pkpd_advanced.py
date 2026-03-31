@@ -72,8 +72,8 @@ def main() -> None:
         native_lap = lap._outer_ofv(pm, params, eta_hat)
     native_lap_seconds = time.perf_counter() - t0
 
-    saved_probe = individual_mod._cvode_wrap_warfarin_pkpd_probe_rust
-    individual_mod._cvode_wrap_warfarin_pkpd_probe_rust = None
+    saved_probe = individual_mod._native_cvodes_advan6_mixed_pkpd_probe_rust
+    individual_mod._native_cvodes_advan6_mixed_pkpd_probe_rust = None
     try:
         t0 = time.perf_counter()
         python_obj = None
@@ -87,7 +87,7 @@ def main() -> None:
             python_lap = lap._outer_ofv(pm, params, eta_hat)
         python_lap_seconds = time.perf_counter() - t0
     finally:
-        individual_mod._cvode_wrap_warfarin_pkpd_probe_rust = saved_probe
+        individual_mod._native_cvodes_advan6_mixed_pkpd_probe_rust = saved_probe
 
     print("Reduced 4-subject warfarin PK/PD advanced-estimator repeat benchmark")
     print(f"repeat_n={n_repeats}")

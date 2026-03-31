@@ -51,6 +51,25 @@ try:
 except ImportError:
     _native_cvodes_advan6_mixed_pkpd_probe_rust = None
 
+try:
+    _native_cvodes_advan6_mixed_pkpd_probe_multidose_rust = import_core_symbol(
+        "native_cvodes_advan6_mixed_pkpd_probe_multidose"
+    )
+except ImportError:
+    _native_cvodes_advan6_mixed_pkpd_probe_multidose_rust = None
+
+# Error-model patterns for which the native ODE path is supported.
+# "mixed_pkpd_dvid_theta" uses dual-DVID routing; the rest are single-output.
+_NATIVE_SUPPORTED_ERROR_MODELS: frozenset[str] = frozenset({
+    "mixed_pkpd_dvid_theta",
+    "proportional",
+    "additive",
+    "combined_eps",
+    "proportional_theta",
+    "additive_theta",
+    "combined_theta",
+})
+
 # BLQMethod string → integer code expected by the Rust function
 _BLQ_METHOD_CODE: dict[str | None, int] = {
     None: 0,
@@ -238,11 +257,15 @@ class IndividualModel:
         return np.asarray(dvid_values, dtype=float)
 
     def _build_native_advan6_mixed_pkpd_contract(self) -> dict[str, Any] | None:
+        # Require at least the single-dose probe; prefer the multi-dose probe.
         if _native_cvodes_advan6_mixed_pkpd_probe_rust is None:
             return None
         if getattr(self.pk_subroutine, "advan", None) != 6:
             return None
-        if self._common_error_model is None or self._common_error_model[0] != "mixed_pkpd_dvid_theta":
+        if (
+            self._common_error_model is None
+            or self._common_error_model[0] not in _NATIVE_SUPPORTED_ERROR_MODELS
+        ):
             return None
         if self.occasion_indices is not None:
             return None
@@ -256,23 +279,33 @@ class IndividualModel:
             ]
             if unsupported_covs:
                 return None
-        if len(self._dose_events) != 1:
-            return None
 
-        dose = self._dose_events[0]
-        if dose.is_infusion or abs(float(dose.time)) > 1e-12 or int(dose.compartment) != 1:
+        # All doses must be IV boluses into compartment 1.
+        if len(self._dose_events) == 0:
             return None
+        for dose in self._dose_events:
+            if dose.is_infusion or int(dose.compartment) != 1:
+                return None
+
+        sorted_doses = sorted(self._dose_events, key=lambda d: float(d.time))
+        dose_times = [float(d.time) for d in sorted_doses]
+        dose_amts = [float(d.amount) for d in sorted_doses]
 
         obs_times = np.asarray(self.subject_events.obs_times, dtype=float)
         if len(obs_times) == 0 or np.any(np.diff(obs_times) < 0.0):
             return None
 
+        is_mixed = self._common_error_model[0] == "mixed_pkpd_dvid_theta"
         return {
-            "dose_amount": float(dose.amount),
+            # Kept for backward-compatibility with monkeypatching in tests.
+            "dose_amount": dose_amts[0],
+            "dose_times": dose_times,
+            "dose_amts": dose_amts,
             "obs_times": obs_times.copy(),
             "obs_times_list": obs_times.tolist(),
             "n_compartments": int(getattr(self.pk_subroutine, "n_compartments", 4)),
             "required_names": ("KTR", "KA", "CL", "V", "EMAX", "EC50", "KOUT", "E0"),
+            "is_mixed_pkpd": is_mixed,
         }
 
     def _try_native_advan6_mixed_pkpd_probe(
@@ -281,8 +314,7 @@ class IndividualModel:
         obs_times: np.ndarray,
     ) -> PKSolution | None:
         contract = self._native_advan6_mixed_pkpd_contract
-        probe = _native_cvodes_advan6_mixed_pkpd_probe_rust
-        if contract is None or probe is None:
+        if contract is None:
             return None
         if (
             len(obs_times) != len(contract["obs_times"])
@@ -293,15 +325,34 @@ class IndividualModel:
         required = contract["required_names"]
         if any(name not in pk_params for name in required):
             return None
-        pcmt = int(pk_params.get("PCMT", 0))
-        if pcmt != 3:
-            return None
+
+        # PCMT gate applies only to the dual-DVID mixed PK/PD variant.
+        if contract["is_mixed_pkpd"]:
+            if int(pk_params.get("PCMT", 0)) != 3:
+                return None
 
         theta = [float(pk_params[name]) for name in required]
-        amounts4 = np.asarray(
-            probe(contract["obs_times_list"], contract["dose_amount"], theta),
-            dtype=float,
-        )
+        dose_times = contract["dose_times"]
+        dose_amts = contract["dose_amts"]
+
+        # Prefer the multi-dose probe (handles 1..N doses identically).
+        multidose_probe = _native_cvodes_advan6_mixed_pkpd_probe_multidose_rust
+        single_probe = _native_cvodes_advan6_mixed_pkpd_probe_rust
+
+        if multidose_probe is not None:
+            amounts4 = np.asarray(
+                multidose_probe(contract["obs_times_list"], dose_times, dose_amts, theta),
+                dtype=float,
+            )
+        elif single_probe is not None and len(dose_times) == 1:
+            # Fallback to legacy single-dose probe when multidose is unavailable.
+            amounts4 = np.asarray(
+                single_probe(contract["obs_times_list"], dose_amts[0], theta),
+                dtype=float,
+            )
+        else:
+            return None
+
         if amounts4.shape != (len(obs_times), 4):
             return None
 

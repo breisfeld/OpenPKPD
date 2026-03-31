@@ -403,6 +403,190 @@ fn native_cvodes_advan6_mixed_pkpd_repeat_probe(
     Ok((t0.elapsed().as_secs_f64(), last_state))
 }
 
+// ── multi-dose probe ─────────────────────────────────────────────────────────
+
+/// Build an `Advan6MixedPkpdTheta` from a slice, returning `Err` on bad input.
+#[cfg(feature = "native-cvodes")]
+fn unpack_theta(theta: &[f64]) -> PyResult<Advan6MixedPkpdTheta> {
+    if theta.len() != 8 {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "theta must have exactly 8 values: KTR, KA, CL, V, EMAX, EC50, KOUT, E0",
+        ));
+    }
+    Ok(Advan6MixedPkpdTheta {
+        ktr: theta[0], ka: theta[1], cl: theta[2], v: theta[3],
+        emax: theta[4], ec50: theta[5], kout: theta[6], e0: theta[7],
+    })
+}
+
+/// Clone-like copy of `Advan6MixedPkpdTheta` (not derived to keep the struct simple).
+#[cfg(feature = "native-cvodes")]
+fn copy_theta(t: &Advan6MixedPkpdTheta) -> Advan6MixedPkpdTheta {
+    Advan6MixedPkpdTheta {
+        ktr: t.ktr, ka: t.ka, cl: t.cl, v: t.v,
+        emax: t.emax, ec50: t.ec50, kout: t.kout, e0: t.e0,
+    }
+}
+
+/// CVODES BDF integrator for the 4-state warfarin-shaped mixed PK/PD ODE
+/// with multiple IV bolus doses.
+///
+/// Algorithm
+/// ---------
+/// Events (doses and observations) are merged into a single sorted timeline.
+/// At each dose time a bolus is applied to A1 and a new CVODES solver is
+/// created for the next integration segment.  Observations before the first
+/// dose return the zero vector.  Observations at a dose time return the
+/// post-dose state.
+///
+/// Parameters
+/// ----------
+/// obs_times  : sorted observation times (non-decreasing)
+/// dose_times : bolus dose times (must be sorted non-decreasing)
+/// dose_amts  : dose amounts corresponding to dose_times
+/// theta      : [KTR, KA, CL, V, EMAX, EC50, KOUT, E0]
+///
+/// Returns
+/// -------
+/// Vec of length n_obs, each element a Vec<f64> of length 4 (A1..A4).
+#[cfg(feature = "native-cvodes")]
+#[pyfunction]
+fn native_cvodes_advan6_mixed_pkpd_probe_multidose(
+    obs_times: Vec<f64>,
+    dose_times: Vec<f64>,
+    dose_amts: Vec<f64>,
+    theta: Vec<f64>,
+) -> PyResult<Vec<Vec<f64>>> {
+    // ── input validation ─────────────────────────────────────────────────────
+    if dose_times.len() != dose_amts.len() {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "dose_times and dose_amts must have the same length",
+        ));
+    }
+    if dose_times.is_empty() {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "dose_times must not be empty",
+        ));
+    }
+    if obs_times.iter().any(|t| !t.is_finite() || *t < 0.0) {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "obs_times must be finite and non-negative",
+        ));
+    }
+    if obs_times.windows(2).any(|w| w[1] < w[0]) {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "obs_times must be sorted in non-decreasing order",
+        ));
+    }
+    if dose_times.windows(2).any(|w| w[1] < w[0]) {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "dose_times must be sorted in non-decreasing order",
+        ));
+    }
+    if dose_times.iter().any(|t| !t.is_finite() || *t < 0.0) {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "dose_times must be finite and non-negative",
+        ));
+    }
+    if dose_amts.iter().any(|a| !a.is_finite() || *a < 0.0) {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "dose_amts must be finite and non-negative",
+        ));
+    }
+
+    let base_theta = unpack_theta(&theta)?;
+    let n_obs = obs_times.len();
+    let n_doses = dose_times.len();
+
+    // ── segment-based integration ─────────────────────────────────────────────
+    //
+    // State vector and output allocation.
+    let mut y: [f64; 4] = [0.0; 4];
+    let mut out: Vec<Vec<f64>> = vec![vec![0.0; 4]; n_obs];
+    let mut obs_i = 0usize;
+
+    // Phase 1: observations strictly before the first dose → zero state.
+    let first_dose_t = dose_times[0];
+    while obs_i < n_obs && obs_times[obs_i] < first_dose_t {
+        // out[obs_i] is already the zero vector from initialization.
+        obs_i += 1;
+    }
+
+    // Phase 2: one solver per dose interval.
+    //
+    // For each dose we:
+    //   a) apply the instantaneous bolus to y[0]
+    //   b) record observations at exactly the dose time (post-dose state)
+    //   c) create a new CVODES solver starting at t_dose with state y
+    //   d) step through every observation in (t_dose, next_dose)
+    //   e) advance the solver to the next dose time so the state y is ready
+    //      for the next iteration's bolus application
+    //
+    // The solver is declared *inside* the loop body so Rust can infer its
+    // concrete type without an explicit generic annotation.
+    for dose_i in 0..n_doses {
+        let t_dose = dose_times[dose_i];
+        let next_dose_t = if dose_i + 1 < n_doses {
+            dose_times[dose_i + 1]
+        } else {
+            f64::INFINITY
+        };
+
+        // (a) Apply instantaneous bolus.
+        y[0] += dose_amts[dose_i];
+
+        // (b) Observations at exactly the dose time get the post-dose state.
+        while obs_i < n_obs && obs_times[obs_i] <= t_dose {
+            out[obs_i] = y.to_vec();
+            obs_i += 1;
+        }
+
+        // Determine whether this segment needs integration.
+        let needs_integration = obs_i < n_obs  // observations remain
+            || next_dose_t.is_finite();        // must advance state to next dose
+
+        if !needs_integration {
+            break;
+        }
+
+        // (c) Create a new solver for [t_dose, next_dose_t).
+        let mut solver = SolverNoSensi::new(
+            LinearMultistepMethod::Bdf,
+            cvode_wrap_advan6_mixed_pkpd_rhs,
+            t_dose,
+            &y,
+            1e-8,
+            AbsTolerance::scalar(1e-10),
+            copy_theta(&base_theta),
+        )
+        .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(format!("{err:?}")))?;
+
+        // (d) Step through observations in this dose interval.
+        while obs_i < n_obs
+            && (next_dose_t.is_infinite() || obs_times[obs_i] < next_dose_t)
+        {
+            let tout = obs_times[obs_i];
+            let (_, y_new) = solver
+                .step(tout, StepKind::Normal)
+                .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(format!("{err:?}")))?;
+            out[obs_i] = y_new.to_vec();
+            y = *y_new;
+            obs_i += 1;
+        }
+
+        // (e) Advance solver to the next dose time to obtain the pre-dose state.
+        if next_dose_t.is_finite() {
+            let (_, y_new) = solver
+                .step(next_dose_t, StepKind::Normal)
+                .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(format!("{err:?}")))?;
+            y = *y_new;
+        }
+        // solver is dropped here; a fresh one is created in the next iteration.
+    }
+
+    Ok(out)
+}
+
 // ── module registration ───────────────────────────────────────────────────────
 
 #[pymodule]
@@ -414,5 +598,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(native_cvodes_advan6_mixed_pkpd_probe, m)?)?;
     #[cfg(feature = "native-cvodes")]
     m.add_function(wrap_pyfunction!(native_cvodes_advan6_mixed_pkpd_repeat_probe, m)?)?;
+    #[cfg(feature = "native-cvodes")]
+    m.add_function(wrap_pyfunction!(native_cvodes_advan6_mixed_pkpd_probe_multidose, m)?)?;
     Ok(())
 }

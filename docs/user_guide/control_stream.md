@@ -4,6 +4,11 @@ OpenPKPD can parse real NONMEM control-stream files (`.ctl`, `.mod`, `.txt`)
 and execute the parts of that workflow that are currently wired into the native
 runner.
 
+For the broader support classification behind the runtime paths below, see
+[`validation_matrix.md`](validation_matrix.md). In particular, "the runner
+accepts this record" does **not** imply full NONMEM parity or FOCE-level
+validation breadth for every estimator that can be named in `$ESTIMATION`.
+
 ## Parsing a control stream
 
 ```python
@@ -99,6 +104,13 @@ Status meanings:
 - `round-trip` = the parsed record is serialized back into `.ctl` text by the
   current `ControlStream` object model
 
+Important interpretation:
+
+- parser acceptance is broader than runtime support
+- runtime support is broader than high-confidence validation support
+- the strongest current control-stream workflows remain the core
+  `FO` / `FOCE` / `FOCEI` / `LAPLACIAN` estimation paths
+
 | Record | Runtime status | Round-trip | Runner contract |
 |--------|----------------|------------|-----------------|
 | `$PROBLEM` | `runtime` | `yes` | parsed and used |
@@ -111,7 +123,7 @@ Status meanings:
 | `$THETA` | `runtime` | `yes` | bounds and `FIXED` supported |
 | `$OMEGA` | `runtime` | `yes` | diagonal, `BLOCK`, `SAME`, `FIXED` |
 | `$SIGMA` | `runtime` | `yes` | diagonal, `BLOCK`, `FIXED` |
-| `$ESTIMATION` | `runtime` | `yes` | FO/FOCE/FOCEI/Laplacian/SAEM/IMP/IMPMAP/BAYES keywords parsed |
+| `$ESTIMATION` | `runtime` | `yes` | FO/FOCE/FOCEI/Laplacian/SAEM/IMP/IMPMAP/BAYES keywords parsed; estimator maturity still follows the validation matrix |
 | `$COVARIANCE` | `runtime` | `yes` | covariance step available in the standard estimation path |
 | `$TABLE` | `runtime` | `yes` | column selection and export in the standard estimation path |
 | `$SIMULATION` | `runtime/partial` | `yes` | supports first seed, `ONLYSIMULATION`, `SUBPROBLEMS=n`, and `.sim.csv` output |
@@ -141,6 +153,16 @@ Round-trip support means OpenPKPD can serialize the current parsed representatio
 back to `.ctl` text for the documented subset above. It does **not** mean every
 NONMEM feature combination is guaranteed to execute or to preserve semantics
 beyond the current parser/runtime contract.
+
+Practical recommendation:
+
+- use control streams most confidently today for `FO`, `FOCE`, `FOCEI`, and
+  `LAPLACIAN` workflows
+- treat control-stream `SAEM`, `IMP` / `IMPMAP`, and `BAYES` usage as real but
+  subject to the same secondary or experimental support boundaries documented
+  for the Python API
+- treat `$NONPARAMETRIC` as parser-visible but not yet a native control-stream
+  runtime workflow
 
 Current prior-runtime subset notes:
 

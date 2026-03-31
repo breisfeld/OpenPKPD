@@ -10,7 +10,7 @@ NONMEM-style control-stream support, a CLI, and a Qt desktop GUI.
 
 ## Features
 
-- **Estimation methods**: FO, FOCE/FOCEI, Laplacian, SAEM, IMP/IMPMAP, `BAYES`, and nonparametric estimation
+- **Estimation methods**: primary FO/FOCE/FOCEI/Laplacian workflows plus secondary SAEM, IMP/IMPMAP, `BAYES(Laplace)`, and nonparametric paths, with explicit support notes in the docs
 - **PK subroutines**: analytical `ADVAN1–4`, `ADVAN11`, `ADVAN12`; numerical `ADVAN6/8/10/13`; DDE support via `ADVAN16`
 - **ODE JIT acceleration**: 10–30× speedup for `$DES` ODE models via optional Numba JIT compilation (`openpkpd[jit]`); explicit stiff-ODE fallback to scipy/Radau when step limits are hit
 - **NM-TRAN compiler**: `$PK`, `$DES`, and `$ERROR` blocks compiled to Python callables
@@ -208,13 +208,15 @@ The repository includes public cross-tool benchmarks under
 - nlmixr2-backed SAEM checks for warfarin PK (32 subjects)
 - Grasela & Donn (1985) SAEM checks for neonatal phenobarbital (59 subjects)
 - nlmixr2 FOCEI basin anchor for warfarin BAYES(Laplace)
-- nlmixr2 FOCEI basin anchor for theophylline Nonparametric (NPML)
+- NONMEM 402 empirical BAYES(Laplace) benchmark
+- Pharmpy `pheno` and theophylline nonparametric empirical benchmarks
 - PKNCA / Phoenix-style theophylline NCA checks
 - WinNonlin-backed Indometh NCA checks from a published NonCompart validation paper
 - PFIM-backed optimal-design checks and FOCEI diagnostic parity harnesses
 
 Start with:
 
+- `docs/user_guide/validation_matrix.md`
 - `docs/user_guide/external_validation_benchmarks.md`
 - `docs/user_guide/testing.md`
 - `docs/user_guide/validation.md`
@@ -389,7 +391,7 @@ NONMEM-style control-stream parsing and an in-process estimation/simulation stac
 | Pure Python / no install fee | ✓ | — | — | — | — | — | partial |
 | NONMEM .ctl compatibility | ✓ | — | — | — | — | — | ✓ |
 | FO / FOCE / FOCEI | ✓ | ✓ | ✓ | ✓ | — | ✓ | via NONMEM |
-| SAEM | ✓ | ✓ | ✓ | — | — | ✓ | via NONMEM |
+| SAEM | partial | ✓ | ✓ | — | — | ✓ | via NONMEM |
 | Full Bayesian (NUTS/MCMC) | partial | ✓ | — | — | — | ✓ | — |
 | Analytical PK (ADVAN1–4,11,12) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | via NONMEM |
 | ODE PK (ADVAN6/8/10) | ✓ | ✓ | ✓ | — | ✓ | ✓ | via NONMEM |
@@ -407,12 +409,15 @@ NONMEM-style control-stream parsing and an in-process estimation/simulation stac
 | VPC / bootstrap | ✓ | via PsN | ✓ | ✓ | — | ✓ | ✓ |
 | SBML / QSP model import | ✓ | — | — | — | — | — | — |
 | Parallel execution (multi-core / Dask / Ray) | ✓ | ✓ | ✓ | — | ✓ | ✓ | ✓ |
-| GUI | ✓ | — | ✓ | ✓ | — | partial | — |
+| GUI | partial | — | ✓ | ✓ | — | partial | — |
 | R integration | ✓ | via PsN | — | ✓ | ✓ | — | ✓ |
 
-**Legend:** ✓ = fully supported; partial = partially supported; via NONMEM = supported through NONMEM as a required backend; — = not available.
+**Legend:** ✓ = primary / broadly validated support; partial = real but narrower, selectively benchmarked, or less mature than the strongest alternatives; via NONMEM = supported through NONMEM as a required backend; — = not available.
 
 > **Note on Pharmpy**: Pharmpy is a model manipulation and workflow library (Uppsala University). It reads, writes, and transforms NONMEM/nlmixr2 models and orchestrates tools such as SCM, VPC, and bootstrap, but delegates all parameter estimation to an external engine (NONMEM or nlmixr2). Rows marked "via NONMEM" require a separate NONMEM licence.
+
+For the method-by-method support classification behind these labels, see
+[`docs/user_guide/validation_matrix.md`](docs/user_guide/validation_matrix.md).
 
 ### Where OpenPKPD leads
 
@@ -428,6 +433,7 @@ NONMEM-style control-stream parsing and an in-process estimation/simulation stac
 
 - **Speed**: Pure-Python inner loops are slower than compiled C++ (mrgsolve) or Julia (Pumas) for large simulations. The optional `openpkpd[jit]` extra closes much of this gap for ODE models (10–30× speedup via Numba LLC tier), but estimation outer loops and analytical ADVAN subroutines remain Python-speed.
 - **SAEM convergence**: functional but less mature than specialized SAEM software; Monolix and Pumas have deeper convergence diagnostics and tuning options.
+- **Advanced-estimator breadth**: SAEM, IMP/IMPMAP, BAYES(Laplace), native NUTS, and nonparametric estimation are real surfaces, but most still have narrower external-validation envelopes than FO/FOCEI.
 - **GUI scope**: OpenPKPD ships a working desktop GUI, but it is narrower and less mature than the commercial GUI-first workflows in WinNonLin and Monolix.
 - **Regulatory validation**: NONMEM and WinNonLin are GxP-validated commercial products; OpenPKPD is research-grade.
 

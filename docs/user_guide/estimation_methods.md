@@ -3,19 +3,22 @@
 `ModelBuilder.estimation()` and the control-stream runner both dispatch into the
 native estimator router in `openpkpd.estimation`.
 
+For the current support posture across all estimators, see
+[`validation_matrix.md`](validation_matrix.md).
+
 ## Choosing a method
 
 | Method | `method=` | When to use |
 |--------|-----------|-------------|
-| First Order | `"FO"` | fast screening, simple models |
+| First Order | `"FO"` | fast screening, simple models, reduced mixed-endpoint sanity checks |
 | FOCE | `"FOCE"` | default choice for many PK models |
-| FOCEI | `"FOCEI"` or `"FOCE"` + `interaction=True` | proportional/combined error models |
-| Laplacian | `"LAPLACIAN"` | non-Gaussian likelihood approximations |
-| SAEM | `"SAEM"` | irregular or highly nonlinear models |
-| IMP | `"IMP"` | importance sampling likelihood refinement |
-| IMPMAP | `"IMPMAP"` | IMP-family workflow with MAP-style routing |
-| Bayesian | `"BAYES"` | posterior sampling / Bayesian summaries |
-| Nonparametric | `"NONPARAMETRIC"` | NPML/NPEM-style support-point estimation |
+| FOCEI | `"FOCEI"` or `"FOCE"` + `interaction=True` | default likelihood workhorse for proportional/combined error models |
+| Laplacian | `"LAPLACIAN"` | non-Gaussian likelihood approximations and higher-order conditional fits |
+| SAEM | `"SAEM"` | nonlinear or stochastic-estimation workflows with current secondary validation support |
+| IMP | `"IMP"` | importance sampling likelihood refinement where the direct path is stable |
+| IMPMAP | `"IMPMAP"` | preferred MAP-style IMP workflow on basin-sensitive models |
+| Bayesian | `"BAYES"` | posterior summaries or MCMC, with backend-specific support boundaries |
+| Nonparametric | `"NONPARAMETRIC"` | NPML/NPEM-style support-point estimation on selectively benchmarked workflows |
 
 ## FO — First Order
 
@@ -106,7 +109,9 @@ result = saem.estimate(pop_model, params)
 > `n_workers` for thread-level parallelism in the E-step.
 
 It is useful for harder models, but the current implementation is still less
-mature than specialized SAEM toolchains.
+mature than specialized SAEM toolchains. Treat SAEM as a **secondary but real**
+production surface: it has external anchors and regression coverage, but not
+yet FOCE-level empirical breadth.
 
 ## IMP and IMPMAP
 
@@ -126,6 +131,14 @@ optimization:
 
 In practice, prefer `IMPMAP` over raw `IMP` when the model is basin-sensitive
 or when a direct IMP run tends to stick near the initial THETA values.
+
+Current support posture:
+
+- `IMP` and `IMPMAP` are **secondary** validated methods
+- `IMPMAP` is the recommended MAP-style path on warfarin PK and similar
+  basin-sensitive workflows
+- benchmark budget matters materially; short IMP runs should not be treated as
+  equivalent to full FOCEI-grade validation
 
 ## Bayesian estimation
 
@@ -156,6 +169,13 @@ Backend guidance:
 | `"pymc"` | best-supported full MCMC backend | strongest diagnostics and most complete posterior workflow |
 | `"nuts"` | built-in second-tier MCMC backend | multi-chain diagnostics are available through `BAYESMethod`; currently samples THETA only and empirical population-model runs can be slow |
 | `"laplace"` | fast approximation fallback | MAP + Hessian-based Gaussian posterior approximation |
+
+Current support posture:
+
+- `backend="pymc"` is the strongest current Bayesian path when full MCMC
+  credibility matters
+- `backend="laplace"` is a **secondary** validated weak-prior summary path
+- `backend="nuts"` is an **experimental / second-tier** native backend today
 
 Important current limitations:
 
@@ -202,8 +222,11 @@ Current support note:
 - the repository now includes an empirical phenobarbital benchmark against
   Pharmpy's bundled `pheno` dataset and a runnable example in
   `examples/32_nonparametric_support_points.py`
+- the repository also includes an oral theophylline empirical benchmark so the
+  path is no longer anchored to only one dataset
 - external validation is still narrower than the FO/FOCEI surface, so treat
-  nonparametric estimation as a real but still selectively benchmarked path
+  nonparametric estimation as a **secondary** but still selectively benchmarked
+  path
 
 ## Common options
 

@@ -148,3 +148,6 @@ Those broader comparisons remain future work for later validation milestones.
 
 For the concrete benchmark cases and current findings, see
 `docs/user_guide/external_validation_benchmarks.md`.
+
+For a method-by-method support summary that covers estimation, analysis, and
+workflow surfaces, see [`validation_matrix.md`](validation_matrix.md).

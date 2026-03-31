@@ -4,6 +4,11 @@ This page maps Monolix 2024R1 / Mlxtran concepts to their OpenPKPD equivalents.
 It also highlights the key data-format and parameterisation differences you will
 encounter when converting an existing Monolix project.
 
+For the current support classification behind the mappings below, see
+[`validation_matrix.md`](validation_matrix.md). In particular, some estimator
+surfaces map cleanly at the API level while still having narrower empirical
+validation breadth than the mature Monolix workflow.
+
 > **No Mlxtran parser yet.** OpenPKPD does not currently parse `.mlxtran` project
 > files automatically. Migration is done by re-expressing the model in the Python
 > `ModelBuilder` API (or a NONMEM-style control stream). A Mlxtran parser is on
@@ -24,7 +29,7 @@ encounter when converting an existing Monolix project.
 | Structural model library | `ModelBuilder.subroutines(advan=…)` |
 | `SAEM` (Monolix default) | `.estimation(method="SAEM")` |
 | `linearization` | `.estimation(method="FOCE")` |
-| `importanceSampling` | `.estimation(method="IMP")` |
+| `importanceSampling` | `.estimation(method="IMP")` or `.estimation(method="IMPMAP")` for basin-sensitive MAP-style workflows |
 | Diagnostic plots panel | `openpkpd.plots.*` |
 | Simulation tab | `openpkpd.simulation.*` |
 
@@ -148,6 +153,16 @@ model.sigma([1.0])   # EPS(1) is N(0,1); SD carried by THETA(4,5)
 | `linearization` | `method="FOCE"` |
 | `importanceSampling` | `method="IMP"` |
 
+Practical migration guidance:
+
+- prefer `FOCE` / `FOCEI` first when validating a migrated Monolix model
+- treat `SAEM` as a **secondary but real** OpenPKPD surface: it has empirical
+  anchors, but not Monolix-grade breadth across all model families yet
+- prefer `IMPMAP` over raw `IMP` when you want a MAP-style importance-sampling
+  path on a basin-sensitive model
+- treat `BAYES(Laplace)` as a fast weak-prior summary path and native
+  `BAYES(NUTS)` as an experimental / second-tier backend today
+
 
 ---
 
@@ -261,7 +276,7 @@ print(result.selected_covariates)
 | COSSAC covariate method | Not implemented; SCM + FREM available |
 | Monolix `mixture` models | Not yet implemented |
 | Stochastic approximation EM with Rao-Blackwellisation | Multi-chain MH SAEM available; full Rao-Blackwell pending |
-| Monolix `BayesianInformation` (MCMC-based) | NUTS via PyMC available (see Bayesian estimation guide) |
+| Monolix `BayesianInformation` (MCMC-based) | PyMC-backed MCMC available; native NUTS exists but is still second-tier |
 | Monolix Charts auto-layout | Individual plots available; layout wizard not yet |
 
 ---

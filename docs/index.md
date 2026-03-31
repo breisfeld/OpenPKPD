@@ -38,7 +38,7 @@ Full autodoc reference for all public classes and functions.
 
 ## Highlights
 
-- **Estimation methods**: FO, FOCE/FOCEI, Laplacian, SAEM, IMP/IMPMAP, BAYES
+- **Estimation methods**: primary FO/FOCE/FOCEI/Laplacian workflows plus secondary SAEM, IMP/IMPMAP, `BAYES(Laplace)`, and nonparametric paths
 - **PK subroutines**: ADVAN1–4, ADVAN11/12, ODE routes, and DDE support
 - **NM-TRAN compiler**: `$PK` / `$ERROR` / `$DES` blocks → Python callables
 - **NONMEM-compatible output**: `.lst`, `.ext`, `.phi`, `.cov`, `.cor`, `$TABLE`
@@ -46,6 +46,9 @@ Full autodoc reference for all public classes and functions.
 - **Diagnostic plots**: GOF, PK, PD, ETA panels (matplotlib, optional)
 - **Desktop GUI**: a workspace / project / scenario shell with Overview, Data, Model, Fit, NCA, Results, Plots, Diagnostics, Covariate, and Advanced workflows
 - **Examples and tests**: runnable examples plus unit/integration/regression coverage
+
+For the current support classification across estimation, analysis, and workflow
+surfaces, start with [`user_guide/validation_matrix.md`](user_guide/validation_matrix.md).
 
 ```{toctree}
 :maxdepth: 2

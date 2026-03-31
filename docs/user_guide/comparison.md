@@ -37,6 +37,10 @@ Rao-Blackwellisation is a known gap). Bayesian estimation dispatches to PyMC
 when installed, otherwise uses the built-in NUTS backend or falls back to a
 Laplace approximation.
 
+Read the `P` entries in this table together with
+[`validation_matrix.md`](validation_matrix.md): many of them mean "real but
+secondary or selectively benchmarked", not "placeholder only".
+
 ---
 
 ## PK subroutines

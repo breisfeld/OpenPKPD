@@ -33,6 +33,7 @@ plots
 analysis_tools
 analysis_validation_gaps
 validation
+validation_matrix
 testing
 advanced_pk
 nca

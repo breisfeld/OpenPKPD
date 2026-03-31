@@ -2,6 +2,11 @@
 
 This page maps familiar NONMEM control stream concepts to their OpenPKPD equivalents.
 
+For the current support classification behind these mappings, see
+[`../user_guide/validation_matrix.md`](../user_guide/validation_matrix.md).
+Some mappings are exact at the syntax layer but still have narrower runtime or
+validation support than full NONMEM.
+
 ## Control stream → Python API
 
 | NONMEM record | OpenPKPD equivalent |
@@ -36,6 +41,16 @@ These are OpenPKPD extensions rather than direct NONMEM mappings.
 | `SAEM` | `"SAEM"` |
 | `IMP` | `"IMP"` |
 | `IMPMAP` | `"IMPMAP"` |
+
+Practical migration guidance:
+
+- `FO`, `FOCE`, `FOCEI`, and `LAPLACIAN` are the strongest current migration
+  targets from a validation standpoint
+- `SAEM`, `IMP` / `IMPMAP`, `BAYES(Laplace)`, and `NONPARAMETRIC` are real
+  native surfaces, but their empirical validation breadth is still narrower
+  than the core FO/FOCEI path
+- native `BAYES(NUTS)` should currently be treated as an experimental /
+  second-tier backend rather than as blanket NONMEM-parity MCMC support
 
 ## NM-TRAN code blocks
 
@@ -123,5 +138,5 @@ Previously listed as limitations but now implemented:
 | ADVAN11/12 (3-compartment IV/oral) | ✅ Implemented |
 | ADVAN13 (stiff ODE + forward sensitivity) | ✅ Implemented (partial) |
 | IOV (inter-occasion variability) | ✅ Implemented |
-| NUTS/BAYES (MCMC via PyMC/native backend) | ✅ Implemented |
+| NUTS/BAYES (MCMC via PyMC/native backend) | ✅ Implemented, with backend-specific support boundaries |
 | Control stream serialization (`ControlStream.to_string()` / `.write()`) | ✅ Implemented for the documented subset |

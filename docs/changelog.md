@@ -14,7 +14,8 @@ This project follows [Semantic Versioning](https://semver.org).
   and FOCEI advanced-option examples, and strengthened notebook integration
   tests so they check both successful execution and expected outputs.
 - Updated the README and user-facing docs to reflect the current example suite,
-  notebook extra, GUI review flow, and validation coverage.
+  notebook extra, GUI review flow, validation coverage, and the new
+  method-level validation matrix.
 
 **GUI and examples**
 - Added results-page comparison navigation so the GUI can jump directly to a
@@ -25,7 +26,7 @@ This project follows [Semantic Versioning](https://semver.org).
 **Validation**
 - Expanded external validation with additional advanced-estimator checks,
   PFIM/design reference tests, Monolix benchmark safeguards, and a warfarin
-  FOCEI diagnostic harness to document near-parity behavior.
+  FOCEI diagnostic harness to document the current validated basin behavior.
 
 ## 0.2.3 — 2026-03-28
 
@@ -225,9 +226,7 @@ This project follows [Semantic Versioning](https://semver.org).
 
 ## Planned — 0.3.0
 
-## Planned — 0.3.0
-
 - ADVAN5/7 (general linear, matrix exponential)
-- NUTS/BAYES full posterior hardening — currently at prototype maturity
+- NUTS/BAYES full posterior hardening — currently at experimental maturity
 - Trust-region optimizer for improved FOCEI convergence on non-convex surfaces
 - CDISC ADPPK domain export

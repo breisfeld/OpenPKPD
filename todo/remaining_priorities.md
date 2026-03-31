@@ -22,6 +22,11 @@ library is broad. The highest-value remaining work is now:
 4. improving performance visibility and operational guidance
 5. making the GUI and docs feel credible against mature competitor workflows
 
+The current repo-level support and validation status is summarized in
+`docs/user_guide/validation_matrix.md`. That page should be treated as the
+maintained method-level source of truth for what is primary, secondary, or
+experimental.
+
 ---
 
 ## What Is Already Real
@@ -71,6 +76,17 @@ competitive maturity, not feature existence.
 ### 1. Expand empirical validation for advanced estimators
 
 This is the single biggest remaining credibility gap.
+
+Current status note (2026-03-30):
+
+- the repo now has an explicit validation matrix in
+  `docs/user_guide/validation_matrix.md`
+- that matrix makes the current release posture clearer:
+  - `FO` / `FOCE` / `FOCEI` / `Laplacian` are primary
+  - `SAEM`, `IMP` / `IMPMAP`, `BAYES(Laplace)`, and nonparametric are secondary
+  - native `BAYES(NUTS)` remains experimental / second-tier
+- the remaining work is therefore not "decide whether methods exist", but
+  "raise secondary methods with more external evidence or narrow claims further"
 
 The FO/FOCE/FOCEI surface is no longer the weakest area. The thinner areas are:
 

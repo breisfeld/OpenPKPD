@@ -551,3 +551,180 @@ def test_common_symbolic_build_guards_reject_referenced_covariate_names() -> Non
         subject_events = _StubSubjectEvents()
 
     assert not sym_eta._common_symbolic_build_guards(_StubIndiv())
+
+
+def _make_symbolic_advan3_trans4_model() -> IndividualModel:
+    compiler = NMTRANCompiler()
+    return IndividualModel(
+        subject_events=SubjectEvents(
+            subject_id=1,
+            dose_events=[DoseEvent(time=0.0, amount=250.0, compartment=1)],
+            obs_times=np.array([0.5, 1.0, 2.0, 4.0, 8.0], dtype=float),
+            obs_dv=np.array([7.0, 6.1, 4.8, 2.9, 1.3], dtype=float),
+            obs_cmt=np.ones(5, dtype=int),
+            obs_mdv=np.zeros(5, dtype=int),
+        ),
+        pk_subroutine=ADVAN3(),
+        pk_callable=compiler.compile_pk(
+            "CL = THETA(1)*EXP(ETA(1))\n"
+            "V1 = THETA(2)*EXP(ETA(2))\n"
+            "Q = THETA(3)*EXP(ETA(3))\n"
+            "V2 = THETA(4)*EXP(ETA(4))"
+        ),
+        error_callable=compiler.compile_error("Y = F*(1 + EPS(1))"),
+        n_eps=1,
+    )
+
+
+def test_symbolic_advan3_theta_gradient_matches_finite_difference() -> None:
+    pytest.importorskip("sympy")
+    _clear_symbolic_caches()
+    try:
+        model = _make_symbolic_advan3_trans4_model()
+        kernel = model.get_subject_derivative_kernel(4)
+        assert kernel is not None
+        assert kernel.supports_theta_data_objective_gradient()
+
+        theta = np.array([1.2, 12.0, 0.5, 25.0], dtype=float)
+        eta = np.array([0.05, -0.02, 0.01, -0.01], dtype=float)
+        sigma = np.array([[0.04]], dtype=float)
+        eps = 1e-6
+
+        analytic = np.asarray(kernel.theta_data_objective_gradient(theta, eta, sigma), dtype=float)
+        expected = np.zeros_like(theta)
+        for i in range(len(theta)):
+            theta_p = theta.copy()
+            theta_m = theta.copy()
+            theta_p[i] += eps
+            theta_m[i] -= eps
+            vp = float(kernel.eta_data_objective_value_grad(theta_p, eta, sigma)[0])
+            vm = float(kernel.eta_data_objective_value_grad(theta_m, eta, sigma)[0])
+            expected[i] = (vp - vm) / (2.0 * eps)
+
+        np.testing.assert_allclose(analytic, expected, rtol=1e-4, atol=1e-5)
+    finally:
+        _clear_symbolic_caches()
+
+
+def test_symbolic_advan3_theta_jacobian_matches_finite_difference() -> None:
+    pytest.importorskip("sympy")
+    _clear_symbolic_caches()
+    try:
+        model = _make_symbolic_advan3_trans4_model()
+        kernel = model.get_subject_derivative_kernel(4)
+        assert kernel is not None
+        assert kernel.supports_theta_data_objective_gradient()
+
+        theta = np.array([1.2, 12.0, 0.5, 25.0], dtype=float)
+        eta = np.array([0.05, -0.02, 0.01, -0.01], dtype=float)
+        sigma = np.array([[0.04]], dtype=float)
+        eps = 1e-6
+
+        analytic = np.asarray(kernel.prediction_theta_jacobian(theta, eta, sigma), dtype=float)
+        obs_mask = model.subject_events.observation_mask()
+
+        def pred_of_theta(th: np.ndarray) -> np.ndarray:
+            return np.asarray(model.evaluate(th, eta, sigma, trans=4)[0], dtype=float)[obs_mask]
+
+        expected = np.zeros_like(analytic)
+        for i in range(len(theta)):
+            theta_p = theta.copy()
+            theta_m = theta.copy()
+            theta_p[i] += eps
+            theta_m[i] -= eps
+            expected[:, i] = (pred_of_theta(theta_p) - pred_of_theta(theta_m)) / (2.0 * eps)
+
+        np.testing.assert_allclose(analytic, expected, rtol=1e-4, atol=1e-5)
+    finally:
+        _clear_symbolic_caches()
+
+
+def test_symbolic_advan4_theta_gradient_matches_finite_difference() -> None:
+    pytest.importorskip("sympy")
+    _clear_symbolic_caches()
+    try:
+        model = _make_symbolic_advan4_trans4_model()
+        kernel = model.get_subject_derivative_kernel(4)
+        assert kernel is not None
+        assert kernel.supports_theta_data_objective_gradient()
+
+        theta = np.array([0.8, 1.5, 18.0, 0.6, 30.0], dtype=float)
+        eta = np.array([0.03, -0.04, 0.02], dtype=float)
+        sigma = np.array([[0.04]], dtype=float)
+        eps = 1e-6
+
+        analytic = np.asarray(kernel.theta_data_objective_gradient(theta, eta, sigma), dtype=float)
+        expected = np.zeros_like(theta)
+        for i in range(len(theta)):
+            theta_p = theta.copy()
+            theta_m = theta.copy()
+            theta_p[i] += eps
+            theta_m[i] -= eps
+            vp = float(kernel.eta_data_objective_value_grad(theta_p, eta, sigma)[0])
+            vm = float(kernel.eta_data_objective_value_grad(theta_m, eta, sigma)[0])
+            expected[i] = (vp - vm) / (2.0 * eps)
+
+        np.testing.assert_allclose(analytic, expected, rtol=1e-4, atol=1e-5)
+    finally:
+        _clear_symbolic_caches()
+
+
+def test_symbolic_advan4_theta_jacobian_matches_finite_difference() -> None:
+    pytest.importorskip("sympy")
+    _clear_symbolic_caches()
+    try:
+        model = _make_symbolic_advan4_trans4_model()
+        kernel = model.get_subject_derivative_kernel(4)
+        assert kernel is not None
+        assert kernel.supports_theta_data_objective_gradient()
+
+        theta = np.array([0.8, 1.5, 18.0, 0.6, 30.0], dtype=float)
+        eta = np.array([0.03, -0.04, 0.02], dtype=float)
+        sigma = np.array([[0.04]], dtype=float)
+        eps = 1e-6
+
+        analytic = np.asarray(kernel.prediction_theta_jacobian(theta, eta, sigma), dtype=float)
+        obs_mask = model.subject_events.observation_mask()
+
+        def pred_of_theta(th: np.ndarray) -> np.ndarray:
+            return np.asarray(model.evaluate(th, eta, sigma, trans=4)[0], dtype=float)[obs_mask]
+
+        expected = np.zeros_like(analytic)
+        for i in range(len(theta)):
+            theta_p = theta.copy()
+            theta_m = theta.copy()
+            theta_p[i] += eps
+            theta_m[i] -= eps
+            expected[:, i] = (pred_of_theta(theta_p) - pred_of_theta(theta_m)) / (2.0 * eps)
+
+        np.testing.assert_allclose(analytic, expected, rtol=1e-4, atol=1e-5)
+    finally:
+        _clear_symbolic_caches()
+
+
+def test_symbolic_advan3_capabilities_include_theta_gradient() -> None:
+    pytest.importorskip("sympy")
+    _clear_symbolic_caches()
+    try:
+        model = _make_symbolic_advan3_trans4_model()
+        kernel = model.get_subject_derivative_kernel(4)
+        assert kernel is not None
+        assert kernel.capabilities.theta_data_objective_gradient
+        assert kernel.capabilities.prediction_theta_jacobian
+        assert model.supports_theta_data_objective_gradient(trans=4)
+    finally:
+        _clear_symbolic_caches()
+
+
+def test_symbolic_advan4_capabilities_include_theta_gradient() -> None:
+    pytest.importorskip("sympy")
+    _clear_symbolic_caches()
+    try:
+        model = _make_symbolic_advan4_trans4_model()
+        kernel = model.get_subject_derivative_kernel(4)
+        assert kernel is not None
+        assert kernel.capabilities.theta_data_objective_gradient
+        assert kernel.capabilities.prediction_theta_jacobian
+        assert model.supports_theta_data_objective_gradient(trans=4)
+    finally:
+        _clear_symbolic_caches()

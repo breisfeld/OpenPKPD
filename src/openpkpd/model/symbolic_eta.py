@@ -1743,6 +1743,8 @@ class SympyAdvan3Trans4Objective(BaseSubjectDerivativeKernel):
         eta_objective_gradient=True,
         eta_objective_hessian=True,
         prediction_eta_jacobian=True,
+        theta_data_objective_gradient=True,
+        prediction_theta_jacobian=True,
     )
 
     theta_idx: tuple[int, int, int, int]
@@ -2052,6 +2054,51 @@ class SympyAdvan3Trans4Objective(BaseSubjectDerivativeKernel):
                 eta_grad[pos] = float(full_grad[col])
         return float(np.sum(obs_term)), eta_grad
 
+    def supports_theta_data_objective_gradient(self) -> bool:
+        return self.error_model in {"proportional", "additive", "combined_eps"}
+
+    def prediction_theta_jacobian(
+        self,
+        theta: np.ndarray,
+        eta: np.ndarray,
+        sigma: np.ndarray,
+    ) -> np.ndarray:
+        if not self.supports_theta_data_objective_gradient():
+            raise NotImplementedError("theta Jacobian only supported on narrow analytical subset")
+        _f, df_full, _d2f = self._prediction_mean_and_partials(theta, eta)
+        jac = np.zeros((df_full.shape[0], len(theta)), dtype=float)
+        for col, pos in enumerate(self.theta_idx):
+            theta_val = float(theta[pos])
+            if abs(theta_val) < 1e-12:
+                raise NotImplementedError("theta Jacobian undefined at theta=0")
+            jac[:, pos] = df_full[:, col] / theta_val
+        return jac
+
+    def theta_data_objective_gradient(
+        self,
+        theta: np.ndarray,
+        eta: np.ndarray,
+        sigma: np.ndarray,
+    ) -> np.ndarray:
+        if not self.supports_theta_data_objective_gradient():
+            raise NotImplementedError(
+                "theta data-objective gradient is only supported on the narrow analytical subset"
+            )
+        var_a, var_b, var_c = self._variance_coefficients(theta, sigma)
+        theta_grad = np.zeros(len(theta), dtype=float)
+        if len(self.dv) == 0:
+            return theta_grad
+        terms = _compiled_advan3_terms()
+        f, _df, _d2f = self._prediction_mean_and_partials(theta, eta)
+        theta_jac = self.prediction_theta_jacobian(theta, eta, sigma)
+        raw_var = var_a + var_b * f + var_c * (f**2)
+        dterm_df = np.where(
+            raw_var > _VAR_FLOOR,
+            np.asarray(terms["obs_term_df"](f, self.dv, var_a, var_b, var_c), dtype=float),
+            2.0 * (f - self.dv) / _VAR_FLOOR,
+        )
+        return theta_jac.T @ dterm_df
+
     def eta_data_objective_values(
         self,
         theta: np.ndarray,
@@ -2081,6 +2128,8 @@ class SympyAdvan4Trans1Objective(BaseSubjectDerivativeKernel):
         eta_objective_gradient=True,
         eta_objective_hessian=True,
         prediction_eta_jacobian=True,
+        theta_data_objective_gradient=True,
+        prediction_theta_jacobian=True,
     )
 
     theta_idx: tuple[int, int, int, int, int]
@@ -2373,6 +2422,67 @@ class SympyAdvan4Trans1Objective(BaseSubjectDerivativeKernel):
         for pos, value in zip(self.eta_idx, eta_grad_used, strict=False):
             eta_grad[pos] = float(value)
         return float(np.sum(obs_term)), eta_grad
+
+    def supports_theta_data_objective_gradient(self) -> bool:
+        return self.error_model in {"proportional", "additive", "combined_eps"}
+
+    def prediction_theta_jacobian(
+        self,
+        theta: np.ndarray,
+        eta: np.ndarray,
+        sigma: np.ndarray,
+        eps: float = 1e-6,
+    ) -> np.ndarray:
+        if not self.supports_theta_data_objective_gradient():
+            raise NotImplementedError("theta Jacobian only supported on narrow analytical subset")
+        _f, df, _d2f = self._prediction_mean_and_partials(theta, eta)
+        jac = np.zeros((df.shape[0], len(theta)), dtype=float)
+        # KA, CL, V2 have ETAs: df/d_theta_i = df/d_eta_i / theta_i
+        for col in range(3):
+            pos = self.theta_idx[col]
+            theta_val = float(theta[pos])
+            if abs(theta_val) < 1e-12:
+                raise NotImplementedError("theta Jacobian undefined at theta=0")
+            jac[:, pos] = df[:, col] / theta_val
+        # Q, V3 are theta-only: use central finite differences on the analytical prediction
+        for col in (3, 4):
+            pos = self.theta_idx[col]
+            theta_val = float(theta[pos])
+            h = max(eps * abs(theta_val), 1e-8)
+            theta_hi = np.array(theta, dtype=float)
+            theta_lo = np.array(theta, dtype=float)
+            theta_hi[pos] += h
+            theta_lo[pos] -= h
+            jac[:, pos] = (
+                self._prediction_mean_direct(theta_hi, eta)
+                - self._prediction_mean_direct(theta_lo, eta)
+            ) / (2.0 * h)
+        return jac
+
+    def theta_data_objective_gradient(
+        self,
+        theta: np.ndarray,
+        eta: np.ndarray,
+        sigma: np.ndarray,
+    ) -> np.ndarray:
+        if not self.supports_theta_data_objective_gradient():
+            raise NotImplementedError(
+                "theta data-objective gradient is only supported on the narrow analytical subset"
+            )
+        var_a, var_b, var_c = self._variance_coefficients(theta, sigma)
+        theta_grad = np.zeros(len(theta), dtype=float)
+        if len(self.dv) == 0:
+            return theta_grad
+        terms = _compiled_advan4_terms()
+        f, _df, _d2f = self._prediction_mean_and_partials(theta, eta)
+        theta_jac = self.prediction_theta_jacobian(theta, eta, sigma)
+        raw_var = var_a + var_b * f + var_c * (f**2)
+        dterm_df = np.where(
+            raw_var > _VAR_FLOOR,
+            np.asarray(terms["obs_term_df"](f, self.dv, var_a, var_b, var_c), dtype=float),
+            2.0 * (f - self.dv) / _VAR_FLOOR,
+        )
+        return theta_jac.T @ dterm_df
 
     def eta_data_objective_values(
         self,

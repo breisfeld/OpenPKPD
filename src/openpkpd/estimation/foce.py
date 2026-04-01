@@ -162,6 +162,30 @@ def _make_cached_obj_eta(
     return _CachedObjEtaEvaluator(indiv, theta, omega, sigma, trans)
 
 
+def _optimize_eta_lbfgsb(
+    obj_eta: _CachedObjEtaEvaluator,
+    eta0: np.ndarray,
+    maxiter: int,
+) -> Any:
+    """
+    Run a single-subject L-BFGS-B optimisation for the inner η loop.
+
+    Shared by the serial inner loop and the process-pool worker so that
+    minimiser options (ftol, eps, parallel workers back-end) stay in sync.
+    """
+    return minimize(
+        obj_eta,
+        eta0,
+        method="L-BFGS-B",
+        jac=obj_eta.gradient if obj_eta.has_native_gradient else "2-point",
+        options=(
+            {"maxiter": maxiter, "ftol": 1e-10, "eps": 1e-5}
+            if obj_eta.has_native_gradient
+            else {"maxiter": maxiter, "ftol": 1e-10, "eps": 1e-5, "workers": obj_eta.workers}
+        ),
+    )
+
+
 def _can_skip_eta_optimization(params: ParameterSet, *, zero_tol: float = 1e-8) -> bool:
     """
     Return True when η optimisation can be skipped safely.
@@ -200,18 +224,7 @@ def _worker_optimize_eta(
     returns (subject_id, eta_hat).
     """
     obj_eta = _make_cached_obj_eta(indiv, theta, omega, sigma, trans)
-
-    result = minimize(
-        obj_eta,
-        eta0,
-        method="L-BFGS-B",
-        jac=obj_eta.gradient if obj_eta.has_native_gradient else "2-point",
-        options=(
-            {"maxiter": maxiter, "ftol": 1e-10, "eps": 1e-5}
-            if obj_eta.has_native_gradient
-            else {"maxiter": maxiter, "ftol": 1e-10, "eps": 1e-5, "workers": obj_eta.workers}
-        ),
-    )
+    result = _optimize_eta_lbfgsb(obj_eta, eta0, maxiter)
     return subject_id, result.x
 
 
@@ -741,61 +754,14 @@ class FOCEMethod(EstimationMethod):
             result, init_params, population_model, final_params, final_eta_hat, final_ofv
         )
 
-        fallback_optimizer = self.outer_fallback_optimizer
-        if fallback_optimizer is not None and fallback_optimizer != self.outer_optimizer:
-            fallback_result = self._run_outer_optimizer(
-                objective,
-                result.x,
-                params.get_optimizer_bounds(),
-                optimizer=fallback_optimizer,
-                maxeval=self.outer_fallback_maxeval,
+        result, final_params, final_eta_hat, final_ofv = self._apply_fallback_polish(
+            objective, init_params, params, population_model,
+            result, final_params, final_eta_hat, final_ofv,
+        )
+        if allow_structured_retries:
+            result, final_params, final_eta_hat, final_ofv = self._apply_structured_retries(
+                result, init_params, population_model, final_params, final_eta_hat, final_ofv,
             )
-            fallback_params = ParameterSet.from_vector(fallback_result.x, init_params).apply_bounds()
-            fallback_eta_hat = self._inner_loop(population_model, fallback_params)
-            fallback_ofv = self._outer_ofv(population_model, fallback_params, fallback_eta_hat)
-            if fallback_ofv < final_ofv:
-                logger.info(
-                    "  Fallback outer optimizer %s improved OFV %.4f -> %.4f",
-                    fallback_optimizer,
-                    final_ofv,
-                    fallback_ofv,
-                )
-                result = fallback_result
-                final_params = fallback_params
-                final_eta_hat = fallback_eta_hat
-                final_ofv = fallback_ofv
-                result, final_params, final_eta_hat, final_ofv = self._maybe_promote_best_iterate(
-                    result,
-                    init_params,
-                    population_model,
-                    final_params,
-                    final_eta_hat,
-                    final_ofv,
-                )
-
-        if allow_structured_retries and self._should_run_structured_retries(result):
-            for retry_idx, retry_x0 in enumerate(
-                self._structured_retry_vectors(init_params, final_params),
-                start=1,
-            ):
-                logger.info("  Structured retry %d/%d", retry_idx, len(self.retry_omega_scales))
-                self._reset_state(init_params, population_model)
-                retry_result, retry_params, retry_eta_hat, retry_ofv = self._run_single(
-                    retry_x0,
-                    init_params,
-                    population_model,
-                    allow_structured_retries=False,
-                )
-                if retry_ofv < final_ofv:
-                    logger.info(
-                        "  Structured retry improved OFV %.4f -> %.4f",
-                        final_ofv,
-                        retry_ofv,
-                    )
-                    result = retry_result
-                    final_params = retry_params
-                    final_eta_hat = retry_eta_hat
-                    final_ofv = retry_ofv
         return result, final_params, final_eta_hat, final_ofv
 
     def _maybe_promote_best_iterate(
@@ -856,6 +822,96 @@ class FOCEMethod(EstimationMethod):
                     promoted_fields["hess_inv"] = hess_inv
             result = SimpleNamespace(**promoted_fields)
             return result, best_params, best_eta_hat, best_ofv
+        return result, final_params, final_eta_hat, final_ofv
+
+    def _apply_fallback_polish(
+        self,
+        objective: Any,
+        init_params: ParameterSet,
+        params: ParameterSet,
+        population_model: Any,
+        result: Any,
+        final_params: ParameterSet,
+        final_eta_hat: dict[int, np.ndarray],
+        final_ofv: float,
+    ) -> tuple[Any, ParameterSet, dict[int, np.ndarray], float]:
+        """
+        Optionally run a fallback outer optimizer from the current solution.
+
+        If ``outer_fallback_optimizer`` is configured and different from the
+        primary optimizer, run a short pass from the current solution.  The
+        fallback result replaces the primary only when it improves the OFV.
+        ``_maybe_promote_best_iterate`` is applied after the fallback as well.
+        """
+        fallback_optimizer = self.outer_fallback_optimizer
+        if fallback_optimizer is None or fallback_optimizer == self.outer_optimizer:
+            return result, final_params, final_eta_hat, final_ofv
+        fallback_result = self._run_outer_optimizer(
+            objective,
+            result.x,
+            params.get_optimizer_bounds(),
+            optimizer=fallback_optimizer,
+            maxeval=self.outer_fallback_maxeval,
+        )
+        fallback_params = ParameterSet.from_vector(fallback_result.x, init_params).apply_bounds()
+        fallback_eta_hat = self._inner_loop(population_model, fallback_params)
+        fallback_ofv = self._outer_ofv(population_model, fallback_params, fallback_eta_hat)
+        if fallback_ofv < final_ofv:
+            logger.info(
+                "  Fallback outer optimizer %s improved OFV %.4f -> %.4f",
+                fallback_optimizer,
+                final_ofv,
+                fallback_ofv,
+            )
+            result = fallback_result
+            final_params = fallback_params
+            final_eta_hat = fallback_eta_hat
+            final_ofv = fallback_ofv
+            result, final_params, final_eta_hat, final_ofv = self._maybe_promote_best_iterate(
+                result, init_params, population_model, final_params, final_eta_hat, final_ofv
+            )
+        return result, final_params, final_eta_hat, final_ofv
+
+    def _apply_structured_retries(
+        self,
+        result: Any,
+        init_params: ParameterSet,
+        population_model: Any,
+        final_params: ParameterSet,
+        final_eta_hat: dict[int, np.ndarray],
+        final_ofv: float,
+    ) -> tuple[Any, ParameterSet, dict[int, np.ndarray], float]:
+        """
+        Run structured FOCEI retry restarts when abnormal exit is detected.
+
+        Each retry scales the current omega diagonal by a factor from
+        ``retry_omega_scales`` and runs ``_run_single`` (without further
+        retries) from that new starting point.  The best OFV wins.
+        """
+        if not self._should_run_structured_retries(result):
+            return result, final_params, final_eta_hat, final_ofv
+        for retry_idx, retry_x0 in enumerate(
+            self._structured_retry_vectors(init_params, final_params),
+            start=1,
+        ):
+            logger.info("  Structured retry %d/%d", retry_idx, len(self.retry_omega_scales))
+            self._reset_state(init_params, population_model)
+            retry_result, retry_params, retry_eta_hat, retry_ofv = self._run_single(
+                retry_x0,
+                init_params,
+                population_model,
+                allow_structured_retries=False,
+            )
+            if retry_ofv < final_ofv:
+                logger.info(
+                    "  Structured retry improved OFV %.4f -> %.4f",
+                    final_ofv,
+                    retry_ofv,
+                )
+                result = retry_result
+                final_params = retry_params
+                final_eta_hat = retry_eta_hat
+                final_ofv = retry_ofv
         return result, final_params, final_eta_hat, final_ofv
 
     def _should_run_structured_retries(self, result: Any) -> bool:
@@ -1042,22 +1098,7 @@ class FOCEMethod(EstimationMethod):
                     population_model.trans,
                 )
 
-                res = minimize(
-                    obj_eta,
-                    eta0,
-                    method="L-BFGS-B",
-                    jac=obj_eta.gradient if obj_eta.has_native_gradient else "2-point",
-                    options=(
-                        {"maxiter": self.inner_maxiter, "ftol": 1e-10, "eps": 1e-5}
-                        if obj_eta.has_native_gradient
-                        else {
-                            "maxiter": self.inner_maxiter,
-                            "ftol": 1e-10,
-                            "eps": 1e-5,
-                            "workers": obj_eta.workers,
-                        }
-                    ),
-                )
+                res = _optimize_eta_lbfgsb(obj_eta, eta0, self.inner_maxiter)
                 eta_hat[sid] = res.x
             return eta_hat
 

@@ -176,46 +176,9 @@ class FOMethod(EstimationMethod):
         n_obs = len(dv)
 
         # FO approximation: R_i ≈ d(pred)/d_eta at eta=0
-        if params.n_eta() == 0:
-            R = np.zeros((n_obs, 0))
-        else:
-            supports_native_jac = getattr(indiv, "supports_prediction_eta_jacobian", None)
-            native_jacobian = getattr(indiv, "prediction_eta_jacobian", None)
-            if (
-                callable(supports_native_jac)
-                and bool(supports_native_jac(trans=population_model.trans))
-                and callable(native_jacobian)
-            ):
-                try:
-                    R = np.asarray(
-                        native_jacobian(
-                            params.theta, eta_zero, params.sigma, trans=population_model.trans
-                        ),
-                        dtype=float,
-                    )
-                except Exception:
-                    R = np.zeros((n_obs, params.n_eta()))
-            else:
-
-                def pred_of_eta(eta: np.ndarray) -> np.ndarray:
-                    _, _, _, pred_eta, _ = indiv.evaluate_observation_model(
-                        params.theta,
-                        eta,
-                        params.sigma,
-                        trans=population_model.trans,
-                    )
-                    return pred_eta[obs_mask]
-
-                try:
-                    R = jacobian(
-                        pred_of_eta,
-                        eta_zero,
-                        eps=1e-5,
-                        f0=pred_obs,
-                        method="forward",
-                    )
-                except Exception:
-                    R = np.zeros((n_obs, params.n_eta()))
+        R = self._compute_fo_jacobian_R(
+            indiv, params, pred_obs, obs_mask, eta_zero, population_model, n_obs
+        )
 
         # C_i = R * Omega * R^T + residual variance
         C_i = R @ params.omega @ R.T + np.diag(var_obs)
@@ -237,3 +200,52 @@ class FOMethod(EstimationMethod):
 
         ofv_i = n_obs * LOG2PI + logdet_val + quad
         return ofv_i
+
+    def _compute_fo_jacobian_R(
+        self,
+        indiv: Any,
+        params: ParameterSet,
+        pred_obs: np.ndarray,
+        obs_mask: np.ndarray,
+        eta_zero: np.ndarray,
+        population_model: Any,
+        n_obs: int,
+    ) -> np.ndarray:
+        """
+        Compute the FO Jacobian R_i = d(pred_i)/d(eta) evaluated at eta=0.
+
+        Tries the native analytical Jacobian first (zero extra ODE calls), then
+        falls back to forward finite-differences via ``openpkpd.math.autodiff.jacobian``.
+        Returns a zeros matrix of shape ``(n_obs, n_eta)`` on any numerical failure.
+        """
+        n_eta = params.n_eta()
+        if n_eta == 0:
+            return np.zeros((n_obs, 0))
+
+        supports_native_jac = getattr(indiv, "supports_prediction_eta_jacobian", None)
+        native_jacobian = getattr(indiv, "prediction_eta_jacobian", None)
+        if (
+            callable(supports_native_jac)
+            and bool(supports_native_jac(trans=population_model.trans))
+            and callable(native_jacobian)
+        ):
+            try:
+                return np.asarray(
+                    native_jacobian(
+                        params.theta, eta_zero, params.sigma, trans=population_model.trans
+                    ),
+                    dtype=float,
+                )
+            except Exception:
+                return np.zeros((n_obs, n_eta))
+
+        def pred_of_eta(eta: np.ndarray) -> np.ndarray:
+            _, _, _, pred_eta, _ = indiv.evaluate_observation_model(
+                params.theta, eta, params.sigma, trans=population_model.trans
+            )
+            return pred_eta[obs_mask]
+
+        try:
+            return jacobian(pred_of_eta, eta_zero, eps=1e-5, f0=pred_obs, method="forward")
+        except Exception:
+            return np.zeros((n_obs, n_eta))

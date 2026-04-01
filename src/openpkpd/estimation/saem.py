@@ -27,7 +27,7 @@ i.e. SA is applied to the *function* Q, not to the argmax.  Applying SA
 averaging to the argmax sequence instead (Q_θ += γ·(θ_new − Q_θ)) is a
 biased approximation: in phase 2 it produces an exponentially-weighted
 average of past argmax values that systematically undershoots the true
-population parameter (observed as −28% CL bias on warfarin).  The correct
+population parameter (produces a systematic negative bias on CL in practice).  The correct
 treatment is to take the direct argmax at each iteration and average the
 last _PH2_WINDOW estimates for reporting stability.
 
@@ -110,6 +110,28 @@ class SAEMMethod(EstimationMethod):
         self.n_parallel = n_parallel
         self.phi_tol = phi_tol
         self.rng = np.random.default_rng(seed)
+
+    @staticmethod
+    def _check_phase2_convergence(
+        ph2_param_history: list[np.ndarray],
+        phi_tol: float,
+        window: int,
+    ) -> tuple[bool, float]:
+        """
+        Return (converged, rel_change) for the phase-2 stability criterion.
+
+        Compares the mean of the last ``window`` parameter snapshots against the
+        mean of the preceding ``window`` snapshots.  Convergence is declared when
+        the maximum relative change across all parameters falls below ``phi_tol``.
+        Returns ``(False, nan)`` when fewer than ``2 * window`` snapshots exist.
+        """
+        if len(ph2_param_history) < 2 * window:
+            return False, float("nan")
+        window_new = np.mean(ph2_param_history[-window:], axis=0)
+        window_old = np.mean(ph2_param_history[-2 * window : -window], axis=0)
+        denom = np.abs(window_old) + 1e-8
+        rel_change = float(np.max(np.abs(window_new - window_old) / denom))
+        return rel_change < phi_tol, rel_change
 
     @staticmethod
     def _n_free_theta(params: ParameterSet) -> int:
@@ -203,8 +225,6 @@ class SAEMMethod(EstimationMethod):
             eta_chains = {sid: np.zeros((n_chains, n_eta)) for sid in subj_ids}
         mh_scales: dict[int, float] = dict.fromkeys(subj_ids, self.mh_step_size)
 
-        # Per-subject RNGs — created once so each subject's MH stream is
-        # independent and thread-safe across parallel E-step calls.
         # Per-subject RNGs — independent streams for thread-safe parallel E-step.
         # Fall back to self.rng when it doesn't support .integers() (e.g. test stubs)
         # so that serial tests relying on stub behaviour are unaffected.
@@ -489,19 +509,15 @@ class SAEMMethod(EstimationMethod):
                 phi = np.concatenate([theta, np.diag(omega)])
                 ph2_param_history.append(phi)
                 W = self._PH2_WINDOW
-                if len(ph2_param_history) >= 2 * W:
-                    # Compare mean of last W with mean of preceding W
-                    window_new = np.mean(ph2_param_history[-W:], axis=0)
-                    window_old = np.mean(ph2_param_history[-2 * W : -W], axis=0)
-                    denom = np.abs(window_old) + 1e-8
-                    rel_change = float(np.max(np.abs(window_new - window_old) / denom))
-                    if rel_change < self.phi_tol:
-                        logger.info(
-                            f"  SAEM phase-2 converged at iter {k} "
-                            f"(max rel Δphi={rel_change:.2e} < phi_tol={self.phi_tol:.2e})"
-                        )
-                        converged = True
-                        break
+                converged, rel_change = self._check_phase2_convergence(
+                    ph2_param_history, self.phi_tol, W
+                )
+                if converged:
+                    logger.info(
+                        f"  SAEM phase-2 converged at iter {k} "
+                        f"(max rel Δphi={rel_change:.2e} < phi_tol={self.phi_tol:.2e})"
+                    )
+                    break
 
         elapsed = time.time() - t0
         final_ofv = ofv_history[-1] if ofv_history else float("nan")

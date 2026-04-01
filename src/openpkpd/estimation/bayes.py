@@ -605,14 +605,7 @@ class BAYESMethod(EstimationMethod):
                 while len(warm_start_cache) > warm_start_cache_size:
                     warm_start_cache.popitem(last=False)
 
-            def _log_prior_grad(theta: np.ndarray) -> np.ndarray:
-                theta_arr = np.asarray(theta, dtype=float)
-                if np.any(theta_arr <= 0):
-                    return np.full_like(theta_arr, np.nan, dtype=float)
-                log_th = np.log(theta_arr)
-                return -(
-                    ((log_th - log_theta_mu) / (self.prior_sd_theta**2)) + 1.0
-                ) / theta_arr
+            _log_prior_grad = self._make_log_prior_grad(log_theta_mu)
 
             def _theta_log_prob_grad(
                 theta: np.ndarray,
@@ -722,6 +715,8 @@ class BAYESMethod(EstimationMethod):
                 ) / theta_arr
 
             # population_model is None — unit-test / prior-only mode
+            _log_prior_grad = self._make_log_prior_grad(log_theta_mu)
+
             def log_prob(theta: np.ndarray) -> float:
                 nonlocal log_prob_calls, exact_log_prob_cache_hits, exact_log_prob_cache_misses
                 theta_arr = np.asarray(theta, dtype=float)
@@ -1125,6 +1120,32 @@ class BAYESMethod(EstimationMethod):
                 "elapsed_seconds": time.perf_counter() - diag_t0,
             }
             return np.diag(diag)
+
+    def _make_log_prior_grad(
+        self,
+        log_theta_mu: np.ndarray,
+    ):
+        """
+        Return a gradient closure for the log-prior w.r.t. theta.
+
+        The prior is LogNormal(mu=log_theta_init, sigma=prior_sd_theta), so
+        the gradient in natural (non-log) space is:
+
+          d/d(θ_k) log p(θ_k) = -((log θ_k - μ_k) / σ² + 1) / θ_k
+
+        The closure captures ``log_theta_mu`` and ``self.prior_sd_theta``
+        so it can be passed directly to inner functions without re-binding.
+        """
+        prior_sd = self.prior_sd_theta
+
+        def _log_prior_grad(theta: np.ndarray) -> np.ndarray:
+            theta_arr = np.asarray(theta, dtype=float)
+            if np.any(theta_arr <= 0):
+                return np.full_like(theta_arr, np.nan, dtype=float)
+            log_th = np.log(theta_arr)
+            return -(((log_th - log_theta_mu) / (prior_sd**2)) + 1.0) / theta_arr
+
+        return _log_prior_grad
 
     def _foce_kwargs_for_laplace(self) -> dict[str, Any]:
         """

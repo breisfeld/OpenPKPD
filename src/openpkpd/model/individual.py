@@ -45,25 +45,25 @@ except ImportError:
     _RUST_CORE_AVAILABLE = False
 
 try:
-    _native_cvodes_advan6_mixed_pkpd_probe_rust = import_core_symbol(
-        "native_cvodes_advan6_mixed_pkpd_probe"
+    _native_cvodes_transit_1cmt_pkpd_probe_rust = import_core_symbol(
+        "native_cvodes_transit_1cmt_pkpd_probe"
     )
 except ImportError:
-    _native_cvodes_advan6_mixed_pkpd_probe_rust = None
+    _native_cvodes_transit_1cmt_pkpd_probe_rust = None
 
 try:
-    _native_cvodes_advan6_mixed_pkpd_probe_multidose_rust = import_core_symbol(
-        "native_cvodes_advan6_mixed_pkpd_probe_multidose"
+    _native_cvodes_transit_1cmt_pkpd_probe_multidose_rust = import_core_symbol(
+        "native_cvodes_transit_1cmt_pkpd_probe_multidose"
     )
 except ImportError:
-    _native_cvodes_advan6_mixed_pkpd_probe_multidose_rust = None
+    _native_cvodes_transit_1cmt_pkpd_probe_multidose_rust = None
 
 try:
-    _native_cvodes_advan6_sensitivity_probe_multidose_rust = import_core_symbol(
-        "native_cvodes_advan6_mixed_pkpd_sensitivity_probe_multidose"
+    _native_cvodes_transit_1cmt_pkpd_sensitivity_probe_rust = import_core_symbol(
+        "native_cvodes_transit_1cmt_pkpd_sensitivity_probe_multidose"
     )
 except ImportError:
-    _native_cvodes_advan6_sensitivity_probe_multidose_rust = None
+    _native_cvodes_transit_1cmt_pkpd_sensitivity_probe_rust = None
 
 def _try_import(name: str) -> Any | None:
     try:
@@ -87,6 +87,15 @@ _native_4cmt_iv_probe        = _try_import("native_cvodes_4cmt_iv_probe_multidos
 _native_4cmt_iv_sens_probe   = _try_import("native_cvodes_4cmt_iv_sensitivity_probe_multidose")
 _native_4cmt_oral_probe      = _try_import("native_cvodes_4cmt_oral_probe_multidose")
 _native_4cmt_oral_sens_probe = _try_import("native_cvodes_4cmt_oral_sensitivity_probe_multidose")
+# Infusion-aware probes (IV templates only; rate > 0 triggers dispatch)
+_native_1cmt_iv_inf_probe      = _try_import("native_cvodes_1cmt_iv_infusion_probe_multidose")
+_native_1cmt_iv_inf_sens_probe = _try_import("native_cvodes_1cmt_iv_infusion_sensitivity_probe_multidose")
+_native_2cmt_iv_inf_probe      = _try_import("native_cvodes_2cmt_iv_infusion_probe_multidose")
+_native_2cmt_iv_inf_sens_probe = _try_import("native_cvodes_2cmt_iv_infusion_sensitivity_probe_multidose")
+_native_3cmt_iv_inf_probe      = _try_import("native_cvodes_3cmt_iv_infusion_probe_multidose")
+_native_3cmt_iv_inf_sens_probe = _try_import("native_cvodes_3cmt_iv_infusion_sensitivity_probe_multidose")
+_native_4cmt_iv_inf_probe      = _try_import("native_cvodes_4cmt_iv_infusion_probe_multidose")
+_native_4cmt_iv_inf_sens_probe = _try_import("native_cvodes_4cmt_iv_infusion_sensitivity_probe_multidose")
 
 
 class _NativeOdeTemplate:
@@ -101,7 +110,8 @@ class _NativeOdeTemplate:
 
     __slots__ = (
         "name", "required_names", "n_states", "output_cmt_idx",
-        "vol_param_name", "is_mixed_pkpd", "state_probe_fn", "sens_probe_fn",
+        "vol_param_name", "is_pkpd", "state_probe_fn", "sens_probe_fn",
+        "infusion_state_probe_fn", "infusion_sens_probe_fn",
     )
 
     def __init__(
@@ -113,16 +123,20 @@ class _NativeOdeTemplate:
         vol_param_name: str,
         state_probe_fn: Any,
         sens_probe_fn: Any,
-        is_mixed_pkpd: bool = False,
+        is_pkpd: bool = False,
+        infusion_state_probe_fn: Any = None,
+        infusion_sens_probe_fn: Any = None,
     ) -> None:
         self.name = name
         self.required_names = required_names
         self.n_states = n_states
         self.output_cmt_idx = output_cmt_idx
         self.vol_param_name = vol_param_name
-        self.is_mixed_pkpd = is_mixed_pkpd
+        self.is_pkpd = is_pkpd
         self.state_probe_fn = state_probe_fn
         self.sens_probe_fn = sens_probe_fn
+        self.infusion_state_probe_fn = infusion_state_probe_fn
+        self.infusion_sens_probe_fn = infusion_sens_probe_fn
 
 
 # Templates ordered most-specific first (most required_names → least).
@@ -130,12 +144,12 @@ class _NativeOdeTemplate:
 # present in the subject's pk_params dict.
 _NATIVE_ODE_TEMPLATES: list[_NativeOdeTemplate] = [
     _NativeOdeTemplate(
-        name="warfarin_pkpd",
+        name="transit_1cmt_pkpd",
         required_names=("KTR", "KA", "CL", "V", "EMAX", "EC50", "KOUT", "E0"),
         n_states=4, output_cmt_idx=2, vol_param_name="V",
-        state_probe_fn=_native_cvodes_advan6_mixed_pkpd_probe_multidose_rust,
-        sens_probe_fn=_native_cvodes_advan6_sensitivity_probe_multidose_rust,
-        is_mixed_pkpd=True,
+        state_probe_fn=_native_cvodes_transit_1cmt_pkpd_probe_multidose_rust,
+        sens_probe_fn=_native_cvodes_transit_1cmt_pkpd_sensitivity_probe_rust,
+        is_pkpd=True,
     ),
     _NativeOdeTemplate(
         name="4cmt_oral",
@@ -150,6 +164,8 @@ _NATIVE_ODE_TEMPLATES: list[_NativeOdeTemplate] = [
         n_states=4, output_cmt_idx=0, vol_param_name="V1",
         state_probe_fn=_native_4cmt_iv_probe,
         sens_probe_fn=_native_4cmt_iv_sens_probe,
+        infusion_state_probe_fn=_native_4cmt_iv_inf_probe,
+        infusion_sens_probe_fn=_native_4cmt_iv_inf_sens_probe,
     ),
     _NativeOdeTemplate(
         name="3cmt_oral",
@@ -164,6 +180,8 @@ _NATIVE_ODE_TEMPLATES: list[_NativeOdeTemplate] = [
         n_states=3, output_cmt_idx=0, vol_param_name="V1",
         state_probe_fn=_native_3cmt_iv_probe,
         sens_probe_fn=_native_3cmt_iv_sens_probe,
+        infusion_state_probe_fn=_native_3cmt_iv_inf_probe,
+        infusion_sens_probe_fn=_native_3cmt_iv_inf_sens_probe,
     ),
     _NativeOdeTemplate(
         name="2cmt_oral",
@@ -178,6 +196,8 @@ _NATIVE_ODE_TEMPLATES: list[_NativeOdeTemplate] = [
         n_states=2, output_cmt_idx=0, vol_param_name="V1",
         state_probe_fn=_native_2cmt_iv_probe,
         sens_probe_fn=_native_2cmt_iv_sens_probe,
+        infusion_state_probe_fn=_native_2cmt_iv_inf_probe,
+        infusion_sens_probe_fn=_native_2cmt_iv_inf_sens_probe,
     ),
     _NativeOdeTemplate(
         name="1cmt_oral",
@@ -192,6 +212,8 @@ _NATIVE_ODE_TEMPLATES: list[_NativeOdeTemplate] = [
         n_states=1, output_cmt_idx=0, vol_param_name="V",
         state_probe_fn=_native_1cmt_iv_probe,
         sens_probe_fn=_native_1cmt_iv_sens_probe,
+        infusion_state_probe_fn=_native_1cmt_iv_inf_probe,
+        infusion_sens_probe_fn=_native_1cmt_iv_inf_sens_probe,
     ),
 ]
 
@@ -223,6 +245,33 @@ _BLQ_METHOD_CODE: dict[str | None, int] = {
 
 
 _NAN_LLOQ_CACHE: dict[int, np.ndarray] = {}
+
+
+def _apply_alag(
+    dose_times: list[float],
+    dose_compartments: list[int],
+    pk_params: dict[str, float],
+) -> list[float]:
+    """Return dose times shifted by any ALAG{cmt} values present in pk_params.
+
+    Mirrors the adjustment performed by advan6._prepare_doses(): for each dose
+    event the lag time for its target compartment is read from pk_params under
+    the key ``ALAG{compartment}`` (e.g. ``ALAG1`` for compartment 1).  If no
+    lag time exists for a given compartment the dose time is left unchanged.
+
+    This is a pure function with no side-effects; it always returns a new list.
+    When no ALAG keys are present in pk_params the original list is returned
+    unchanged (no allocation).
+    """
+    # Fast path: if no ALAG keys exist in pk_params, skip all work.
+    if not any(k.startswith("ALAG") for k in pk_params):
+        return dose_times
+
+    adjusted: list[float] = []
+    for t, cmt in zip(dose_times, dose_compartments):
+        lag = pk_params.get(f"ALAG{cmt}", 0.0)
+        adjusted.append(t + float(lag))
+    return adjusted
 
 
 def _build_lloq_array(lloq: object, n: int) -> np.ndarray:
@@ -343,7 +392,7 @@ class IndividualModel:
             tuple(1.0 if i == j else 0.0 for i in range(self.n_eps)) for j in range(self.n_eps)
         )
         self._common_error_model = self._infer_common_error_model(error_callable, self.n_eps)
-        self._native_advan6_mixed_pkpd_contract = self._build_native_advan6_mixed_pkpd_contract()
+        self._native_ode_contract = self._build_native_ode_contract()
 
     def __getstate__(self) -> dict[str, Any]:
         """Drop rebuildable caches so worker-process pickling stays robust."""
@@ -395,7 +444,7 @@ class IndividualModel:
                 return None
         return np.asarray(dvid_values, dtype=float)
 
-    def _build_native_advan6_mixed_pkpd_contract(self) -> dict[str, Any] | None:
+    def _build_native_ode_contract(self) -> dict[str, Any] | None:
         # Gate 1: need at least one template with a working state probe.
         if not any(t.state_probe_fn is not None for t in _NATIVE_ODE_TEMPLATES):
             return None
@@ -419,16 +468,25 @@ class IndividualModel:
             if unsupported_covs:
                 return None
 
-        # All doses must be IV boluses into compartment 1.
+        # All doses must be into compartment 1 (IV or infusion into central).
+        # Oral (depot) compartment doses are not supported on the native path.
         if len(self._dose_events) == 0:
             return None
         for dose in self._dose_events:
-            if dose.is_infusion or int(dose.compartment) != 1:
+            if int(dose.compartment) != 1:
+                return None
+            # Infusions are supported for IV templates; reject negative rates
+            # (RATE=-1 duration-based) that were not normalised by event_processor.
+            if dose.rate < 0.0:
                 return None
 
         sorted_doses = sorted(self._dose_events, key=lambda d: float(d.time))
         dose_times = [float(d.time) for d in sorted_doses]
         dose_amts = [float(d.amount) for d in sorted_doses]
+        # rate == 0.0 → bolus; rate > 0.0 → constant-rate infusion
+        dose_rates = [float(d.rate) for d in sorted_doses]
+        dose_compartments = [int(d.compartment) for d in sorted_doses]
+        has_infusion = any(r > 0.0 for r in dose_rates)
 
         obs_times = np.asarray(self.subject_events.obs_times, dtype=float)
         if len(obs_times) == 0 or np.any(np.diff(obs_times) < 0.0):
@@ -437,23 +495,24 @@ class IndividualModel:
         # Template matching is deferred to probe time (when pk_params are known).
         # We store the common arrays here so they are not recomputed each call.
         return {
-            "dose_amount": dose_amts[0],  # backward-compat
+            "dose_amount": dose_amts[0],  # backward-compat scalar
             "dose_times": dose_times,
             "dose_amts": dose_amts,
+            "dose_rates": dose_rates,
+            "dose_compartments": dose_compartments,
+            "has_infusion": has_infusion,
             "obs_times": obs_times.copy(),
             "obs_times_list": obs_times.tolist(),
             "n_compartments": int(getattr(self.pk_subroutine, "n_compartments", 4)),
-            # legacy fields (still used by old tests and the warfarin PCMT gate)
-            "required_names": ("KTR", "KA", "CL", "V", "EMAX", "EC50", "KOUT", "E0"),
-            "is_mixed_pkpd": self._common_error_model[0] == "mixed_pkpd_dvid_theta",
+            "is_pkpd": self._common_error_model[0] == "mixed_pkpd_dvid_theta",
         }
 
-    def _try_native_advan6_mixed_pkpd_probe(
+    def _try_native_ode_probe(
         self,
         pk_params: dict[str, float],
         obs_times: np.ndarray,
     ) -> PKSolution | None:
-        contract = self._native_advan6_mixed_pkpd_contract
+        contract = self._native_ode_contract
         if contract is None:
             return None
         if (
@@ -464,51 +523,57 @@ class IndividualModel:
 
         # Find the first template (most specific) whose required names are all
         # present in pk_params and whose state probe is available.
+        # n_states must equal n_compartments to prevent a model with more
+        # parameters from incorrectly matching a simpler template whose
+        # required_names happen to be a subset of the model's pk_params.
+        n_cmt = contract.get("n_compartments", -1)
         template: _NativeOdeTemplate | None = None
         for tmpl in _NATIVE_ODE_TEMPLATES:
             if tmpl.state_probe_fn is None:
                 continue
+            if tmpl.n_states != n_cmt:
+                continue
             if any(name not in pk_params for name in tmpl.required_names):
                 continue
-            # The warfarin PK/PD template additionally requires PCMT == 3.
-            if tmpl.is_mixed_pkpd and int(pk_params.get("PCMT", 0)) != 3:
-                continue
+            # For PK/PD templates: if PCMT is present it must match the
+            # template's PK output compartment (1-indexed).
+            if tmpl.is_pkpd and "PCMT" in pk_params:
+                if int(pk_params["PCMT"]) != tmpl.output_cmt_idx + 1:
+                    continue
             template = tmpl
             break
 
         if template is None:
-            # No template matched; fall back to legacy single-dose warfarin probe.
-            required = contract["required_names"]
-            if any(name not in pk_params for name in required):
-                return None
-            if contract["is_mixed_pkpd"] and int(pk_params.get("PCMT", 0)) != 3:
-                return None
-            single_probe = _native_cvodes_advan6_mixed_pkpd_probe_rust
-            if single_probe is None or len(contract["dose_times"]) != 1:
-                return None
-            theta = [float(pk_params[name]) for name in required]
-            amounts_raw = np.asarray(
-                single_probe(contract["obs_times_list"], contract["dose_amts"][0], theta),
-                dtype=float,
-            )
-            if amounts_raw.shape != (len(obs_times), 4):
-                return None
-            n_comp = contract["n_compartments"]
-            amounts = np.zeros((len(obs_times), max(n_comp, 4)), dtype=float)
-            amounts[:, :4] = amounts_raw
-            ipred = amounts_raw[:, 2] / float(pk_params["V"])
-            return PKSolution(times=obs_times.copy(), amounts=amounts, ipred=ipred, f=ipred.copy())
+            return None
 
         required = template.required_names
         theta = [float(pk_params[name]) for name in required]
-        dose_times = contract["dose_times"]
+        dose_times = _apply_alag(
+            contract["dose_times"], contract["dose_compartments"], pk_params
+        )
         dose_amts = contract["dose_amts"]
+        dose_rates = contract["dose_rates"]
+        has_infusion = contract["has_infusion"]
 
         try:
-            amounts_raw = np.asarray(
-                template.state_probe_fn(contract["obs_times_list"], dose_times, dose_amts, theta),
-                dtype=float,
-            )
+            if has_infusion:
+                # Infusion path: requires an infusion-aware probe.
+                # Fall back to Python if this template doesn't have one.
+                if template.infusion_state_probe_fn is None:
+                    return None
+                amounts_raw = np.asarray(
+                    template.infusion_state_probe_fn(
+                        contract["obs_times_list"], dose_times, dose_amts, dose_rates, theta
+                    ),
+                    dtype=float,
+                )
+            else:
+                amounts_raw = np.asarray(
+                    template.state_probe_fn(
+                        contract["obs_times_list"], dose_times, dose_amts, theta
+                    ),
+                    dtype=float,
+                )
         except Exception:
             return None
 
@@ -535,7 +600,7 @@ class IndividualModel:
         stay contract-specific underneath, but callers should not need to know
         which dataset or prototype first motivated the native path.
         """
-        return self._try_native_advan6_mixed_pkpd_probe(pk_params, obs_times)
+        return self._try_native_ode_probe(pk_params, obs_times)
 
     def native_advan6_prediction_eta_jacobian(
         self,
@@ -572,8 +637,11 @@ class IndividualModel:
         Returns:
             G_i array of shape (n_obs, n_eta), or ``None`` if unavailable.
         """
-        contract = self._native_advan6_mixed_pkpd_contract
+        contract = self._native_ode_contract
         if contract is None:
+            return None
+        # Mixed PK/PD models use DVID-based output routing not supported here.
+        if contract.get("is_pkpd", False):
             return None
         if self.pk_callable is None:
             return None
@@ -588,11 +656,18 @@ class IndividualModel:
         except Exception:
             return None
 
-        # Resolve template — pick the first one that (a) has a sens probe and
-        # (b) has all required names present; skip mixed PK/PD (needs DVID routing).
+        n_cmt = contract.get("n_compartments", -1)
+        # Resolve template — pick the first one that:
+        #   (a) has a sens probe, (b) is not mixed PK/PD,
+        #   (c) state count matches the model's compartment count, and
+        #   (d) all required param names are present in pk_callable output.
+        # Checking (c) prevents a model with extra params (e.g. 8-param PKPD)
+        # from incorrectly matching a simpler template (e.g. 1cmt_oral).
         template: _NativeOdeTemplate | None = None
         for tmpl in _NATIVE_ODE_TEMPLATES:
-            if tmpl.sens_probe_fn is None or tmpl.is_mixed_pkpd:
+            if tmpl.sens_probe_fn is None or tmpl.is_pkpd:
+                continue
+            if tmpl.n_states != n_cmt:
                 continue
             if any(name not in pk_params_0 for name in tmpl.required_names):
                 continue
@@ -610,6 +685,10 @@ class IndividualModel:
         output_cmt = template.output_cmt_idx
         n_states = template.n_states
 
+        dose_times = _apply_alag(
+            contract["dose_times"], contract["dose_compartments"], pk_params_0
+        )
+
         all_obs_times = np.asarray(self.subject_events.obs_times, dtype=float)
         obs_times_masked = all_obs_times[obs_mask]
         n_obs = int(obs_mask.sum())
@@ -624,7 +703,7 @@ class IndividualModel:
         try:
             states_raw, sens_raw = template.sens_probe_fn(
                 sorted_times.tolist(),
-                contract["dose_times"],
+                dose_times,
                 contract["dose_amts"],
                 ode_theta,
             )
@@ -672,8 +751,10 @@ class IndividualModel:
         that ``numerical_hessian`` would require.  Returns None (never raises)
         so that callers can fall through to the numerical Hessian path.
         """
-        contract = self._native_advan6_mixed_pkpd_contract
+        contract = self._native_ode_contract
         if contract is None:
+            return None
+        if contract.get("is_pkpd", False):
             return None
 
         cem = self._common_error_model
@@ -704,10 +785,14 @@ class IndividualModel:
         except Exception:
             return None
 
-        # Resolve template (skip mixed PK/PD and those without sensitivity probes)
+        n_cmt = contract.get("n_compartments", -1)
+        # Resolve template — same criteria as native_advan6_prediction_eta_jacobian:
+        # n_states must match n_compartments to prevent greedy mis-matching.
         template: _NativeOdeTemplate | None = None
         for tmpl in _NATIVE_ODE_TEMPLATES:
-            if tmpl.sens_probe_fn is None or tmpl.is_mixed_pkpd:
+            if tmpl.sens_probe_fn is None or tmpl.is_pkpd:
+                continue
+            if tmpl.n_states != n_cmt:
                 continue
             if any(name not in pk_params_0 for name in tmpl.required_names):
                 continue
@@ -725,6 +810,10 @@ class IndividualModel:
         output_cmt = template.output_cmt_idx
         n_states = template.n_states
 
+        dose_times = _apply_alag(
+            contract["dose_times"], contract["dose_compartments"], pk_params_0
+        )
+
         all_obs_times = np.asarray(self.subject_events.obs_times, dtype=float)
         obs_times_masked = all_obs_times[obs_mask]
         order = np.argsort(obs_times_masked, kind="stable")
@@ -735,7 +824,7 @@ class IndividualModel:
         try:
             states_raw, sens_raw = template.sens_probe_fn(
                 sorted_times.tolist(),
-                contract["dose_times"],
+                dose_times,
                 contract["dose_amts"],
                 ode_theta,
             )

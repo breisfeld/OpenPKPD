@@ -19,7 +19,7 @@ use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
 use std::f64::consts::SQRT_2;
 #[cfg(feature = "native-cvodes")]
-use std::time::Instant;
+
 
 #[cfg(feature = "native-cvodes")]
 use cvode_wrap::{
@@ -27,13 +27,14 @@ use cvode_wrap::{
     SolverSensi, StepKind,
 };
 
-/// Number of ODE parameters for the ADVAN6 mixed PK/PD model
+/// Number of ODE parameters for the transit_1cmt_pkpd model
 /// (KTR, KA, CL, V, EMAX, EC50, KOUT, E0).
 #[cfg(feature = "native-cvodes")]
 const N_ODE_PARAMS: usize = 8;
 
 #[cfg(feature = "native-cvodes")]
-struct Advan6MixedPkpdTheta {
+#[derive(Clone, Copy)]
+struct Transit1CmtPkpdTheta {
     ktr: f64,
     ka: f64,
     cl: f64,
@@ -45,11 +46,11 @@ struct Advan6MixedPkpdTheta {
 }
 
 #[cfg(feature = "native-cvodes")]
-fn cvode_wrap_advan6_mixed_pkpd_rhs(
+fn rhs_transit_1cmt_pkpd(
     _t: f64,
     y: &[f64; 4],
     dy: &mut [f64; 4],
-    theta: &Advan6MixedPkpdTheta,
+    theta: &Transit1CmtPkpdTheta,
 ) -> RhsResult {
     let a1 = y[0];
     let a2 = y[1];
@@ -80,13 +81,13 @@ fn cvode_wrap_advan6_mixed_pkpd_rhs(
 ///
 /// Parameter ordering: [KTR, KA, CL, V, EMAX, EC50, KOUT, E0]
 #[cfg(feature = "native-cvodes")]
-fn cvode_wrap_advan6_mixed_pkpd_sens_rhs(
+fn sens_rhs_transit_1cmt_pkpd(
     _t: f64,
     y: &[f64; 4],
     _ydot: &[f64; 4],
     ys: [&[f64; 4]; N_ODE_PARAMS],
     ysdot: [&mut [f64; 4]; N_ODE_PARAMS],
-    theta: &Advan6MixedPkpdTheta,
+    theta: &Transit1CmtPkpdTheta,
 ) -> RhsResult {
     let a1 = y[0];
     let a2 = y[1];
@@ -154,16 +155,6 @@ fn cvode_wrap_advan6_mixed_pkpd_sens_rhs(
     RhsResult::Ok
 }
 
-#[cfg(feature = "native-cvodes")]
-fn cvode_wrap_linear_rhs(
-    _t: f64,
-    y: &[f64; 2],
-    dy: &mut [f64; 2],
-    _data: &(),
-) -> RhsResult {
-    *dy = [-0.5 * y[0], 0.5 * y[0] - 0.25 * y[1]];
-    RhsResult::Ok
-}
 
 // ln(2π)
 const LOG2PI: f64 = 1.837_877_066_409_345_5_f64;
@@ -315,37 +306,10 @@ fn neg2ll_obs_loop(
     -2.0 * ll
 }
 
-#[cfg(feature = "native-cvodes")]
-#[pyfunction]
-fn native_cvodes_linear_probe(tout: f64) -> PyResult<Vec<f64>> {
-    if !tout.is_finite() || tout < 0.0 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "tout must be finite and non-negative",
-        ));
-    }
-
-    let y0 = [1.0_f64, 0.0_f64];
-    let mut solver = SolverNoSensi::new(
-        LinearMultistepMethod::Bdf,
-        cvode_wrap_linear_rhs,
-        0.0,
-        &y0,
-        1e-8,
-        AbsTolerance::scalar(1e-10),
-        (),
-    )
-    .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(format!("{err:?}")))?;
-
-    let (_tret, y) = solver
-        .step(tout, StepKind::Normal)
-        .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(format!("{err:?}")))?;
-
-    Ok(y.to_vec())
-}
 
 #[cfg(feature = "native-cvodes")]
 #[pyfunction]
-fn native_cvodes_advan6_mixed_pkpd_probe(
+fn native_cvodes_transit_1cmt_pkpd_probe(
     times: Vec<f64>,
     dose_amt: f64,
     theta: Vec<f64>,
@@ -371,7 +335,7 @@ fn native_cvodes_advan6_mixed_pkpd_probe(
         ));
     }
 
-    let theta = Advan6MixedPkpdTheta {
+    let theta = Transit1CmtPkpdTheta {
         ktr: theta[0],
         ka: theta[1],
         cl: theta[2],
@@ -385,7 +349,7 @@ fn native_cvodes_advan6_mixed_pkpd_probe(
 
     let mut solver = SolverNoSensi::new(
         LinearMultistepMethod::Bdf,
-        cvode_wrap_advan6_mixed_pkpd_rhs,
+        rhs_transit_1cmt_pkpd,
         0.0,
         &y0,
         1e-8,
@@ -408,120 +372,9 @@ fn native_cvodes_advan6_mixed_pkpd_probe(
     Ok(out)
 }
 
-#[cfg(feature = "native-cvodes")]
-#[pyfunction]
-fn native_cvodes_advan6_mixed_pkpd_repeat_probe(
-    times: Vec<f64>,
-    dose_amt: f64,
-    theta: Vec<f64>,
-    n_repeats: usize,
-) -> PyResult<(f64, Vec<f64>)> {
-    if n_repeats == 0 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "n_repeats must be >= 1",
-        ));
-    }
-    if theta.len() != 8 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "theta must have exactly 8 values: KTR, KA, CL, V, EMAX, EC50, KOUT, E0",
-        ));
-    }
-    if !dose_amt.is_finite() || dose_amt < 0.0 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "dose_amt must be finite and non-negative",
-        ));
-    }
-    if times.is_empty() {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "times must not be empty",
-        ));
-    }
-    if times.iter().any(|t| !t.is_finite() || *t < 0.0) {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "times must be finite and non-negative",
-        ));
-    }
-    if times.windows(2).any(|w| w[1] < w[0]) {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "times must be sorted in non-decreasing order",
-        ));
-    }
 
-    let base_theta = Advan6MixedPkpdTheta {
-        ktr: theta[0],
-        ka: theta[1],
-        cl: theta[2],
-        v: theta[3],
-        emax: theta[4],
-        ec50: theta[5],
-        kout: theta[6],
-        e0: theta[7],
-    };
-    let y0 = [dose_amt, 0.0_f64, 0.0_f64, 0.0_f64];
-    let mut last_state = y0.to_vec();
-    let t0 = Instant::now();
 
-    for _ in 0..n_repeats {
-        let mut solver = SolverNoSensi::new(
-            LinearMultistepMethod::Bdf,
-            cvode_wrap_advan6_mixed_pkpd_rhs,
-            0.0,
-            &y0,
-            1e-8,
-            AbsTolerance::scalar(1e-10),
-            Advan6MixedPkpdTheta {
-                ktr: base_theta.ktr,
-                ka: base_theta.ka,
-                cl: base_theta.cl,
-                v: base_theta.v,
-                emax: base_theta.emax,
-                ec50: base_theta.ec50,
-                kout: base_theta.kout,
-                e0: base_theta.e0,
-            },
-        )
-        .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(format!("{err:?}")))?;
-
-        for &tout in &times {
-            let (_, y) = if tout == 0.0 {
-                (0.0, &y0)
-            } else {
-                solver.step(tout, StepKind::Normal)
-                    .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(format!("{err:?}")))?
-            };
-            last_state = y.to_vec();
-        }
-    }
-
-    Ok((t0.elapsed().as_secs_f64(), last_state))
-}
-
-// ── multi-dose probe ─────────────────────────────────────────────────────────
-
-/// Build an `Advan6MixedPkpdTheta` from a slice, returning `Err` on bad input.
-#[cfg(feature = "native-cvodes")]
-fn unpack_theta(theta: &[f64]) -> PyResult<Advan6MixedPkpdTheta> {
-    if theta.len() != 8 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "theta must have exactly 8 values: KTR, KA, CL, V, EMAX, EC50, KOUT, E0",
-        ));
-    }
-    Ok(Advan6MixedPkpdTheta {
-        ktr: theta[0], ka: theta[1], cl: theta[2], v: theta[3],
-        emax: theta[4], ec50: theta[5], kout: theta[6], e0: theta[7],
-    })
-}
-
-/// Clone-like copy of `Advan6MixedPkpdTheta` (not derived to keep the struct simple).
-#[cfg(feature = "native-cvodes")]
-fn copy_theta(t: &Advan6MixedPkpdTheta) -> Advan6MixedPkpdTheta {
-    Advan6MixedPkpdTheta {
-        ktr: t.ktr, ka: t.ka, cl: t.cl, v: t.v,
-        emax: t.emax, ec50: t.ec50, kout: t.kout, e0: t.e0,
-    }
-}
-
-/// CVODES BDF integrator for the 4-state warfarin-shaped mixed PK/PD ODE
+/// CVODES BDF integrator for the transit_1cmt_pkpd 4-state ODE
 /// with multiple IV bolus doses.
 ///
 /// Algorithm
@@ -544,140 +397,15 @@ fn copy_theta(t: &Advan6MixedPkpdTheta) -> Advan6MixedPkpdTheta {
 /// Vec of length n_obs, each element a Vec<f64> of length 4 (A1..A4).
 #[cfg(feature = "native-cvodes")]
 #[pyfunction]
-fn native_cvodes_advan6_mixed_pkpd_probe_multidose(
+fn native_cvodes_transit_1cmt_pkpd_probe_multidose(
     obs_times: Vec<f64>,
     dose_times: Vec<f64>,
     dose_amts: Vec<f64>,
     theta: Vec<f64>,
 ) -> PyResult<Vec<Vec<f64>>> {
-    // ── input validation ─────────────────────────────────────────────────────
-    if dose_times.len() != dose_amts.len() {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "dose_times and dose_amts must have the same length",
-        ));
-    }
-    if dose_times.is_empty() {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "dose_times must not be empty",
-        ));
-    }
-    if obs_times.iter().any(|t| !t.is_finite() || *t < 0.0) {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "obs_times must be finite and non-negative",
-        ));
-    }
-    if obs_times.windows(2).any(|w| w[1] < w[0]) {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "obs_times must be sorted in non-decreasing order",
-        ));
-    }
-    if dose_times.windows(2).any(|w| w[1] < w[0]) {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "dose_times must be sorted in non-decreasing order",
-        ));
-    }
-    if dose_times.iter().any(|t| !t.is_finite() || *t < 0.0) {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "dose_times must be finite and non-negative",
-        ));
-    }
-    if dose_amts.iter().any(|a| !a.is_finite() || *a < 0.0) {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "dose_amts must be finite and non-negative",
-        ));
-    }
-
-    let base_theta = unpack_theta(&theta)?;
-    let n_obs = obs_times.len();
-    let n_doses = dose_times.len();
-
-    // ── segment-based integration ─────────────────────────────────────────────
-    //
-    // State vector and output allocation.
-    let mut y: [f64; 4] = [0.0; 4];
-    let mut out: Vec<Vec<f64>> = vec![vec![0.0; 4]; n_obs];
-    let mut obs_i = 0usize;
-
-    // Phase 1: observations strictly before the first dose → zero state.
-    let first_dose_t = dose_times[0];
-    while obs_i < n_obs && obs_times[obs_i] < first_dose_t {
-        // out[obs_i] is already the zero vector from initialization.
-        obs_i += 1;
-    }
-
-    // Phase 2: one solver per dose interval.
-    //
-    // For each dose we:
-    //   a) apply the instantaneous bolus to y[0]
-    //   b) record observations at exactly the dose time (post-dose state)
-    //   c) create a new CVODES solver starting at t_dose with state y
-    //   d) step through every observation in (t_dose, next_dose)
-    //   e) advance the solver to the next dose time so the state y is ready
-    //      for the next iteration's bolus application
-    //
-    // The solver is declared *inside* the loop body so Rust can infer its
-    // concrete type without an explicit generic annotation.
-    for dose_i in 0..n_doses {
-        let t_dose = dose_times[dose_i];
-        let next_dose_t = if dose_i + 1 < n_doses {
-            dose_times[dose_i + 1]
-        } else {
-            f64::INFINITY
-        };
-
-        // (a) Apply instantaneous bolus.
-        y[0] += dose_amts[dose_i];
-
-        // (b) Observations at exactly the dose time get the post-dose state.
-        while obs_i < n_obs && obs_times[obs_i] <= t_dose {
-            out[obs_i] = y.to_vec();
-            obs_i += 1;
-        }
-
-        // Determine whether this segment needs integration.
-        let needs_integration = obs_i < n_obs  // observations remain
-            || next_dose_t.is_finite();        // must advance state to next dose
-
-        if !needs_integration {
-            break;
-        }
-
-        // (c) Create a new solver for [t_dose, next_dose_t).
-        let mut solver = SolverNoSensi::new(
-            LinearMultistepMethod::Bdf,
-            cvode_wrap_advan6_mixed_pkpd_rhs,
-            t_dose,
-            &y,
-            1e-8,
-            AbsTolerance::scalar(1e-10),
-            copy_theta(&base_theta),
-        )
-        .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(format!("{err:?}")))?;
-
-        // (d) Step through observations in this dose interval.
-        while obs_i < n_obs
-            && (next_dose_t.is_infinite() || obs_times[obs_i] < next_dose_t)
-        {
-            let tout = obs_times[obs_i];
-            let (_, y_new) = solver
-                .step(tout, StepKind::Normal)
-                .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(format!("{err:?}")))?;
-            out[obs_i] = y_new.to_vec();
-            y = *y_new;
-            obs_i += 1;
-        }
-
-        // (e) Advance solver to the next dose time to obtain the pre-dose state.
-        if next_dose_t.is_finite() {
-            let (_, y_new) = solver
-                .step(next_dose_t, StepKind::Normal)
-                .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(format!("{err:?}")))?;
-            y = *y_new;
-        }
-        // solver is dropped here; a fresh one is created in the next iteration.
-    }
-
-    Ok(out)
+    validate_multidose_inputs(&obs_times, &dose_times, &dose_amts, 8, &theta, "KTR, KA, CL, V, EMAX, EC50, KOUT, E0")?;
+    let p = Transit1CmtPkpdTheta { ktr: theta[0], ka: theta[1], cl: theta[2], v: theta[3], emax: theta[4], ec50: theta[5], kout: theta[6], e0: theta[7] };
+    probe_multidose_core::<4, _>(&obs_times, &dose_times, &dose_amts, p, rhs_transit_1cmt_pkpd)
 }
 
 // ── sensitivity probe ─────────────────────────────────────────────────────────
@@ -691,7 +419,7 @@ fn native_cvodes_advan6_mixed_pkpd_probe_multidose(
 ///
 /// Algorithm
 /// ---------
-/// Mirrors `native_cvodes_advan6_mixed_pkpd_probe_multidose` with a
+/// Mirrors `native_cvodes_transit_1cmt_pkpd_probe_multidose` with a
 /// `SolverSensi` solver replacing `SolverNoSensi`.  At each dose event
 /// the bolus is applied to A1 (as before) and the sensitivity initial
 /// conditions are carried over unchanged — because dose amounts are not
@@ -712,152 +440,15 @@ fn native_cvodes_advan6_mixed_pkpd_probe_multidose(
 ///                                   dA0/dθ1, …, dA3/dθ7]   (length 32)
 #[cfg(feature = "native-cvodes")]
 #[pyfunction]
-fn native_cvodes_advan6_mixed_pkpd_sensitivity_probe_multidose(
+fn native_cvodes_transit_1cmt_pkpd_sensitivity_probe_multidose(
     obs_times: Vec<f64>,
     dose_times: Vec<f64>,
     dose_amts: Vec<f64>,
     theta: Vec<f64>,
 ) -> PyResult<(Vec<Vec<f64>>, Vec<Vec<f64>>)> {
-    // ── input validation ─────────────────────────────────────────────────────
-    if dose_times.len() != dose_amts.len() {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "dose_times and dose_amts must have the same length",
-        ));
-    }
-    if dose_times.is_empty() {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "dose_times must not be empty",
-        ));
-    }
-    if obs_times.iter().any(|t| !t.is_finite() || *t < 0.0) {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "obs_times must be finite and non-negative",
-        ));
-    }
-    if obs_times.windows(2).any(|w| w[1] < w[0]) {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "obs_times must be sorted in non-decreasing order",
-        ));
-    }
-    if dose_times.windows(2).any(|w| w[1] < w[0]) {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "dose_times must be sorted in non-decreasing order",
-        ));
-    }
-    if dose_times.iter().any(|t| !t.is_finite() || *t < 0.0) {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "dose_times must be finite and non-negative",
-        ));
-    }
-    if dose_amts.iter().any(|a| !a.is_finite() || *a < 0.0) {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "dose_amts must be finite and non-negative",
-        ));
-    }
-
-    let base_theta = unpack_theta(&theta)?;
-    let n_obs = obs_times.len();
-    let n_doses = dose_times.len();
-
-    // ── state and sensitivity arrays ─────────────────────────────────────────
-    let mut y = [0.0f64; 4];
-    // ys[j][i] = dA_i/dθ_j;  initial sensitivities are zero because A(0)
-    // does not depend on the ODE parameters (dose amounts ≠ ODE params).
-    let mut ys = [[0.0f64; 4]; N_ODE_PARAMS];
-
-    // Pre-allocate outputs (zero-initialised: correct for pre-dose observations)
-    let mut out_states: Vec<Vec<f64>> = vec![vec![0.0; 4]; n_obs];
-    let mut out_sens:   Vec<Vec<f64>> = vec![vec![0.0; 4 * N_ODE_PARAMS]; n_obs];
-    let mut obs_i = 0usize;
-
-    // Phase 1: observations strictly before the first dose → zero state/sens
-    let first_dose_t = dose_times[0];
-    while obs_i < n_obs && obs_times[obs_i] < first_dose_t {
-        obs_i += 1;
-    }
-
-    // ── helper: flatten sensitivity matrix into a 32-element Vec ────────────
-    let flatten_sens = |ys: &[[f64; 4]; N_ODE_PARAMS]| -> Vec<f64> {
-        let mut v = Vec::with_capacity(4 * N_ODE_PARAMS);
-        for j in 0..N_ODE_PARAMS {
-            v.extend_from_slice(&ys[j]);
-        }
-        v
-    };
-
-    // Phase 2: one SolverSensi segment per dose interval
-    for dose_i in 0..n_doses {
-        let t_dose = dose_times[dose_i];
-        let next_dose_t = if dose_i + 1 < n_doses {
-            dose_times[dose_i + 1]
-        } else {
-            f64::INFINITY
-        };
-
-        // (a) Apply instantaneous bolus to A1; sensitivities unchanged.
-        y[0] += dose_amts[dose_i];
-
-        // (b) Record obs at exactly the dose time (post-dose state).
-        while obs_i < n_obs && obs_times[obs_i] <= t_dose {
-            out_states[obs_i] = y.to_vec();
-            out_sens[obs_i]   = flatten_sens(&ys);
-            obs_i += 1;
-        }
-
-        let needs_integration = obs_i < n_obs || next_dose_t.is_finite();
-        if !needs_integration {
-            break;
-        }
-
-        // (c) Create SolverSensi for [t_dose, next_dose_t).
-        //
-        // Sensitivity tolerances match the state tolerances so that
-        // gradient accuracy tracks ODE accuracy.
-        let mut solver = SolverSensi::new(
-            LinearMultistepMethod::Bdf,
-            cvode_wrap_advan6_mixed_pkpd_rhs,
-            cvode_wrap_advan6_mixed_pkpd_sens_rhs,
-            t_dose,
-            &y,
-            &ys,
-            1e-8,
-            AbsTolerance::scalar(1e-10),
-            SensiAbsTolerance::scalar([1e-10f64; N_ODE_PARAMS]),
-            copy_theta(&base_theta),
-        )
-        .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(format!("{err:?}")))?;
-
-        // (d) Step through observations in this dose interval.
-        while obs_i < n_obs
-            && (next_dose_t.is_infinite() || obs_times[obs_i] < next_dose_t)
-        {
-            let tout = obs_times[obs_i];
-            let (_, y_new, ys_new) = solver
-                .step(tout, StepKind::Normal)
-                .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(format!("{err:?}")))?;
-            y = *y_new;
-            for (dst, src) in ys.iter_mut().zip(ys_new.into_iter()) {
-                *dst = *src;
-            }
-            out_states[obs_i] = y.to_vec();
-            out_sens[obs_i]   = flatten_sens(&ys);
-            obs_i += 1;
-        }
-
-        // (e) Advance to next dose time to obtain the pre-dose carry-over state.
-        if next_dose_t.is_finite() {
-            let (_, y_new, ys_new) = solver
-                .step(next_dose_t, StepKind::Normal)
-                .map_err(|err| pyo3::exceptions::PyRuntimeError::new_err(format!("{err:?}")))?;
-            y = *y_new;
-            for (dst, src) in ys.iter_mut().zip(ys_new.into_iter()) {
-                *dst = *src;
-            }
-        }
-        // solver is dropped here; fresh one created next iteration.
-    }
-
-    Ok((out_states, out_sens))
+    validate_multidose_inputs(&obs_times, &dose_times, &dose_amts, 8, &theta, "KTR, KA, CL, V, EMAX, EC50, KOUT, E0")?;
+    let p = Transit1CmtPkpdTheta { ktr: theta[0], ka: theta[1], cl: theta[2], v: theta[3], emax: theta[4], ec50: theta[5], kout: theta[6], e0: theta[7] };
+    sens_probe_multidose_core::<4, 8, _>(&obs_times, &dose_times, &dose_amts, p, rhs_transit_1cmt_pkpd, sens_rhs_transit_1cmt_pkpd)
 }
 
 // ── shared helpers for template ODE solvers ───────────────────────────────────
@@ -914,6 +505,62 @@ fn validate_multidose_inputs(
     Ok(())
 }
 
+/// Validate inputs for the infusion-aware multidose probe functions.
+/// Extends `validate_multidose_inputs` with a `dose_rates` length check.
+#[cfg(feature = "native-cvodes")]
+fn validate_infusion_multidose_inputs(
+    obs_times: &[f64], dose_times: &[f64], dose_amts: &[f64],
+    dose_rates: &[f64], n_theta: usize, theta: &[f64], theta_desc: &str,
+) -> PyResult<()> {
+    validate_multidose_inputs(obs_times, dose_times, dose_amts, n_theta, theta, theta_desc)?;
+    if dose_rates.len() != dose_times.len() {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "dose_rates must have the same length as dose_times",
+        ));
+    }
+    if dose_rates.iter().any(|r| !r.is_finite() || *r < 0.0) {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "dose_rates must be finite and non-negative (0.0 = bolus)",
+        ));
+    }
+    Ok(())
+}
+
+/// Build a sorted list of (time, bolus_delta, rate_delta) breakpoints from a
+/// mixed bolus / constant-rate-infusion dose schedule.
+///
+/// For each dose:
+///   - bolus  (rate == 0):  one breakpoint  (t_dose, +amount, 0.0)
+///   - infusion (rate > 0):  two breakpoints (t_dose, 0.0, +rate)
+///                                           (t_dose+amt/rate, 0.0, −rate)
+///
+/// Breakpoints at the same time are sorted so that positive `rate_delta`
+/// entries (new dose / infusion start) precede negative ones (infusion end).
+#[cfg(feature = "native-cvodes")]
+fn build_infusion_breakpoints(
+    dose_times: &[f64], dose_amts: &[f64], dose_rates: &[f64],
+) -> Vec<(f64, f64, f64)> {
+    let mut bps: Vec<(f64, f64, f64)> = Vec::with_capacity(dose_times.len() * 2);
+    for i in 0..dose_times.len() {
+        let t = dose_times[i];
+        let amt = dose_amts[i];
+        let rate = dose_rates[i];
+        if rate == 0.0 {
+            bps.push((t, amt, 0.0));
+        } else {
+            bps.push((t, 0.0, rate));
+            bps.push((t + amt / rate, 0.0, -rate));
+        }
+    }
+    // Sort by time; within same time, positive rate_delta first.
+    bps.sort_by(|a, b| {
+        a.0.partial_cmp(&b.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal))
+    });
+    bps
+}
+
 /// Flatten a 2-D sensitivity array `[[f64; N_STATES]; N_PARAMS]` into
 /// a contiguous `Vec<f64>` in parameter-major order.
 #[cfg(feature = "native-cvodes")]
@@ -925,6 +572,200 @@ fn flatten_sens_2d<const N_PARAMS: usize, const N_STATES: usize>(
         v.extend_from_slice(&ys[j]);
     }
     v
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Generic dose-advance loops — shared by all bolus and infusion templates.
+// Each exported probe function unpacks its Vec<f64> theta into the appropriate
+// struct, then delegates to one of these four generic helpers.
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// Multi-dose bolus probe (no sensitivity). Doses applied to state index 0.
+/// `N` = ODE states; `Theta: Copy` = parameter struct.
+#[cfg(feature = "native-cvodes")]
+fn probe_multidose_core<const N: usize, Theta: Copy>(
+    obs_times: &[f64],
+    dose_times: &[f64],
+    dose_amts: &[f64],
+    theta: Theta,
+    rhs: fn(f64, &[f64; N], &mut [f64; N], &Theta) -> RhsResult,
+) -> PyResult<Vec<Vec<f64>>> {
+    let n_obs = obs_times.len();
+    let n_doses = dose_times.len();
+    let mut y = [0.0f64; N];
+    let mut out: Vec<Vec<f64>> = vec![vec![0.0; N]; n_obs];
+    let mut obs_i = 0usize;
+    let first_t = dose_times[0];
+    while obs_i < n_obs && obs_times[obs_i] < first_t { obs_i += 1; }
+    for dose_i in 0..n_doses {
+        let td = dose_times[dose_i];
+        let next_t = if dose_i + 1 < n_doses { dose_times[dose_i + 1] } else { f64::INFINITY };
+        y[0] += dose_amts[dose_i];
+        while obs_i < n_obs && obs_times[obs_i] <= td { out[obs_i] = y.to_vec(); obs_i += 1; }
+        if obs_i >= n_obs && next_t.is_infinite() { break; }
+        let mut solver = SolverNoSensi::new(LinearMultistepMethod::Bdf, rhs, td, &y,
+            1e-8, AbsTolerance::scalar(1e-10), theta,
+        ).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
+        while obs_i < n_obs && (next_t.is_infinite() || obs_times[obs_i] < next_t) {
+            let (_, y_new) = solver.step(obs_times[obs_i], StepKind::Normal)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
+            y = *y_new; out[obs_i] = y.to_vec(); obs_i += 1;
+        }
+        if next_t.is_finite() {
+            let (_, y_new) = solver.step(next_t, StepKind::Normal)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
+            y = *y_new;
+        }
+    }
+    Ok(out)
+}
+
+/// Multi-dose bolus probe WITH forward sensitivities. Doses applied to state 0.
+/// `N` = ODE states; `P` = number of ODE parameters; `Theta: Copy`.
+#[cfg(feature = "native-cvodes")]
+fn sens_probe_multidose_core<const N: usize, const P: usize, Theta: Copy>(
+    obs_times: &[f64],
+    dose_times: &[f64],
+    dose_amts: &[f64],
+    theta: Theta,
+    rhs: fn(f64, &[f64; N], &mut [f64; N], &Theta) -> RhsResult,
+    sens_rhs: fn(f64, &[f64; N], &[f64; N], [&[f64; N]; P], [&mut [f64; N]; P], &Theta) -> RhsResult,
+) -> PyResult<(Vec<Vec<f64>>, Vec<Vec<f64>>)> {
+    let n_obs = obs_times.len();
+    let n_doses = dose_times.len();
+    let mut y = [0.0f64; N];
+    let mut ys = [[0.0f64; N]; P];
+    let mut out_s: Vec<Vec<f64>> = vec![vec![0.0; N]; n_obs];
+    let mut out_g: Vec<Vec<f64>> = vec![vec![0.0; N * P]; n_obs];
+    let mut obs_i = 0usize;
+    let first_t = dose_times[0];
+    while obs_i < n_obs && obs_times[obs_i] < first_t { obs_i += 1; }
+    for dose_i in 0..n_doses {
+        let td = dose_times[dose_i];
+        let next_t = if dose_i + 1 < n_doses { dose_times[dose_i + 1] } else { f64::INFINITY };
+        y[0] += dose_amts[dose_i];
+        while obs_i < n_obs && obs_times[obs_i] <= td {
+            out_s[obs_i] = y.to_vec(); out_g[obs_i] = flatten_sens_2d(&ys); obs_i += 1;
+        }
+        if obs_i >= n_obs && next_t.is_infinite() { break; }
+        let mut solver = SolverSensi::new(LinearMultistepMethod::Bdf,
+            rhs, sens_rhs, td, &y, &ys,
+            1e-8, AbsTolerance::scalar(1e-10),
+            SensiAbsTolerance::scalar([1e-10f64; P]), theta,
+        ).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
+        while obs_i < n_obs && (next_t.is_infinite() || obs_times[obs_i] < next_t) {
+            let (_, y_new, ys_new) = solver.step(obs_times[obs_i], StepKind::Normal)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
+            y = *y_new;
+            for (d, s) in ys.iter_mut().zip(ys_new.into_iter()) { *d = *s; }
+            out_s[obs_i] = y.to_vec(); out_g[obs_i] = flatten_sens_2d(&ys); obs_i += 1;
+        }
+        if next_t.is_finite() {
+            let (_, y_new, ys_new) = solver.step(next_t, StepKind::Normal)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
+            y = *y_new;
+            for (d, s) in ys.iter_mut().zip(ys_new.into_iter()) { *d = *s; }
+        }
+    }
+    Ok((out_s, out_g))
+}
+
+/// Multi-dose constant-rate infusion probe (no sensitivity).
+/// `N` = ODE states; `InfTheta: Copy` = per-segment parameter struct.
+/// `make_theta(active_rate)` constructs the segment theta from the running rate.
+#[cfg(feature = "native-cvodes")]
+fn infusion_probe_multidose_core<const N: usize, InfTheta: Copy>(
+    obs_times: &[f64],
+    dose_times: &[f64],
+    dose_amts: &[f64],
+    dose_rates: &[f64],
+    make_theta: impl Fn(f64) -> InfTheta,
+    rhs: fn(f64, &[f64; N], &mut [f64; N], &InfTheta) -> RhsResult,
+) -> PyResult<Vec<Vec<f64>>> {
+    let n_obs = obs_times.len();
+    let mut y = [0.0f64; N];
+    let mut out: Vec<Vec<f64>> = vec![vec![0.0; N]; n_obs];
+    let mut obs_i = 0usize; let mut active_rate = 0.0f64;
+    let bps = build_infusion_breakpoints(dose_times, dose_amts, dose_rates);
+    let n_bps = bps.len();
+    if let Some(&(first_t, _, _)) = bps.first() {
+        while obs_i < n_obs && obs_times[obs_i] < first_t { obs_i += 1; }
+    }
+    for bp_i in 0..n_bps {
+        let (t_bp, bolus_delta, rate_delta) = bps[bp_i];
+        y[0] += bolus_delta; active_rate += rate_delta;
+        while obs_i < n_obs && obs_times[obs_i] <= t_bp { out[obs_i] = y.to_vec(); obs_i += 1; }
+        let next_t = if bp_i + 1 < n_bps { bps[bp_i + 1].0 } else { f64::INFINITY };
+        if next_t <= t_bp { continue; }
+        if obs_i >= n_obs && next_t.is_infinite() { break; }
+        let inf_p = make_theta(active_rate);
+        let mut solver = SolverNoSensi::new(LinearMultistepMethod::Bdf, rhs,
+            t_bp, &y, 1e-8, AbsTolerance::scalar(1e-10), inf_p,
+        ).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
+        while obs_i < n_obs && (next_t.is_infinite() || obs_times[obs_i] < next_t) {
+            let (_, y_new) = solver.step(obs_times[obs_i], StepKind::Normal)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
+            y = *y_new; out[obs_i] = y.to_vec(); obs_i += 1;
+        }
+        if next_t.is_finite() {
+            let (_, y_new) = solver.step(next_t, StepKind::Normal)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
+            y = *y_new;
+        }
+    }
+    Ok(out)
+}
+
+/// Multi-dose constant-rate infusion probe WITH forward sensitivities.
+/// `N` = ODE states; `P` = number of ODE parameters; `InfTheta: Copy`.
+#[cfg(feature = "native-cvodes")]
+fn infusion_sens_probe_multidose_core<const N: usize, const P: usize, InfTheta: Copy>(
+    obs_times: &[f64],
+    dose_times: &[f64],
+    dose_amts: &[f64],
+    dose_rates: &[f64],
+    make_theta: impl Fn(f64) -> InfTheta,
+    rhs: fn(f64, &[f64; N], &mut [f64; N], &InfTheta) -> RhsResult,
+    sens_rhs: fn(f64, &[f64; N], &[f64; N], [&[f64; N]; P], [&mut [f64; N]; P], &InfTheta) -> RhsResult,
+) -> PyResult<(Vec<Vec<f64>>, Vec<Vec<f64>>)> {
+    let n_obs = obs_times.len();
+    let mut y = [0.0f64; N]; let mut ys = [[0.0f64; N]; P];
+    let mut out_s: Vec<Vec<f64>> = vec![vec![0.0; N]; n_obs];
+    let mut out_g: Vec<Vec<f64>> = vec![vec![0.0; N * P]; n_obs];
+    let mut obs_i = 0usize; let mut active_rate = 0.0f64;
+    let bps = build_infusion_breakpoints(dose_times, dose_amts, dose_rates);
+    let n_bps = bps.len();
+    if let Some(&(first_t, _, _)) = bps.first() {
+        while obs_i < n_obs && obs_times[obs_i] < first_t { obs_i += 1; }
+    }
+    for bp_i in 0..n_bps {
+        let (t_bp, bolus_delta, rate_delta) = bps[bp_i];
+        y[0] += bolus_delta; active_rate += rate_delta;
+        while obs_i < n_obs && obs_times[obs_i] <= t_bp {
+            out_s[obs_i] = y.to_vec(); out_g[obs_i] = flatten_sens_2d(&ys); obs_i += 1;
+        }
+        let next_t = if bp_i + 1 < n_bps { bps[bp_i + 1].0 } else { f64::INFINITY };
+        if next_t <= t_bp { continue; }
+        if obs_i >= n_obs && next_t.is_infinite() { break; }
+        let inf_p = make_theta(active_rate);
+        let mut solver = SolverSensi::new(LinearMultistepMethod::Bdf,
+            rhs, sens_rhs, t_bp, &y, &ys,
+            1e-8, AbsTolerance::scalar(1e-10),
+            SensiAbsTolerance::scalar([1e-10f64; P]), inf_p,
+        ).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
+        while obs_i < n_obs && (next_t.is_infinite() || obs_times[obs_i] < next_t) {
+            let (_, y_new, ys_new) = solver.step(obs_times[obs_i], StepKind::Normal)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
+            y = *y_new; for (d, s) in ys.iter_mut().zip(ys_new.into_iter()) { *d = *s; }
+            out_s[obs_i] = y.to_vec(); out_g[obs_i] = flatten_sens_2d(&ys); obs_i += 1;
+        }
+        if next_t.is_finite() {
+            let (_, y_new, ys_new) = solver.step(next_t, StepKind::Normal)
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
+            y = *y_new; for (d, s) in ys.iter_mut().zip(ys_new.into_iter()) { *d = *s; }
+        }
+    }
+    Ok((out_s, out_g))
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -969,34 +810,7 @@ fn native_cvodes_1cmt_iv_probe_multidose(
 ) -> PyResult<Vec<Vec<f64>>> {
     validate_multidose_inputs(&obs_times, &dose_times, &dose_amts, 2, &theta, "CL, V")?;
     let p = Cmt1IvTheta { cl: theta[0], v: theta[1] };
-    let n_obs = obs_times.len();
-    let n_doses = dose_times.len();
-    let mut y = [0.0f64; 1];
-    let mut out: Vec<Vec<f64>> = vec![vec![0.0; 1]; n_obs];
-    let mut obs_i = 0usize;
-    let first_t = dose_times[0];
-    while obs_i < n_obs && obs_times[obs_i] < first_t { obs_i += 1; }
-    for dose_i in 0..n_doses {
-        let td = dose_times[dose_i];
-        let next_t = if dose_i + 1 < n_doses { dose_times[dose_i + 1] } else { f64::INFINITY };
-        y[0] += dose_amts[dose_i];
-        while obs_i < n_obs && obs_times[obs_i] <= td { out[obs_i] = y.to_vec(); obs_i += 1; }
-        if obs_i >= n_obs && next_t.is_infinite() { break; }
-        let mut solver = SolverNoSensi::new(LinearMultistepMethod::Bdf, rhs_1cmt_iv, td, &y,
-            1e-8, AbsTolerance::scalar(1e-10), p,
-        ).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-        while obs_i < n_obs && (next_t.is_infinite() || obs_times[obs_i] < next_t) {
-            let (_, y_new) = solver.step(obs_times[obs_i], StepKind::Normal)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-            y = *y_new; out[obs_i] = y.to_vec(); obs_i += 1;
-        }
-        if next_t.is_finite() {
-            let (_, y_new) = solver.step(next_t, StepKind::Normal)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-            y = *y_new;
-        }
-    }
-    Ok(out)
+    probe_multidose_core::<1, _>(&obs_times, &dose_times, &dose_amts, p, rhs_1cmt_iv)
 }
 
 #[cfg(feature = "native-cvodes")]
@@ -1006,43 +820,59 @@ fn native_cvodes_1cmt_iv_sensitivity_probe_multidose(
 ) -> PyResult<(Vec<Vec<f64>>, Vec<Vec<f64>>)> {
     validate_multidose_inputs(&obs_times, &dose_times, &dose_amts, 2, &theta, "CL, V")?;
     let p = Cmt1IvTheta { cl: theta[0], v: theta[1] };
-    let n_obs = obs_times.len();
-    let n_doses = dose_times.len();
-    let mut y = [0.0f64; 1];
-    let mut ys = [[0.0f64; 1]; 2];
-    let mut out_s: Vec<Vec<f64>> = vec![vec![0.0; 1]; n_obs];
-    let mut out_g: Vec<Vec<f64>> = vec![vec![0.0; 2]; n_obs];
-    let mut obs_i = 0usize;
-    let first_t = dose_times[0];
-    while obs_i < n_obs && obs_times[obs_i] < first_t { obs_i += 1; }
-    for dose_i in 0..n_doses {
-        let td = dose_times[dose_i];
-        let next_t = if dose_i + 1 < n_doses { dose_times[dose_i + 1] } else { f64::INFINITY };
-        y[0] += dose_amts[dose_i];
-        while obs_i < n_obs && obs_times[obs_i] <= td {
-            out_s[obs_i] = y.to_vec(); out_g[obs_i] = flatten_sens_2d(&ys); obs_i += 1;
-        }
-        if obs_i >= n_obs && next_t.is_infinite() { break; }
-        let mut solver = SolverSensi::new(LinearMultistepMethod::Bdf,
-            rhs_1cmt_iv, sens_rhs_1cmt_iv, td, &y, &ys,
-            1e-8, AbsTolerance::scalar(1e-10),
-            SensiAbsTolerance::scalar([1e-10f64; 2]), p,
-        ).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-        while obs_i < n_obs && (next_t.is_infinite() || obs_times[obs_i] < next_t) {
-            let (_, y_new, ys_new) = solver.step(obs_times[obs_i], StepKind::Normal)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-            y = *y_new;
-            for (d, s) in ys.iter_mut().zip(ys_new.into_iter()) { *d = *s; }
-            out_s[obs_i] = y.to_vec(); out_g[obs_i] = flatten_sens_2d(&ys); obs_i += 1;
-        }
-        if next_t.is_finite() {
-            let (_, y_new, ys_new) = solver.step(next_t, StepKind::Normal)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-            y = *y_new;
-            for (d, s) in ys.iter_mut().zip(ys_new.into_iter()) { *d = *s; }
-        }
+    sens_probe_multidose_core::<1, 2, _>(&obs_times, &dose_times, &dose_amts, p, rhs_1cmt_iv, sens_rhs_1cmt_iv)
+}
+
+// ── Infusion variant: 1-compartment IV ───────────────────────────────────────
+
+#[cfg(feature = "native-cvodes")]
+#[derive(Clone, Copy)]
+struct Cmt1IvInfTheta { cl: f64, v: f64, rate: f64 }
+
+#[cfg(feature = "native-cvodes")]
+fn rhs_1cmt_iv_inf(_t: f64, y: &[f64; 1], dy: &mut [f64; 1], p: &Cmt1IvInfTheta) -> RhsResult {
+    *dy = [p.rate - (p.cl / p.v) * y[0]];
+    RhsResult::Ok
+}
+
+/// Sensitivity RHS for infusion 1-cmt IV. The infusion rate is not a function
+/// of any ODE parameter, so ∂rate/∂θ = 0 and the direct terms are unchanged.
+#[cfg(feature = "native-cvodes")]
+fn sens_rhs_1cmt_iv_inf(
+    _t: f64, y: &[f64; 1], _ydot: &[f64; 1],
+    ys: [&[f64; 1]; 2], ysdot: [&mut [f64; 1]; 2],
+    p: &Cmt1IvInfTheta,
+) -> RhsResult {
+    let a1 = y[0]; let ke = p.cl / p.v; let v2 = p.v * p.v;
+    let direct: [[f64; 1]; 2] = [[-a1 / p.v], [p.cl * a1 / v2]];
+    for (j, (s, sd)) in ys.into_iter().zip(ysdot.into_iter()).enumerate() {
+        *sd = [-ke * s[0] + direct[j][0]];
     }
-    Ok((out_s, out_g))
+    RhsResult::Ok
+}
+
+#[cfg(feature = "native-cvodes")]
+#[pyfunction]
+fn native_cvodes_1cmt_iv_infusion_probe_multidose(
+    obs_times: Vec<f64>, dose_times: Vec<f64>, dose_amts: Vec<f64>,
+    dose_rates: Vec<f64>, theta: Vec<f64>,
+) -> PyResult<Vec<Vec<f64>>> {
+    validate_infusion_multidose_inputs(&obs_times, &dose_times, &dose_amts, &dose_rates, 2, &theta, "CL, V")?;
+    let cl = theta[0];
+    let v = theta[1];
+    infusion_probe_multidose_core::<1, _>(&obs_times, &dose_times, &dose_amts, &dose_rates, |rate| Cmt1IvInfTheta { cl, v, rate }, rhs_1cmt_iv_inf)
+}
+
+#[cfg(feature = "native-cvodes")]
+#[pyfunction]
+fn native_cvodes_1cmt_iv_infusion_sensitivity_probe_multidose(
+    obs_times: Vec<f64>, dose_times: Vec<f64>, dose_amts: Vec<f64>,
+    dose_rates: Vec<f64>, theta: Vec<f64>,
+) -> PyResult<(Vec<Vec<f64>>, Vec<Vec<f64>>)> {
+    validate_infusion_multidose_inputs(&obs_times, &dose_times, &dose_amts, &dose_rates, 2, &theta, "CL, V")?;
+    let cl = theta[0];
+    let v = theta[1];
+    infusion_sens_probe_multidose_core::<1, 2, _>(&obs_times, &dose_times, &dose_amts, &dose_rates, |rate| Cmt1IvInfTheta { cl, v, rate }, rhs_1cmt_iv_inf, sens_rhs_1cmt_iv_inf)
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1088,34 +918,7 @@ fn native_cvodes_1cmt_oral_probe_multidose(
 ) -> PyResult<Vec<Vec<f64>>> {
     validate_multidose_inputs(&obs_times, &dose_times, &dose_amts, 3, &theta, "KA, CL, V")?;
     let p = Cmt1OralTheta { ka: theta[0], cl: theta[1], v: theta[2] };
-    let n_obs = obs_times.len();
-    let n_doses = dose_times.len();
-    let mut y = [0.0f64; 2];
-    let mut out: Vec<Vec<f64>> = vec![vec![0.0; 2]; n_obs];
-    let mut obs_i = 0usize;
-    let first_t = dose_times[0];
-    while obs_i < n_obs && obs_times[obs_i] < first_t { obs_i += 1; }
-    for dose_i in 0..n_doses {
-        let td = dose_times[dose_i];
-        let next_t = if dose_i + 1 < n_doses { dose_times[dose_i + 1] } else { f64::INFINITY };
-        y[0] += dose_amts[dose_i];
-        while obs_i < n_obs && obs_times[obs_i] <= td { out[obs_i] = y.to_vec(); obs_i += 1; }
-        if obs_i >= n_obs && next_t.is_infinite() { break; }
-        let mut solver = SolverNoSensi::new(LinearMultistepMethod::Bdf, rhs_1cmt_oral, td, &y,
-            1e-8, AbsTolerance::scalar(1e-10), p,
-        ).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-        while obs_i < n_obs && (next_t.is_infinite() || obs_times[obs_i] < next_t) {
-            let (_, y_new) = solver.step(obs_times[obs_i], StepKind::Normal)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-            y = *y_new; out[obs_i] = y.to_vec(); obs_i += 1;
-        }
-        if next_t.is_finite() {
-            let (_, y_new) = solver.step(next_t, StepKind::Normal)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-            y = *y_new;
-        }
-    }
-    Ok(out)
+    probe_multidose_core::<2, _>(&obs_times, &dose_times, &dose_amts, p, rhs_1cmt_oral)
 }
 
 #[cfg(feature = "native-cvodes")]
@@ -1125,43 +928,7 @@ fn native_cvodes_1cmt_oral_sensitivity_probe_multidose(
 ) -> PyResult<(Vec<Vec<f64>>, Vec<Vec<f64>>)> {
     validate_multidose_inputs(&obs_times, &dose_times, &dose_amts, 3, &theta, "KA, CL, V")?;
     let p = Cmt1OralTheta { ka: theta[0], cl: theta[1], v: theta[2] };
-    let n_obs = obs_times.len();
-    let n_doses = dose_times.len();
-    let mut y = [0.0f64; 2];
-    let mut ys = [[0.0f64; 2]; 3];
-    let mut out_s: Vec<Vec<f64>> = vec![vec![0.0; 2]; n_obs];
-    let mut out_g: Vec<Vec<f64>> = vec![vec![0.0; 6]; n_obs];
-    let mut obs_i = 0usize;
-    let first_t = dose_times[0];
-    while obs_i < n_obs && obs_times[obs_i] < first_t { obs_i += 1; }
-    for dose_i in 0..n_doses {
-        let td = dose_times[dose_i];
-        let next_t = if dose_i + 1 < n_doses { dose_times[dose_i + 1] } else { f64::INFINITY };
-        y[0] += dose_amts[dose_i];
-        while obs_i < n_obs && obs_times[obs_i] <= td {
-            out_s[obs_i] = y.to_vec(); out_g[obs_i] = flatten_sens_2d(&ys); obs_i += 1;
-        }
-        if obs_i >= n_obs && next_t.is_infinite() { break; }
-        let mut solver = SolverSensi::new(LinearMultistepMethod::Bdf,
-            rhs_1cmt_oral, sens_rhs_1cmt_oral, td, &y, &ys,
-            1e-8, AbsTolerance::scalar(1e-10),
-            SensiAbsTolerance::scalar([1e-10f64; 3]), p,
-        ).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-        while obs_i < n_obs && (next_t.is_infinite() || obs_times[obs_i] < next_t) {
-            let (_, y_new, ys_new) = solver.step(obs_times[obs_i], StepKind::Normal)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-            y = *y_new;
-            for (d, s) in ys.iter_mut().zip(ys_new.into_iter()) { *d = *s; }
-            out_s[obs_i] = y.to_vec(); out_g[obs_i] = flatten_sens_2d(&ys); obs_i += 1;
-        }
-        if next_t.is_finite() {
-            let (_, y_new, ys_new) = solver.step(next_t, StepKind::Normal)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-            y = *y_new;
-            for (d, s) in ys.iter_mut().zip(ys_new.into_iter()) { *d = *s; }
-        }
-    }
-    Ok((out_s, out_g))
+    sens_probe_multidose_core::<2, 3, _>(&obs_times, &dose_times, &dose_amts, p, rhs_1cmt_oral, sens_rhs_1cmt_oral)
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1219,34 +986,7 @@ fn native_cvodes_2cmt_iv_probe_multidose(
 ) -> PyResult<Vec<Vec<f64>>> {
     validate_multidose_inputs(&obs_times, &dose_times, &dose_amts, 4, &theta, "CL, V1, Q, V2")?;
     let p = Cmt2IvTheta { cl: theta[0], v1: theta[1], q: theta[2], v2: theta[3] };
-    let n_obs = obs_times.len();
-    let n_doses = dose_times.len();
-    let mut y = [0.0f64; 2];
-    let mut out: Vec<Vec<f64>> = vec![vec![0.0; 2]; n_obs];
-    let mut obs_i = 0usize;
-    let first_t = dose_times[0];
-    while obs_i < n_obs && obs_times[obs_i] < first_t { obs_i += 1; }
-    for dose_i in 0..n_doses {
-        let td = dose_times[dose_i];
-        let next_t = if dose_i + 1 < n_doses { dose_times[dose_i + 1] } else { f64::INFINITY };
-        y[0] += dose_amts[dose_i];
-        while obs_i < n_obs && obs_times[obs_i] <= td { out[obs_i] = y.to_vec(); obs_i += 1; }
-        if obs_i >= n_obs && next_t.is_infinite() { break; }
-        let mut solver = SolverNoSensi::new(LinearMultistepMethod::Bdf, rhs_2cmt_iv, td, &y,
-            1e-8, AbsTolerance::scalar(1e-10), p,
-        ).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-        while obs_i < n_obs && (next_t.is_infinite() || obs_times[obs_i] < next_t) {
-            let (_, y_new) = solver.step(obs_times[obs_i], StepKind::Normal)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-            y = *y_new; out[obs_i] = y.to_vec(); obs_i += 1;
-        }
-        if next_t.is_finite() {
-            let (_, y_new) = solver.step(next_t, StepKind::Normal)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-            y = *y_new;
-        }
-    }
-    Ok(out)
+    probe_multidose_core::<2, _>(&obs_times, &dose_times, &dose_amts, p, rhs_2cmt_iv)
 }
 
 #[cfg(feature = "native-cvodes")]
@@ -1256,43 +996,71 @@ fn native_cvodes_2cmt_iv_sensitivity_probe_multidose(
 ) -> PyResult<(Vec<Vec<f64>>, Vec<Vec<f64>>)> {
     validate_multidose_inputs(&obs_times, &dose_times, &dose_amts, 4, &theta, "CL, V1, Q, V2")?;
     let p = Cmt2IvTheta { cl: theta[0], v1: theta[1], q: theta[2], v2: theta[3] };
-    let n_obs = obs_times.len();
-    let n_doses = dose_times.len();
-    let mut y = [0.0f64; 2];
-    let mut ys = [[0.0f64; 2]; 4];
-    let mut out_s: Vec<Vec<f64>> = vec![vec![0.0; 2]; n_obs];
-    let mut out_g: Vec<Vec<f64>> = vec![vec![0.0; 8]; n_obs];
-    let mut obs_i = 0usize;
-    let first_t = dose_times[0];
-    while obs_i < n_obs && obs_times[obs_i] < first_t { obs_i += 1; }
-    for dose_i in 0..n_doses {
-        let td = dose_times[dose_i];
-        let next_t = if dose_i + 1 < n_doses { dose_times[dose_i + 1] } else { f64::INFINITY };
-        y[0] += dose_amts[dose_i];
-        while obs_i < n_obs && obs_times[obs_i] <= td {
-            out_s[obs_i] = y.to_vec(); out_g[obs_i] = flatten_sens_2d(&ys); obs_i += 1;
-        }
-        if obs_i >= n_obs && next_t.is_infinite() { break; }
-        let mut solver = SolverSensi::new(LinearMultistepMethod::Bdf,
-            rhs_2cmt_iv, sens_rhs_2cmt_iv, td, &y, &ys,
-            1e-8, AbsTolerance::scalar(1e-10),
-            SensiAbsTolerance::scalar([1e-10f64; 4]), p,
-        ).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-        while obs_i < n_obs && (next_t.is_infinite() || obs_times[obs_i] < next_t) {
-            let (_, y_new, ys_new) = solver.step(obs_times[obs_i], StepKind::Normal)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-            y = *y_new;
-            for (d, s) in ys.iter_mut().zip(ys_new.into_iter()) { *d = *s; }
-            out_s[obs_i] = y.to_vec(); out_g[obs_i] = flatten_sens_2d(&ys); obs_i += 1;
-        }
-        if next_t.is_finite() {
-            let (_, y_new, ys_new) = solver.step(next_t, StepKind::Normal)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-            y = *y_new;
-            for (d, s) in ys.iter_mut().zip(ys_new.into_iter()) { *d = *s; }
-        }
+    sens_probe_multidose_core::<2, 4, _>(&obs_times, &dose_times, &dose_amts, p, rhs_2cmt_iv, sens_rhs_2cmt_iv)
+}
+
+// ── Infusion variant: 2-compartment IV ───────────────────────────────────────
+
+#[cfg(feature = "native-cvodes")]
+#[derive(Clone, Copy)]
+struct Cmt2IvInfTheta { cl: f64, v1: f64, q: f64, v2: f64, rate: f64 }
+
+#[cfg(feature = "native-cvodes")]
+fn rhs_2cmt_iv_inf(_t: f64, y: &[f64; 2], dy: &mut [f64; 2], p: &Cmt2IvInfTheta) -> RhsResult {
+    let k10 = p.cl / p.v1; let k12 = p.q / p.v1; let k21 = p.q / p.v2;
+    *dy = [p.rate - (k10 + k12) * y[0] + k21 * y[1], k12 * y[0] - k21 * y[1]];
+    RhsResult::Ok
+}
+
+#[cfg(feature = "native-cvodes")]
+fn sens_rhs_2cmt_iv_inf(
+    _t: f64, y: &[f64; 2], _ydot: &[f64; 2],
+    ys: [&[f64; 2]; 4], ysdot: [&mut [f64; 2]; 4],
+    p: &Cmt2IvInfTheta,
+) -> RhsResult {
+    let (a1, a2) = (y[0], y[1]);
+    let k10 = p.cl / p.v1; let k12 = p.q / p.v1; let k21 = p.q / p.v2;
+    let v1s = p.v1 * p.v1; let v2s = p.v2 * p.v2;
+    let direct: [[f64; 2]; 4] = [
+        [-a1 / p.v1, 0.0],
+        [(p.cl + p.q) * a1 / v1s, -p.q * a1 / v1s],
+        [-a1 / p.v1 + a2 / p.v2, a1 / p.v1 - a2 / p.v2],
+        [-p.q * a2 / v2s, p.q * a2 / v2s],
+    ];
+    let j00 = -(k10 + k12); let j11 = -k21;
+    for (j, (s, sd)) in ys.into_iter().zip(ysdot.into_iter()).enumerate() {
+        let d = direct[j];
+        *sd = [j00 * s[0] + k21 * s[1] + d[0], k12 * s[0] + j11 * s[1] + d[1]];
     }
-    Ok((out_s, out_g))
+    RhsResult::Ok
+}
+
+#[cfg(feature = "native-cvodes")]
+#[pyfunction]
+fn native_cvodes_2cmt_iv_infusion_probe_multidose(
+    obs_times: Vec<f64>, dose_times: Vec<f64>, dose_amts: Vec<f64>,
+    dose_rates: Vec<f64>, theta: Vec<f64>,
+) -> PyResult<Vec<Vec<f64>>> {
+    validate_infusion_multidose_inputs(&obs_times, &dose_times, &dose_amts, &dose_rates, 4, &theta, "CL, V1, Q, V2")?;
+    let cl = theta[0];
+    let v1 = theta[1];
+    let q = theta[2];
+    let v2 = theta[3];
+    infusion_probe_multidose_core::<2, _>(&obs_times, &dose_times, &dose_amts, &dose_rates, |rate| Cmt2IvInfTheta { cl, v1, q, v2, rate }, rhs_2cmt_iv_inf)
+}
+
+#[cfg(feature = "native-cvodes")]
+#[pyfunction]
+fn native_cvodes_2cmt_iv_infusion_sensitivity_probe_multidose(
+    obs_times: Vec<f64>, dose_times: Vec<f64>, dose_amts: Vec<f64>,
+    dose_rates: Vec<f64>, theta: Vec<f64>,
+) -> PyResult<(Vec<Vec<f64>>, Vec<Vec<f64>>)> {
+    validate_infusion_multidose_inputs(&obs_times, &dose_times, &dose_amts, &dose_rates, 4, &theta, "CL, V1, Q, V2")?;
+    let cl = theta[0];
+    let v1 = theta[1];
+    let q = theta[2];
+    let v2 = theta[3];
+    infusion_sens_probe_multidose_core::<2, 4, _>(&obs_times, &dose_times, &dose_amts, &dose_rates, |rate| Cmt2IvInfTheta { cl, v1, q, v2, rate }, rhs_2cmt_iv_inf, sens_rhs_2cmt_iv_inf)
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1354,34 +1122,7 @@ fn native_cvodes_2cmt_oral_probe_multidose(
 ) -> PyResult<Vec<Vec<f64>>> {
     validate_multidose_inputs(&obs_times, &dose_times, &dose_amts, 5, &theta, "KA, CL, V2, Q, V3")?;
     let p = Cmt2OralTheta { ka: theta[0], cl: theta[1], v2: theta[2], q: theta[3], v3: theta[4] };
-    let n_obs = obs_times.len();
-    let n_doses = dose_times.len();
-    let mut y = [0.0f64; 3];
-    let mut out: Vec<Vec<f64>> = vec![vec![0.0; 3]; n_obs];
-    let mut obs_i = 0usize;
-    let first_t = dose_times[0];
-    while obs_i < n_obs && obs_times[obs_i] < first_t { obs_i += 1; }
-    for dose_i in 0..n_doses {
-        let td = dose_times[dose_i];
-        let next_t = if dose_i + 1 < n_doses { dose_times[dose_i + 1] } else { f64::INFINITY };
-        y[0] += dose_amts[dose_i];
-        while obs_i < n_obs && obs_times[obs_i] <= td { out[obs_i] = y.to_vec(); obs_i += 1; }
-        if obs_i >= n_obs && next_t.is_infinite() { break; }
-        let mut solver = SolverNoSensi::new(LinearMultistepMethod::Bdf, rhs_2cmt_oral, td, &y,
-            1e-8, AbsTolerance::scalar(1e-10), p,
-        ).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-        while obs_i < n_obs && (next_t.is_infinite() || obs_times[obs_i] < next_t) {
-            let (_, y_new) = solver.step(obs_times[obs_i], StepKind::Normal)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-            y = *y_new; out[obs_i] = y.to_vec(); obs_i += 1;
-        }
-        if next_t.is_finite() {
-            let (_, y_new) = solver.step(next_t, StepKind::Normal)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-            y = *y_new;
-        }
-    }
-    Ok(out)
+    probe_multidose_core::<3, _>(&obs_times, &dose_times, &dose_amts, p, rhs_2cmt_oral)
 }
 
 #[cfg(feature = "native-cvodes")]
@@ -1391,43 +1132,7 @@ fn native_cvodes_2cmt_oral_sensitivity_probe_multidose(
 ) -> PyResult<(Vec<Vec<f64>>, Vec<Vec<f64>>)> {
     validate_multidose_inputs(&obs_times, &dose_times, &dose_amts, 5, &theta, "KA, CL, V2, Q, V3")?;
     let p = Cmt2OralTheta { ka: theta[0], cl: theta[1], v2: theta[2], q: theta[3], v3: theta[4] };
-    let n_obs = obs_times.len();
-    let n_doses = dose_times.len();
-    let mut y = [0.0f64; 3];
-    let mut ys = [[0.0f64; 3]; 5];
-    let mut out_s: Vec<Vec<f64>> = vec![vec![0.0; 3]; n_obs];
-    let mut out_g: Vec<Vec<f64>> = vec![vec![0.0; 15]; n_obs];
-    let mut obs_i = 0usize;
-    let first_t = dose_times[0];
-    while obs_i < n_obs && obs_times[obs_i] < first_t { obs_i += 1; }
-    for dose_i in 0..n_doses {
-        let td = dose_times[dose_i];
-        let next_t = if dose_i + 1 < n_doses { dose_times[dose_i + 1] } else { f64::INFINITY };
-        y[0] += dose_amts[dose_i];
-        while obs_i < n_obs && obs_times[obs_i] <= td {
-            out_s[obs_i] = y.to_vec(); out_g[obs_i] = flatten_sens_2d(&ys); obs_i += 1;
-        }
-        if obs_i >= n_obs && next_t.is_infinite() { break; }
-        let mut solver = SolverSensi::new(LinearMultistepMethod::Bdf,
-            rhs_2cmt_oral, sens_rhs_2cmt_oral, td, &y, &ys,
-            1e-8, AbsTolerance::scalar(1e-10),
-            SensiAbsTolerance::scalar([1e-10f64; 5]), p,
-        ).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-        while obs_i < n_obs && (next_t.is_infinite() || obs_times[obs_i] < next_t) {
-            let (_, y_new, ys_new) = solver.step(obs_times[obs_i], StepKind::Normal)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-            y = *y_new;
-            for (d, s) in ys.iter_mut().zip(ys_new.into_iter()) { *d = *s; }
-            out_s[obs_i] = y.to_vec(); out_g[obs_i] = flatten_sens_2d(&ys); obs_i += 1;
-        }
-        if next_t.is_finite() {
-            let (_, y_new, ys_new) = solver.step(next_t, StepKind::Normal)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-            y = *y_new;
-            for (d, s) in ys.iter_mut().zip(ys_new.into_iter()) { *d = *s; }
-        }
-    }
-    Ok((out_s, out_g))
+    sens_probe_multidose_core::<3, 5, _>(&obs_times, &dose_times, &dose_amts, p, rhs_2cmt_oral, sens_rhs_2cmt_oral)
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1490,35 +1195,8 @@ fn native_cvodes_3cmt_iv_probe_multidose(
     obs_times: Vec<f64>, dose_times: Vec<f64>, dose_amts: Vec<f64>, theta: Vec<f64>,
 ) -> PyResult<Vec<Vec<f64>>> {
     validate_multidose_inputs(&obs_times, &dose_times, &dose_amts, 6, &theta, "CL, V1, Q2, V2, Q3, V3")?;
-    let p = Cmt3IvTheta { cl:theta[0], v1:theta[1], q2:theta[2], v2:theta[3], q3:theta[4], v3:theta[5] };
-    let n_obs = obs_times.len();
-    let n_doses = dose_times.len();
-    let mut y = [0.0f64; 3];
-    let mut out: Vec<Vec<f64>> = vec![vec![0.0; 3]; n_obs];
-    let mut obs_i = 0usize;
-    let first_t = dose_times[0];
-    while obs_i < n_obs && obs_times[obs_i] < first_t { obs_i += 1; }
-    for dose_i in 0..n_doses {
-        let td = dose_times[dose_i];
-        let next_t = if dose_i + 1 < n_doses { dose_times[dose_i + 1] } else { f64::INFINITY };
-        y[0] += dose_amts[dose_i];
-        while obs_i < n_obs && obs_times[obs_i] <= td { out[obs_i] = y.to_vec(); obs_i += 1; }
-        if obs_i >= n_obs && next_t.is_infinite() { break; }
-        let mut solver = SolverNoSensi::new(LinearMultistepMethod::Bdf, rhs_3cmt_iv, td, &y,
-            1e-8, AbsTolerance::scalar(1e-10), p,
-        ).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-        while obs_i < n_obs && (next_t.is_infinite() || obs_times[obs_i] < next_t) {
-            let (_, y_new) = solver.step(obs_times[obs_i], StepKind::Normal)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-            y = *y_new; out[obs_i] = y.to_vec(); obs_i += 1;
-        }
-        if next_t.is_finite() {
-            let (_, y_new) = solver.step(next_t, StepKind::Normal)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-            y = *y_new;
-        }
-    }
-    Ok(out)
+    let p = Cmt3IvTheta { cl: theta[0], v1: theta[1], q2: theta[2], v2: theta[3], q3: theta[4], v3: theta[5] };
+    probe_multidose_core::<3, _>(&obs_times, &dose_times, &dose_amts, p, rhs_3cmt_iv)
 }
 
 #[cfg(feature = "native-cvodes")]
@@ -1527,46 +1205,90 @@ fn native_cvodes_3cmt_iv_sensitivity_probe_multidose(
     obs_times: Vec<f64>, dose_times: Vec<f64>, dose_amts: Vec<f64>, theta: Vec<f64>,
 ) -> PyResult<(Vec<Vec<f64>>, Vec<Vec<f64>>)> {
     validate_multidose_inputs(&obs_times, &dose_times, &dose_amts, 6, &theta, "CL, V1, Q2, V2, Q3, V3")?;
-    let p = Cmt3IvTheta { cl:theta[0], v1:theta[1], q2:theta[2], v2:theta[3], q3:theta[4], v3:theta[5] };
-    let n_obs = obs_times.len();
-    let n_doses = dose_times.len();
-    let mut y = [0.0f64; 3];
-    let mut ys = [[0.0f64; 3]; 6];
-    let mut out_s: Vec<Vec<f64>> = vec![vec![0.0; 3]; n_obs];
-    let mut out_g: Vec<Vec<f64>> = vec![vec![0.0; 18]; n_obs];
-    let mut obs_i = 0usize;
-    let first_t = dose_times[0];
-    while obs_i < n_obs && obs_times[obs_i] < first_t { obs_i += 1; }
-    for dose_i in 0..n_doses {
-        let td = dose_times[dose_i];
-        let next_t = if dose_i + 1 < n_doses { dose_times[dose_i + 1] } else { f64::INFINITY };
-        y[0] += dose_amts[dose_i];
-        while obs_i < n_obs && obs_times[obs_i] <= td {
-            out_s[obs_i] = y.to_vec(); out_g[obs_i] = flatten_sens_2d(&ys); obs_i += 1;
-        }
-        if obs_i >= n_obs && next_t.is_infinite() { break; }
-        let mut solver = SolverSensi::new(LinearMultistepMethod::Bdf,
-            rhs_3cmt_iv, sens_rhs_3cmt_iv, td, &y, &ys,
-            1e-8, AbsTolerance::scalar(1e-10),
-            SensiAbsTolerance::scalar([1e-10f64; 6]), p,
-        ).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-        while obs_i < n_obs && (next_t.is_infinite() || obs_times[obs_i] < next_t) {
-            let (_, y_new, ys_new) = solver.step(obs_times[obs_i], StepKind::Normal)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-            y = *y_new;
-            for (d, s) in ys.iter_mut().zip(ys_new.into_iter()) { *d = *s; }
-            out_s[obs_i] = y.to_vec(); out_g[obs_i] = flatten_sens_2d(&ys); obs_i += 1;
-        }
-        if next_t.is_finite() {
-            let (_, y_new, ys_new) = solver.step(next_t, StepKind::Normal)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-            y = *y_new;
-            for (d, s) in ys.iter_mut().zip(ys_new.into_iter()) { *d = *s; }
-        }
-    }
-    Ok((out_s, out_g))
+    let p = Cmt3IvTheta { cl: theta[0], v1: theta[1], q2: theta[2], v2: theta[3], q3: theta[4], v3: theta[5] };
+    sens_probe_multidose_core::<3, 6, _>(&obs_times, &dose_times, &dose_amts, p, rhs_3cmt_iv, sens_rhs_3cmt_iv)
 }
 
+
+// ── Infusion variant: 3-compartment IV ───────────────────────────────────────
+
+#[cfg(feature = "native-cvodes")]
+#[derive(Clone, Copy)]
+struct Cmt3IvInfTheta { cl: f64, v1: f64, q2: f64, v2: f64, q3: f64, v3: f64, rate: f64 }
+
+#[cfg(feature = "native-cvodes")]
+fn rhs_3cmt_iv_inf(_t: f64, y: &[f64; 3], dy: &mut [f64; 3], p: &Cmt3IvInfTheta) -> RhsResult {
+    let k10 = p.cl / p.v1; let k12 = p.q2 / p.v1; let k21 = p.q2 / p.v2;
+    let k13 = p.q3 / p.v1; let k31 = p.q3 / p.v3;
+    *dy = [
+        p.rate - (k10 + k12 + k13) * y[0] + k21 * y[1] + k31 * y[2],
+        k12 * y[0] - k21 * y[1],
+        k13 * y[0] - k31 * y[2],
+    ];
+    RhsResult::Ok
+}
+
+#[cfg(feature = "native-cvodes")]
+fn sens_rhs_3cmt_iv_inf(
+    _t: f64, y: &[f64; 3], _ydot: &[f64; 3],
+    ys: [&[f64; 3]; 6], ysdot: [&mut [f64; 3]; 6],
+    p: &Cmt3IvInfTheta,
+) -> RhsResult {
+    let (a1, a2, a3) = (y[0], y[1], y[2]);
+    let k10 = p.cl / p.v1; let k12 = p.q2 / p.v1; let k21 = p.q2 / p.v2;
+    let k13 = p.q3 / p.v1; let k31 = p.q3 / p.v3;
+    let v1s = p.v1 * p.v1; let v2s = p.v2 * p.v2; let v3s = p.v3 * p.v3;
+    let direct: [[f64; 3]; 6] = [
+        [-a1 / p.v1, 0.0, 0.0],
+        [(p.cl + p.q2 + p.q3) * a1 / v1s, -p.q2 * a1 / v1s, -p.q3 * a1 / v1s],
+        [-a1 / p.v1 + a2 / p.v2, a1 / p.v1 - a2 / p.v2, 0.0],
+        [-p.q2 * a2 / v2s, p.q2 * a2 / v2s, 0.0],
+        [-a1 / p.v1 + a3 / p.v3, 0.0, a1 / p.v1 - a3 / p.v3],
+        [-p.q3 * a3 / v3s, 0.0, p.q3 * a3 / v3s],
+    ];
+    let j00 = -(k10 + k12 + k13); let j11 = -k21; let j22 = -k31;
+    for (j, (s, sd)) in ys.into_iter().zip(ysdot.into_iter()).enumerate() {
+        let d = direct[j];
+        *sd = [
+            j00 * s[0] + k21 * s[1] + k31 * s[2] + d[0],
+            k12 * s[0] + j11 * s[1] + d[1],
+            k13 * s[0] + j22 * s[2] + d[2],
+        ];
+    }
+    RhsResult::Ok
+}
+
+#[cfg(feature = "native-cvodes")]
+#[pyfunction]
+fn native_cvodes_3cmt_iv_infusion_probe_multidose(
+    obs_times: Vec<f64>, dose_times: Vec<f64>, dose_amts: Vec<f64>,
+    dose_rates: Vec<f64>, theta: Vec<f64>,
+) -> PyResult<Vec<Vec<f64>>> {
+    validate_infusion_multidose_inputs(&obs_times, &dose_times, &dose_amts, &dose_rates, 6, &theta, "CL, V1, Q2, V2, Q3, V3")?;
+    let cl = theta[0];
+    let v1 = theta[1];
+    let q2 = theta[2];
+    let v2 = theta[3];
+    let q3 = theta[4];
+    let v3 = theta[5];
+    infusion_probe_multidose_core::<3, _>(&obs_times, &dose_times, &dose_amts, &dose_rates, |rate| Cmt3IvInfTheta { cl, v1, q2, v2, q3, v3, rate }, rhs_3cmt_iv_inf)
+}
+
+#[cfg(feature = "native-cvodes")]
+#[pyfunction]
+fn native_cvodes_3cmt_iv_infusion_sensitivity_probe_multidose(
+    obs_times: Vec<f64>, dose_times: Vec<f64>, dose_amts: Vec<f64>,
+    dose_rates: Vec<f64>, theta: Vec<f64>,
+) -> PyResult<(Vec<Vec<f64>>, Vec<Vec<f64>>)> {
+    validate_infusion_multidose_inputs(&obs_times, &dose_times, &dose_amts, &dose_rates, 6, &theta, "CL, V1, Q2, V2, Q3, V3")?;
+    let cl = theta[0];
+    let v1 = theta[1];
+    let q2 = theta[2];
+    let v2 = theta[3];
+    let q3 = theta[4];
+    let v3 = theta[5];
+    infusion_sens_probe_multidose_core::<3, 6, _>(&obs_times, &dose_times, &dose_amts, &dose_rates, |rate| Cmt3IvInfTheta { cl, v1, q2, v2, q3, v3, rate }, rhs_3cmt_iv_inf, sens_rhs_3cmt_iv_inf)
+}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Template: 3-compartment oral  (KA, CL, V2, Q3, V3, Q4, V4)
@@ -1630,30 +1352,8 @@ fn native_cvodes_3cmt_oral_probe_multidose(
     obs_times: Vec<f64>, dose_times: Vec<f64>, dose_amts: Vec<f64>, theta: Vec<f64>,
 ) -> PyResult<Vec<Vec<f64>>> {
     validate_multidose_inputs(&obs_times, &dose_times, &dose_amts, 7, &theta, "KA, CL, V2, Q3, V3, Q4, V4")?;
-    let p = Cmt3OralTheta { ka:theta[0], cl:theta[1], v2:theta[2], q3:theta[3], v3:theta[4], q4:theta[5], v4:theta[6] };
-    let n_obs = obs_times.len(); let n_doses = dose_times.len();
-    let mut y = [0.0f64; 4];
-    let mut out: Vec<Vec<f64>> = vec![vec![0.0; 4]; n_obs];
-    let mut obs_i = 0usize;
-    let first_t = dose_times[0];
-    while obs_i < n_obs && obs_times[obs_i] < first_t { obs_i += 1; }
-    for dose_i in 0..n_doses {
-        let td = dose_times[dose_i]; let next_t = if dose_i + 1 < n_doses { dose_times[dose_i + 1] } else { f64::INFINITY };
-        y[0] += dose_amts[dose_i];
-        while obs_i < n_obs && obs_times[obs_i] <= td { out[obs_i] = y.to_vec(); obs_i += 1; }
-        if obs_i >= n_obs && next_t.is_infinite() { break; }
-        let mut solver = SolverNoSensi::new(LinearMultistepMethod::Bdf, rhs_3cmt_oral, td, &y,
-            1e-8, AbsTolerance::scalar(1e-10), p,
-        ).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-        while obs_i < n_obs && (next_t.is_infinite() || obs_times[obs_i] < next_t) {
-            let (_, y_new) = solver.step(obs_times[obs_i], StepKind::Normal)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-            y = *y_new; out[obs_i] = y.to_vec(); obs_i += 1;
-        }
-        if next_t.is_finite() { let (_, y_new) = solver.step(next_t, StepKind::Normal)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?; y = *y_new; }
-    }
-    Ok(out)
+    let p = Cmt3OralTheta { ka: theta[0], cl: theta[1], v2: theta[2], q3: theta[3], v3: theta[4], q4: theta[5], v4: theta[6] };
+    probe_multidose_core::<4, _>(&obs_times, &dose_times, &dose_amts, p, rhs_3cmt_oral)
 }
 
 #[cfg(feature = "native-cvodes")]
@@ -1662,36 +1362,8 @@ fn native_cvodes_3cmt_oral_sensitivity_probe_multidose(
     obs_times: Vec<f64>, dose_times: Vec<f64>, dose_amts: Vec<f64>, theta: Vec<f64>,
 ) -> PyResult<(Vec<Vec<f64>>, Vec<Vec<f64>>)> {
     validate_multidose_inputs(&obs_times, &dose_times, &dose_amts, 7, &theta, "KA, CL, V2, Q3, V3, Q4, V4")?;
-    let p = Cmt3OralTheta { ka:theta[0], cl:theta[1], v2:theta[2], q3:theta[3], v3:theta[4], q4:theta[5], v4:theta[6] };
-    let n_obs = obs_times.len(); let n_doses = dose_times.len();
-    let mut y = [0.0f64; 4]; let mut ys = [[0.0f64; 4]; 7];
-    let mut out_s: Vec<Vec<f64>> = vec![vec![0.0; 4]; n_obs];
-    let mut out_g: Vec<Vec<f64>> = vec![vec![0.0; 28]; n_obs];   // 7 params × 4 states
-    let mut obs_i = 0usize;
-    let first_t = dose_times[0];
-    while obs_i < n_obs && obs_times[obs_i] < first_t { obs_i += 1; }
-    for dose_i in 0..n_doses {
-        let td = dose_times[dose_i]; let next_t = if dose_i + 1 < n_doses { dose_times[dose_i + 1] } else { f64::INFINITY };
-        y[0] += dose_amts[dose_i];
-        while obs_i < n_obs && obs_times[obs_i] <= td {
-            out_s[obs_i] = y.to_vec(); out_g[obs_i] = flatten_sens_2d(&ys); obs_i += 1;
-        }
-        if obs_i >= n_obs && next_t.is_infinite() { break; }
-        let mut solver = SolverSensi::new(LinearMultistepMethod::Bdf,
-            rhs_3cmt_oral, sens_rhs_3cmt_oral, td, &y, &ys,
-            1e-8, AbsTolerance::scalar(1e-10), SensiAbsTolerance::scalar([1e-10f64; 7]), p,
-        ).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-        while obs_i < n_obs && (next_t.is_infinite() || obs_times[obs_i] < next_t) {
-            let (_, y_new, ys_new) = solver.step(obs_times[obs_i], StepKind::Normal)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-            y = *y_new; for (d, s) in ys.iter_mut().zip(ys_new.into_iter()) { *d = *s; }
-            out_s[obs_i] = y.to_vec(); out_g[obs_i] = flatten_sens_2d(&ys); obs_i += 1;
-        }
-        if next_t.is_finite() { let (_, y_new, ys_new) = solver.step(next_t, StepKind::Normal)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-            y = *y_new; for (d, s) in ys.iter_mut().zip(ys_new.into_iter()) { *d = *s; } }
-    }
-    Ok((out_s, out_g))
+    let p = Cmt3OralTheta { ka: theta[0], cl: theta[1], v2: theta[2], q3: theta[3], v3: theta[4], q4: theta[5], v4: theta[6] };
+    sens_probe_multidose_core::<4, 7, _>(&obs_times, &dose_times, &dose_amts, p, rhs_3cmt_oral, sens_rhs_3cmt_oral)
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1759,28 +1431,8 @@ fn native_cvodes_4cmt_iv_probe_multidose(
     obs_times: Vec<f64>, dose_times: Vec<f64>, dose_amts: Vec<f64>, theta: Vec<f64>,
 ) -> PyResult<Vec<Vec<f64>>> {
     validate_multidose_inputs(&obs_times, &dose_times, &dose_amts, 8, &theta, "CL, V1, Q2, V2, Q3, V3, Q4, V4")?;
-    let p = Cmt4IvTheta { cl:theta[0], v1:theta[1], q2:theta[2], v2:theta[3], q3:theta[4], v3:theta[5], q4:theta[6], v4:theta[7] };
-    let n_obs = obs_times.len(); let n_doses = dose_times.len();
-    let mut y = [0.0f64; 4]; let mut out: Vec<Vec<f64>> = vec![vec![0.0; 4]; n_obs];
-    let mut obs_i = 0usize; let first_t = dose_times[0];
-    while obs_i < n_obs && obs_times[obs_i] < first_t { obs_i += 1; }
-    for dose_i in 0..n_doses {
-        let td = dose_times[dose_i]; let next_t = if dose_i + 1 < n_doses { dose_times[dose_i + 1] } else { f64::INFINITY };
-        y[0] += dose_amts[dose_i];
-        while obs_i < n_obs && obs_times[obs_i] <= td { out[obs_i] = y.to_vec(); obs_i += 1; }
-        if obs_i >= n_obs && next_t.is_infinite() { break; }
-        let mut solver = SolverNoSensi::new(LinearMultistepMethod::Bdf, rhs_4cmt_iv, td, &y,
-            1e-8, AbsTolerance::scalar(1e-10), p,
-        ).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-        while obs_i < n_obs && (next_t.is_infinite() || obs_times[obs_i] < next_t) {
-            let (_, y_new) = solver.step(obs_times[obs_i], StepKind::Normal)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-            y = *y_new; out[obs_i] = y.to_vec(); obs_i += 1;
-        }
-        if next_t.is_finite() { let (_, y_new) = solver.step(next_t, StepKind::Normal)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?; y = *y_new; }
-    }
-    Ok(out)
+    let p = Cmt4IvTheta { cl: theta[0], v1: theta[1], q2: theta[2], v2: theta[3], q3: theta[4], v3: theta[5], q4: theta[6], v4: theta[7] };
+    probe_multidose_core::<4, _>(&obs_times, &dose_times, &dose_amts, p, rhs_4cmt_iv)
 }
 
 #[cfg(feature = "native-cvodes")]
@@ -1789,35 +1441,89 @@ fn native_cvodes_4cmt_iv_sensitivity_probe_multidose(
     obs_times: Vec<f64>, dose_times: Vec<f64>, dose_amts: Vec<f64>, theta: Vec<f64>,
 ) -> PyResult<(Vec<Vec<f64>>, Vec<Vec<f64>>)> {
     validate_multidose_inputs(&obs_times, &dose_times, &dose_amts, 8, &theta, "CL, V1, Q2, V2, Q3, V3, Q4, V4")?;
-    let p = Cmt4IvTheta { cl:theta[0], v1:theta[1], q2:theta[2], v2:theta[3], q3:theta[4], v3:theta[5], q4:theta[6], v4:theta[7] };
-    let n_obs = obs_times.len(); let n_doses = dose_times.len();
-    let mut y = [0.0f64; 4]; let mut ys = [[0.0f64; 4]; 8];
-    let mut out_s: Vec<Vec<f64>> = vec![vec![0.0; 4]; n_obs];
-    let mut out_g: Vec<Vec<f64>> = vec![vec![0.0; 32]; n_obs];   // 8 params × 4 states
-    let mut obs_i = 0usize; let first_t = dose_times[0];
-    while obs_i < n_obs && obs_times[obs_i] < first_t { obs_i += 1; }
-    for dose_i in 0..n_doses {
-        let td = dose_times[dose_i]; let next_t = if dose_i + 1 < n_doses { dose_times[dose_i + 1] } else { f64::INFINITY };
-        y[0] += dose_amts[dose_i];
-        while obs_i < n_obs && obs_times[obs_i] <= td {
-            out_s[obs_i] = y.to_vec(); out_g[obs_i] = flatten_sens_2d(&ys); obs_i += 1;
-        }
-        if obs_i >= n_obs && next_t.is_infinite() { break; }
-        let mut solver = SolverSensi::new(LinearMultistepMethod::Bdf,
-            rhs_4cmt_iv, sens_rhs_4cmt_iv, td, &y, &ys,
-            1e-8, AbsTolerance::scalar(1e-10), SensiAbsTolerance::scalar([1e-10f64; 8]), p,
-        ).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-        while obs_i < n_obs && (next_t.is_infinite() || obs_times[obs_i] < next_t) {
-            let (_, y_new, ys_new) = solver.step(obs_times[obs_i], StepKind::Normal)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-            y = *y_new; for (d, s) in ys.iter_mut().zip(ys_new.into_iter()) { *d = *s; }
-            out_s[obs_i] = y.to_vec(); out_g[obs_i] = flatten_sens_2d(&ys); obs_i += 1;
-        }
-        if next_t.is_finite() { let (_, y_new, ys_new) = solver.step(next_t, StepKind::Normal)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-            y = *y_new; for (d, s) in ys.iter_mut().zip(ys_new.into_iter()) { *d = *s; } }
+    let p = Cmt4IvTheta { cl: theta[0], v1: theta[1], q2: theta[2], v2: theta[3], q3: theta[4], v3: theta[5], q4: theta[6], v4: theta[7] };
+    sens_probe_multidose_core::<4, 8, _>(&obs_times, &dose_times, &dose_amts, p, rhs_4cmt_iv, sens_rhs_4cmt_iv)
+}
+
+// ── Infusion variant: 4-compartment IV ───────────────────────────────────────
+
+#[cfg(feature = "native-cvodes")]
+#[derive(Clone, Copy)]
+struct Cmt4IvInfTheta { cl:f64, v1:f64, q2:f64, v2:f64, q3:f64, v3:f64, q4:f64, v4:f64, rate:f64 }
+
+#[cfg(feature = "native-cvodes")]
+fn rhs_4cmt_iv_inf(_t: f64, y: &[f64; 4], dy: &mut [f64; 4], p: &Cmt4IvInfTheta) -> RhsResult {
+    let k10=p.cl/p.v1; let k12=p.q2/p.v1; let k21=p.q2/p.v2;
+    let k13=p.q3/p.v1; let k31=p.q3/p.v3; let k14=p.q4/p.v1; let k41=p.q4/p.v4;
+    *dy = [
+        p.rate - (k10+k12+k13+k14)*y[0] + k21*y[1] + k31*y[2] + k41*y[3],
+        k12*y[0] - k21*y[1], k13*y[0] - k31*y[2], k14*y[0] - k41*y[3],
+    ];
+    RhsResult::Ok
+}
+
+#[cfg(feature = "native-cvodes")]
+fn sens_rhs_4cmt_iv_inf(
+    _t: f64, y: &[f64; 4], _ydot: &[f64; 4],
+    ys: [&[f64; 4]; 8], ysdot: [&mut [f64; 4]; 8], p: &Cmt4IvInfTheta,
+) -> RhsResult {
+    let (a1,a2,a3,a4)=(y[0],y[1],y[2],y[3]);
+    let k10=p.cl/p.v1; let k12=p.q2/p.v1; let k21=p.q2/p.v2;
+    let k13=p.q3/p.v1; let k31=p.q3/p.v3; let k14=p.q4/p.v1; let k41=p.q4/p.v4;
+    let v1s=p.v1*p.v1; let v2s=p.v2*p.v2; let v3s=p.v3*p.v3; let v4s=p.v4*p.v4;
+    let direct: [[f64; 4]; 8] = [
+        [-a1/p.v1, 0.0, 0.0, 0.0],
+        [(p.cl+p.q2+p.q3+p.q4)*a1/v1s, -p.q2*a1/v1s, -p.q3*a1/v1s, -p.q4*a1/v1s],
+        [-a1/p.v1+a2/p.v2, a1/p.v1-a2/p.v2, 0.0, 0.0],
+        [-p.q2*a2/v2s, p.q2*a2/v2s, 0.0, 0.0],
+        [-a1/p.v1+a3/p.v3, 0.0, a1/p.v1-a3/p.v3, 0.0],
+        [-p.q3*a3/v3s, 0.0, p.q3*a3/v3s, 0.0],
+        [-a1/p.v1+a4/p.v4, 0.0, 0.0, a1/p.v1-a4/p.v4],
+        [-p.q4*a4/v4s, 0.0, 0.0, p.q4*a4/v4s],
+    ];
+    let j00=-(k10+k12+k13+k14); let j11=-k21; let j22=-k31; let j33=-k41;
+    for (j,(s,sd)) in ys.into_iter().zip(ysdot.into_iter()).enumerate() {
+        let d=direct[j];
+        *sd=[j00*s[0]+k21*s[1]+k31*s[2]+k41*s[3]+d[0], k12*s[0]+j11*s[1]+d[1],
+             k13*s[0]+j22*s[2]+d[2], k14*s[0]+j33*s[3]+d[3]];
     }
-    Ok((out_s, out_g))
+    RhsResult::Ok
+}
+
+#[cfg(feature = "native-cvodes")]
+#[pyfunction]
+fn native_cvodes_4cmt_iv_infusion_probe_multidose(
+    obs_times: Vec<f64>, dose_times: Vec<f64>, dose_amts: Vec<f64>,
+    dose_rates: Vec<f64>, theta: Vec<f64>,
+) -> PyResult<Vec<Vec<f64>>> {
+    validate_infusion_multidose_inputs(&obs_times, &dose_times, &dose_amts, &dose_rates, 8, &theta, "CL, V1, Q2, V2, Q3, V3, Q4, V4")?;
+    let cl = theta[0];
+    let v1 = theta[1];
+    let q2 = theta[2];
+    let v2 = theta[3];
+    let q3 = theta[4];
+    let v3 = theta[5];
+    let q4 = theta[6];
+    let v4 = theta[7];
+    infusion_probe_multidose_core::<4, _>(&obs_times, &dose_times, &dose_amts, &dose_rates, |rate| Cmt4IvInfTheta { cl, v1, q2, v2, q3, v3, q4, v4, rate }, rhs_4cmt_iv_inf)
+}
+
+#[cfg(feature = "native-cvodes")]
+#[pyfunction]
+fn native_cvodes_4cmt_iv_infusion_sensitivity_probe_multidose(
+    obs_times: Vec<f64>, dose_times: Vec<f64>, dose_amts: Vec<f64>,
+    dose_rates: Vec<f64>, theta: Vec<f64>,
+) -> PyResult<(Vec<Vec<f64>>, Vec<Vec<f64>>)> {
+    validate_infusion_multidose_inputs(&obs_times, &dose_times, &dose_amts, &dose_rates, 8, &theta, "CL, V1, Q2, V2, Q3, V3, Q4, V4")?;
+    let cl = theta[0];
+    let v1 = theta[1];
+    let q2 = theta[2];
+    let v2 = theta[3];
+    let q3 = theta[4];
+    let v3 = theta[5];
+    let q4 = theta[6];
+    let v4 = theta[7];
+    infusion_sens_probe_multidose_core::<4, 8, _>(&obs_times, &dose_times, &dose_amts, &dose_rates, |rate| Cmt4IvInfTheta { cl, v1, q2, v2, q3, v3, q4, v4, rate }, rhs_4cmt_iv_inf, sens_rhs_4cmt_iv_inf)
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1889,28 +1595,8 @@ fn native_cvodes_4cmt_oral_probe_multidose(
     obs_times: Vec<f64>, dose_times: Vec<f64>, dose_amts: Vec<f64>, theta: Vec<f64>,
 ) -> PyResult<Vec<Vec<f64>>> {
     validate_multidose_inputs(&obs_times, &dose_times, &dose_amts, 9, &theta, "KA, CL, V2, Q3, V3, Q4, V4, Q5, V5")?;
-    let p = Cmt4OralTheta { ka:theta[0], cl:theta[1], v2:theta[2], q3:theta[3], v3:theta[4], q4:theta[5], v4:theta[6], q5:theta[7], v5:theta[8] };
-    let n_obs = obs_times.len(); let n_doses = dose_times.len();
-    let mut y = [0.0f64; 5]; let mut out: Vec<Vec<f64>> = vec![vec![0.0; 5]; n_obs];
-    let mut obs_i = 0usize; let first_t = dose_times[0];
-    while obs_i < n_obs && obs_times[obs_i] < first_t { obs_i += 1; }
-    for dose_i in 0..n_doses {
-        let td = dose_times[dose_i]; let next_t = if dose_i + 1 < n_doses { dose_times[dose_i + 1] } else { f64::INFINITY };
-        y[0] += dose_amts[dose_i];
-        while obs_i < n_obs && obs_times[obs_i] <= td { out[obs_i] = y.to_vec(); obs_i += 1; }
-        if obs_i >= n_obs && next_t.is_infinite() { break; }
-        let mut solver = SolverNoSensi::new(LinearMultistepMethod::Bdf, rhs_4cmt_oral, td, &y,
-            1e-8, AbsTolerance::scalar(1e-10), p,
-        ).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-        while obs_i < n_obs && (next_t.is_infinite() || obs_times[obs_i] < next_t) {
-            let (_, y_new) = solver.step(obs_times[obs_i], StepKind::Normal)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-            y = *y_new; out[obs_i] = y.to_vec(); obs_i += 1;
-        }
-        if next_t.is_finite() { let (_, y_new) = solver.step(next_t, StepKind::Normal)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?; y = *y_new; }
-    }
-    Ok(out)
+    let p = Cmt4OralTheta { ka: theta[0], cl: theta[1], v2: theta[2], q3: theta[3], v3: theta[4], q4: theta[5], v4: theta[6], q5: theta[7], v5: theta[8] };
+    probe_multidose_core::<5, _>(&obs_times, &dose_times, &dose_amts, p, rhs_4cmt_oral)
 }
 
 #[cfg(feature = "native-cvodes")]
@@ -1919,35 +1605,8 @@ fn native_cvodes_4cmt_oral_sensitivity_probe_multidose(
     obs_times: Vec<f64>, dose_times: Vec<f64>, dose_amts: Vec<f64>, theta: Vec<f64>,
 ) -> PyResult<(Vec<Vec<f64>>, Vec<Vec<f64>>)> {
     validate_multidose_inputs(&obs_times, &dose_times, &dose_amts, 9, &theta, "KA, CL, V2, Q3, V3, Q4, V4, Q5, V5")?;
-    let p = Cmt4OralTheta { ka:theta[0], cl:theta[1], v2:theta[2], q3:theta[3], v3:theta[4], q4:theta[5], v4:theta[6], q5:theta[7], v5:theta[8] };
-    let n_obs = obs_times.len(); let n_doses = dose_times.len();
-    let mut y = [0.0f64; 5]; let mut ys = [[0.0f64; 5]; 9];
-    let mut out_s: Vec<Vec<f64>> = vec![vec![0.0; 5]; n_obs];
-    let mut out_g: Vec<Vec<f64>> = vec![vec![0.0; 45]; n_obs];   // 9 params × 5 states
-    let mut obs_i = 0usize; let first_t = dose_times[0];
-    while obs_i < n_obs && obs_times[obs_i] < first_t { obs_i += 1; }
-    for dose_i in 0..n_doses {
-        let td = dose_times[dose_i]; let next_t = if dose_i + 1 < n_doses { dose_times[dose_i + 1] } else { f64::INFINITY };
-        y[0] += dose_amts[dose_i];
-        while obs_i < n_obs && obs_times[obs_i] <= td {
-            out_s[obs_i] = y.to_vec(); out_g[obs_i] = flatten_sens_2d(&ys); obs_i += 1;
-        }
-        if obs_i >= n_obs && next_t.is_infinite() { break; }
-        let mut solver = SolverSensi::new(LinearMultistepMethod::Bdf,
-            rhs_4cmt_oral, sens_rhs_4cmt_oral, td, &y, &ys,
-            1e-8, AbsTolerance::scalar(1e-10), SensiAbsTolerance::scalar([1e-10f64; 9]), p,
-        ).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-        while obs_i < n_obs && (next_t.is_infinite() || obs_times[obs_i] < next_t) {
-            let (_, y_new, ys_new) = solver.step(obs_times[obs_i], StepKind::Normal)
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-            y = *y_new; for (d, s) in ys.iter_mut().zip(ys_new.into_iter()) { *d = *s; }
-            out_s[obs_i] = y.to_vec(); out_g[obs_i] = flatten_sens_2d(&ys); obs_i += 1;
-        }
-        if next_t.is_finite() { let (_, y_new, ys_new) = solver.step(next_t, StepKind::Normal)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;
-            y = *y_new; for (d, s) in ys.iter_mut().zip(ys_new.into_iter()) { *d = *s; } }
-    }
-    Ok((out_s, out_g))
+    let p = Cmt4OralTheta { ka: theta[0], cl: theta[1], v2: theta[2], q3: theta[3], v3: theta[4], q4: theta[5], v4: theta[6], q5: theta[7], v5: theta[8] };
+    sens_probe_multidose_core::<5, 9, _>(&obs_times, &dose_times, &dose_amts, p, rhs_4cmt_oral, sens_rhs_4cmt_oral)
 }
 
 // ── module registration ───────────────────────────────────────────────────────
@@ -1956,16 +1615,12 @@ fn native_cvodes_4cmt_oral_sensitivity_probe_multidose(
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(neg2ll_obs_loop, m)?)?;
     #[cfg(feature = "native-cvodes")]
-    m.add_function(wrap_pyfunction!(native_cvodes_linear_probe, m)?)?;
+    m.add_function(wrap_pyfunction!(native_cvodes_transit_1cmt_pkpd_probe, m)?)?;
     #[cfg(feature = "native-cvodes")]
-    m.add_function(wrap_pyfunction!(native_cvodes_advan6_mixed_pkpd_probe, m)?)?;
-    #[cfg(feature = "native-cvodes")]
-    m.add_function(wrap_pyfunction!(native_cvodes_advan6_mixed_pkpd_repeat_probe, m)?)?;
-    #[cfg(feature = "native-cvodes")]
-    m.add_function(wrap_pyfunction!(native_cvodes_advan6_mixed_pkpd_probe_multidose, m)?)?;
+    m.add_function(wrap_pyfunction!(native_cvodes_transit_1cmt_pkpd_probe_multidose, m)?)?;
     #[cfg(feature = "native-cvodes")]
     m.add_function(wrap_pyfunction!(
-        native_cvodes_advan6_mixed_pkpd_sensitivity_probe_multidose, m
+        native_cvodes_transit_1cmt_pkpd_sensitivity_probe_multidose, m
     )?)?;
     // ── new ODE template functions ────────────────────────────────────────────
     #[cfg(feature = "native-cvodes")]
@@ -2000,5 +1655,22 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(native_cvodes_4cmt_oral_probe_multidose, m)?)?;
     #[cfg(feature = "native-cvodes")]
     m.add_function(wrap_pyfunction!(native_cvodes_4cmt_oral_sensitivity_probe_multidose, m)?)?;
+    // ── infusion-aware IV probes ──────────────────────────────────────────────
+    #[cfg(feature = "native-cvodes")]
+    m.add_function(wrap_pyfunction!(native_cvodes_1cmt_iv_infusion_probe_multidose, m)?)?;
+    #[cfg(feature = "native-cvodes")]
+    m.add_function(wrap_pyfunction!(native_cvodes_1cmt_iv_infusion_sensitivity_probe_multidose, m)?)?;
+    #[cfg(feature = "native-cvodes")]
+    m.add_function(wrap_pyfunction!(native_cvodes_2cmt_iv_infusion_probe_multidose, m)?)?;
+    #[cfg(feature = "native-cvodes")]
+    m.add_function(wrap_pyfunction!(native_cvodes_2cmt_iv_infusion_sensitivity_probe_multidose, m)?)?;
+    #[cfg(feature = "native-cvodes")]
+    m.add_function(wrap_pyfunction!(native_cvodes_3cmt_iv_infusion_probe_multidose, m)?)?;
+    #[cfg(feature = "native-cvodes")]
+    m.add_function(wrap_pyfunction!(native_cvodes_3cmt_iv_infusion_sensitivity_probe_multidose, m)?)?;
+    #[cfg(feature = "native-cvodes")]
+    m.add_function(wrap_pyfunction!(native_cvodes_4cmt_iv_infusion_probe_multidose, m)?)?;
+    #[cfg(feature = "native-cvodes")]
+    m.add_function(wrap_pyfunction!(native_cvodes_4cmt_iv_infusion_sensitivity_probe_multidose, m)?)?;
     Ok(())
 }

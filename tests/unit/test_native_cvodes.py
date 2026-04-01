@@ -8,7 +8,7 @@ Three concerns are covered here:
    Every BLQ method (M1-M7) is checked against an independent Python
    reference implementation to tolerances tighter than 1e-12.
 
-2. native_cvodes_advan6_mixed_pkpd_probe — CVODES BDF integrator for the
+2. native_cvodes_transit_1cmt_pkpd_probe — CVODES BDF integrator for the
    4-state warfarin-shaped mixed PK/PD ODE.
    Numerical parity vs scipy solve_ivp (rtol=1e-10, atol=1e-12) is verified
    for five parameter sets.  Mass balance and monotone-decline properties are
@@ -35,7 +35,9 @@ from scipy.integrate import solve_ivp
 from scipy.stats import norm as _norm
 
 # ---------------------------------------------------------------------------
-# Helpers — import native symbols, skip gracefully when absent
+# Native symbol imports — one canonical block, alphabetical by symbol name.
+# All probe variables are None when the native extension is unavailable or
+# when the native-cvodes feature was not compiled in.
 # ---------------------------------------------------------------------------
 
 def _try_import(name: str):
@@ -46,20 +48,100 @@ def _try_import(name: str):
         return None
 
 
-_neg2ll = _try_import("neg2ll_obs_loop")
-_probe = _try_import("native_cvodes_advan6_mixed_pkpd_probe")
+# ── non-ODE ──────────────────────────────────────────────────────────────────
+_neg2ll                    = _try_import("neg2ll_obs_loop")
 
-_multidose = _try_import("native_cvodes_advan6_mixed_pkpd_probe_multidose")
-_sens_probe = _try_import("native_cvodes_advan6_mixed_pkpd_sensitivity_probe_multidose")
+# ── transit 1-cmt PK/PD (4-state mixed model) ────────────────────────────────
+_transit_1cmt_pkpd_probe    = _try_import("native_cvodes_transit_1cmt_pkpd_probe")
+_transit_1cmt_pkpd_multidose = _try_import("native_cvodes_transit_1cmt_pkpd_probe_multidose")
+_transit_1cmt_pkpd_sens     = _try_import("native_cvodes_transit_1cmt_pkpd_sensitivity_probe_multidose")
+
+# ── 1-cmt IV bolus ────────────────────────────────────────────────────────────
+_1cmt_iv_probe             = _try_import("native_cvodes_1cmt_iv_probe_multidose")
+_1cmt_iv_sens              = _try_import("native_cvodes_1cmt_iv_sensitivity_probe_multidose")
+
+# ── 1-cmt IV infusion ─────────────────────────────────────────────────────────
+_1cmt_iv_inf_probe         = _try_import("native_cvodes_1cmt_iv_infusion_probe_multidose")
+_1cmt_iv_inf_sens          = _try_import("native_cvodes_1cmt_iv_infusion_sensitivity_probe_multidose")
+
+# ── 1-cmt oral ────────────────────────────────────────────────────────────────
+_1cmt_oral_probe           = _try_import("native_cvodes_1cmt_oral_probe_multidose")
+_1cmt_oral_sens            = _try_import("native_cvodes_1cmt_oral_sensitivity_probe_multidose")
+
+# ── 2-cmt IV bolus ────────────────────────────────────────────────────────────
+_2cmt_iv_probe             = _try_import("native_cvodes_2cmt_iv_probe_multidose")
+_2cmt_iv_sens              = _try_import("native_cvodes_2cmt_iv_sensitivity_probe_multidose")
+
+# ── 2-cmt IV infusion ─────────────────────────────────────────────────────────
+_2cmt_iv_inf_probe         = _try_import("native_cvodes_2cmt_iv_infusion_probe_multidose")
+_2cmt_iv_inf_sens          = _try_import("native_cvodes_2cmt_iv_infusion_sensitivity_probe_multidose")
+
+# ── 2-cmt oral ────────────────────────────────────────────────────────────────
+_2cmt_oral_probe           = _try_import("native_cvodes_2cmt_oral_probe_multidose")
+_2cmt_oral_sens            = _try_import("native_cvodes_2cmt_oral_sensitivity_probe_multidose")
+
+# ── 3-cmt IV bolus ────────────────────────────────────────────────────────────
+_3cmt_iv_probe             = _try_import("native_cvodes_3cmt_iv_probe_multidose")
+_3cmt_iv_sens              = _try_import("native_cvodes_3cmt_iv_sensitivity_probe_multidose")
+
+# ── 3-cmt IV infusion ─────────────────────────────────────────────────────────
+_3cmt_iv_inf_probe         = _try_import("native_cvodes_3cmt_iv_infusion_probe_multidose")
+_3cmt_iv_inf_sens          = _try_import("native_cvodes_3cmt_iv_infusion_sensitivity_probe_multidose")
+
+# ── 3-cmt oral ────────────────────────────────────────────────────────────────
+_3cmt_oral_probe           = _try_import("native_cvodes_3cmt_oral_probe_multidose")
+_3cmt_oral_sens            = _try_import("native_cvodes_3cmt_oral_sensitivity_probe_multidose")
+
+# ── 4-cmt IV bolus ────────────────────────────────────────────────────────────
+_4cmt_iv_probe             = _try_import("native_cvodes_4cmt_iv_probe_multidose")
+_4cmt_iv_sens              = _try_import("native_cvodes_4cmt_iv_sensitivity_probe_multidose")
+
+# ── 4-cmt IV infusion ─────────────────────────────────────────────────────────
+_4cmt_iv_inf_probe         = _try_import("native_cvodes_4cmt_iv_infusion_probe_multidose")
+_4cmt_iv_inf_sens          = _try_import("native_cvodes_4cmt_iv_infusion_sensitivity_probe_multidose")
+
+# ── 4-cmt oral ────────────────────────────────────────────────────────────────
+_4cmt_oral_probe           = _try_import("native_cvodes_4cmt_oral_probe_multidose")
+_4cmt_oral_sens            = _try_import("native_cvodes_4cmt_oral_sensitivity_probe_multidose")
+
+# ---------------------------------------------------------------------------
+# Skip helpers
+# ---------------------------------------------------------------------------
+
+def _require(*probes):
+    """Return an autouse class fixture that skips if any probe is None.
+
+    Usage inside a test class::
+
+        class TestMyFeature:
+            _skip = _require(_1cmt_iv_probe, _1cmt_iv_sens)
+    """
+    def _skip(self):
+        if any(p is None for p in probes):
+            pytest.skip("native extension not compiled in")
+    return pytest.fixture(autouse=True)(_skip)
+
+
+def _require_with_indiv(*probes):
+    """Like _require but also skips if IndividualModel is not importable."""
+    def _skip(self):
+        if any(p is None for p in probes):
+            pytest.skip("native extension not compiled in")
+        try:
+            from openpkpd.model.individual import IndividualModel  # noqa: F401
+        except ImportError:
+            pytest.skip("IndividualModel not importable")
+    return pytest.fixture(autouse=True)(_skip)
+
 
 pytestmark_native = pytest.mark.skipif(
     _neg2ll is None, reason="native _core extension not available"
 )
 pytestmark_cvodes = pytest.mark.skipif(
-    _probe is None, reason="native-cvodes feature not compiled in"
+    _transit_1cmt_pkpd_probe is None, reason="native-cvodes feature not compiled in"
 )
 pytestmark_sens = pytest.mark.skipif(
-    _sens_probe is None, reason="native-cvodes sensitivity probe not compiled in"
+    _transit_1cmt_pkpd_sens is None, reason="native-cvodes sensitivity probe not compiled in"
 )
 
 
@@ -226,7 +308,7 @@ class TestNeg2llObsLoop:
 
 
 # ===========================================================================
-# Section 2 — native_cvodes_advan6_mixed_pkpd_probe numerical accuracy
+# Section 2 — native_cvodes_transit_1cmt_pkpd_probe numerical accuracy
 # ===========================================================================
 
 # Canonical parameter sets.  Format: (KTR, KA, CL, V, EMAX, EC50, KOUT, E0)
@@ -274,7 +356,7 @@ class TestCvodesProbeAccuracy:
     def test_trajectories_match_scipy_reference(self, name: str, theta: tuple) -> None:
         times = _OBS_TIMES
         ref = _scipy_reference(times, _DOSE_AMT, theta)
-        rust = np.asarray(_probe(times, _DOSE_AMT, list(theta)), dtype=float)
+        rust = np.asarray(_transit_1cmt_pkpd_probe(times, _DOSE_AMT, list(theta)), dtype=float)
 
         assert rust.shape == (len(times), 4), f"{name}: unexpected shape {rust.shape}"
         # Absolute tolerance scales with dose amount; relative 5e-5 matches
@@ -285,7 +367,7 @@ class TestCvodesProbeAccuracy:
     @pytestmark_cvodes
     def test_zero_dose_gives_zero_pk_concentrations(self) -> None:
         theta = list(_PARAM_SETS["warfarin_standard"])
-        rust = np.asarray(_probe(_OBS_TIMES, 0.0, theta), dtype=float)
+        rust = np.asarray(_transit_1cmt_pkpd_probe(_OBS_TIMES, 0.0, theta), dtype=float)
         # A1, A2, A3 must all be zero; A4 relaxes toward E0 baseline = 0
         np.testing.assert_allclose(rust[:, :3], 0.0, atol=1e-10)
 
@@ -293,7 +375,7 @@ class TestCvodesProbeAccuracy:
     def test_t0_included_returns_initial_condition(self) -> None:
         theta = list(_PARAM_SETS["warfarin_standard"])
         times_with_zero = [0.0] + _OBS_TIMES
-        rust = np.asarray(_probe(times_with_zero, _DOSE_AMT, theta), dtype=float)
+        rust = np.asarray(_transit_1cmt_pkpd_probe(times_with_zero, _DOSE_AMT, theta), dtype=float)
         assert rust[0, 0] == pytest.approx(_DOSE_AMT, rel=1e-9)
         assert rust[0, 1] == pytest.approx(0.0, abs=1e-12)
         assert rust[0, 2] == pytest.approx(0.0, abs=1e-12)
@@ -302,7 +384,7 @@ class TestCvodesProbeAccuracy:
     def test_pk_mass_balance_is_conserved(self) -> None:
         """Sum of A1+A2+A3 must decrease monotonically — drug leaves system."""
         theta = list(_PARAM_SETS["warfarin_standard"])
-        rust = np.asarray(_probe(_OBS_TIMES, _DOSE_AMT, theta), dtype=float)
+        rust = np.asarray(_transit_1cmt_pkpd_probe(_OBS_TIMES, _DOSE_AMT, theta), dtype=float)
         pk_total = rust[:, 0] + rust[:, 1] + rust[:, 2]
         # PK compartments together drain over time (none re-enter)
         assert np.all(np.diff(pk_total) <= 1e-6), "PK compartments should drain monotonically"
@@ -312,7 +394,7 @@ class TestCvodesProbeAccuracy:
         """A3 (central PK) must peak and then decline."""
         theta = list(_PARAM_SETS["warfarin_standard"])
         times_dense = list(np.linspace(0.5, 72.0, 50))
-        rust = np.asarray(_probe(times_dense, _DOSE_AMT, theta), dtype=float)
+        rust = np.asarray(_transit_1cmt_pkpd_probe(times_dense, _DOSE_AMT, theta), dtype=float)
         a3 = rust[:, 2]
         peak_idx = int(np.argmax(a3))
         assert peak_idx > 0, "Peak must not be at the first time point"
@@ -322,26 +404,26 @@ class TestCvodesProbeAccuracy:
     def test_pd_effect_perturbs_only_a4(self) -> None:
         """Without PD (EMAX=0), A4 should stay near zero (KOUT·E0·0 = 0)."""
         theta = list(_PARAM_SETS["no_pd_effect"])
-        rust = np.asarray(_probe(_OBS_TIMES, _DOSE_AMT, theta), dtype=float)
+        rust = np.asarray(_transit_1cmt_pkpd_probe(_OBS_TIMES, _DOSE_AMT, theta), dtype=float)
         # With EMAX=0, pd=1 so da4/dt = KOUT*(E0*0 - A4) → A4 decays to 0
         np.testing.assert_allclose(rust[:, 3], 0.0, atol=1e-8)
 
     @pytestmark_cvodes
     def test_single_observation_time_returns_correct_shape(self) -> None:
         theta = list(_PARAM_SETS["warfarin_standard"])
-        rust = np.asarray(_probe([4.0], _DOSE_AMT, theta), dtype=float)
+        rust = np.asarray(_transit_1cmt_pkpd_probe([4.0], _DOSE_AMT, theta), dtype=float)
         assert rust.shape == (1, 4)
 
     @pytestmark_cvodes
     def test_unsorted_times_raises_value_error(self) -> None:
         theta = list(_PARAM_SETS["warfarin_standard"])
         with pytest.raises(Exception):
-            _probe([8.0, 2.0, 4.0], _DOSE_AMT, theta)
+            _transit_1cmt_pkpd_probe([8.0, 2.0, 4.0], _DOSE_AMT, theta)
 
     @pytestmark_cvodes
     def test_wrong_theta_length_raises_value_error(self) -> None:
         with pytest.raises(Exception):
-            _probe(_OBS_TIMES, _DOSE_AMT, [1.0, 2.0, 3.0])  # only 3 instead of 8
+            _transit_1cmt_pkpd_probe(_OBS_TIMES, _DOSE_AMT, [1.0, 2.0, 3.0])  # only 3 instead of 8
 
 
 # ===========================================================================
@@ -367,12 +449,12 @@ class TestNativeCvodesPerformance:
         times = _OBS_TIMES
 
         # Warm-up (JIT / import overhead)
-        _probe(times, _DOSE_AMT, theta)
+        _transit_1cmt_pkpd_probe(times, _DOSE_AMT, theta)
         _scipy_reference(times, _DOSE_AMT, tuple(theta), rtol=1e-6, atol=1e-8)
 
         t0 = time.perf_counter()
         for _ in range(_PERF_REPS):
-            _probe(times, _DOSE_AMT, theta)
+            _transit_1cmt_pkpd_probe(times, _DOSE_AMT, theta)
         rust_s = time.perf_counter() - t0
 
         t0 = time.perf_counter()
@@ -433,7 +515,7 @@ class TestNativeCvodesPerformance:
 # ===========================================================================
 
 pytestmark_multidose = pytest.mark.skipif(
-    _multidose is None, reason="native-cvodes multi-dose probe not available"
+    _transit_1cmt_pkpd_multidose is None, reason="native-cvodes multi-dose probe not available"
 )
 
 
@@ -498,8 +580,8 @@ class TestCvodesMultidoseAccuracy:
         """Multidose probe with one dose must match the single-dose probe exactly."""
         obs = _OBS_TIMES
         theta = _MD_THETA
-        single = np.asarray(_probe(obs, _DOSE_AMT, theta), dtype=float)
-        multi = np.asarray(_multidose(obs, [0.0], [_DOSE_AMT], theta), dtype=float)
+        single = np.asarray(_transit_1cmt_pkpd_probe(obs, _DOSE_AMT, theta), dtype=float)
+        multi = np.asarray(_transit_1cmt_pkpd_multidose(obs, [0.0], [_DOSE_AMT], theta), dtype=float)
         np.testing.assert_allclose(multi, single, rtol=1e-10, atol=1e-12,
                                    err_msg="single-dose multidose probe must match original probe")
 
@@ -507,7 +589,7 @@ class TestCvodesMultidoseAccuracy:
     def test_two_dose_matches_scipy_reference(self) -> None:
         obs, (dt, da) = _MD_OBS, _MD_DOSE_2
         ref = _scipy_multidose_reference(obs, dt, da, _MD_THETA)
-        rust = np.asarray(_multidose(obs, dt, da, _MD_THETA), dtype=float)
+        rust = np.asarray(_transit_1cmt_pkpd_multidose(obs, dt, da, _MD_THETA), dtype=float)
         np.testing.assert_allclose(rust, ref, rtol=5e-5, atol=1e-6,
                                    err_msg="two-dose scenario failed parity check")
 
@@ -515,7 +597,7 @@ class TestCvodesMultidoseAccuracy:
     def test_three_dose_matches_scipy_reference(self) -> None:
         obs, (dt, da) = _MD_OBS, _MD_DOSE_3
         ref = _scipy_multidose_reference(obs, dt, da, _MD_THETA)
-        rust = np.asarray(_multidose(obs, dt, da, _MD_THETA), dtype=float)
+        rust = np.asarray(_transit_1cmt_pkpd_multidose(obs, dt, da, _MD_THETA), dtype=float)
         np.testing.assert_allclose(rust, ref, rtol=5e-5, atol=1e-6,
                                    err_msg="three-dose scenario failed parity check")
 
@@ -524,7 +606,7 @@ class TestCvodesMultidoseAccuracy:
         """After the second dose A3 must be higher than the trough before it."""
         obs = [23.9, 24.1, 48.0]  # trough just before dose 2, shortly after, end
         dt, da = _MD_DOSE_2
-        rust = np.asarray(_multidose(obs, dt, da, _MD_THETA), dtype=float)
+        rust = np.asarray(_transit_1cmt_pkpd_multidose(obs, dt, da, _MD_THETA), dtype=float)
         a3_trough = rust[0, 2]
         a3_post_dose2 = rust[1, 2]
         assert a3_post_dose2 > a3_trough, (
@@ -537,7 +619,7 @@ class TestCvodesMultidoseAccuracy:
         # obs at t=24 coincides with dose 2 at t=24
         obs = [12.0, 24.0, 36.0]
         dt, da = [0.0, 24.0], [100.0, 100.0]
-        rust = np.asarray(_multidose(obs, dt, da, _MD_THETA), dtype=float)
+        rust = np.asarray(_transit_1cmt_pkpd_multidose(obs, dt, da, _MD_THETA), dtype=float)
         ref = _scipy_multidose_reference(obs, dt, da, _MD_THETA)
         np.testing.assert_allclose(rust, ref, rtol=5e-5, atol=1e-6)
         # A1 at t=24 should include the second bolus → larger than at t=12
@@ -548,7 +630,7 @@ class TestCvodesMultidoseAccuracy:
         """Observations before the first dose must have zero PK state."""
         obs = [0.5, 1.0]
         dt, da = [6.0], [100.0]  # first dose at t=6
-        rust = np.asarray(_multidose(obs, dt, da, _MD_THETA), dtype=float)
+        rust = np.asarray(_transit_1cmt_pkpd_multidose(obs, dt, da, _MD_THETA), dtype=float)
         np.testing.assert_allclose(rust, 0.0, atol=1e-12)
 
     @pytestmark_multidose
@@ -556,7 +638,7 @@ class TestCvodesMultidoseAccuracy:
         """Total A1+A2+A3 should not exceed cumulative doses."""
         obs = list(np.linspace(0.1, 72.0, 30))
         dt, da = _MD_DOSE_2
-        rust = np.asarray(_multidose(obs, dt, da, _MD_THETA), dtype=float)
+        rust = np.asarray(_transit_1cmt_pkpd_multidose(obs, dt, da, _MD_THETA), dtype=float)
         pk_total = rust[:, 0] + rust[:, 1] + rust[:, 2]
         total_dose = sum(da)
         assert np.all(pk_total <= total_dose + 1e-6), (
@@ -566,17 +648,17 @@ class TestCvodesMultidoseAccuracy:
     @pytestmark_multidose
     def test_validation_dose_time_desc_raises(self) -> None:
         with pytest.raises(Exception):
-            _multidose(_MD_OBS, [24.0, 0.0], [100.0, 100.0], _MD_THETA)
+            _transit_1cmt_pkpd_multidose(_MD_OBS, [24.0, 0.0], [100.0, 100.0], _MD_THETA)
 
     @pytestmark_multidose
     def test_validation_empty_dose_times_raises(self) -> None:
         with pytest.raises(Exception):
-            _multidose(_MD_OBS, [], [], _MD_THETA)
+            _transit_1cmt_pkpd_multidose(_MD_OBS, [], [], _MD_THETA)
 
     @pytestmark_multidose
     def test_validation_mismatched_dose_arrays_raises(self) -> None:
         with pytest.raises(Exception):
-            _multidose(_MD_OBS, [0.0, 24.0], [100.0], _MD_THETA)
+            _transit_1cmt_pkpd_multidose(_MD_OBS, [0.0, 24.0], [100.0], _MD_THETA)
 
     @pytestmark_multidose
     def test_multidose_faster_than_scipy_reference(self) -> None:
@@ -585,12 +667,12 @@ class TestCvodesMultidoseAccuracy:
         theta = _MD_THETA
 
         # Warm-up
-        _multidose(obs, dt, da, theta)
+        _transit_1cmt_pkpd_multidose(obs, dt, da, theta)
         _scipy_multidose_reference(obs, dt, da, theta, rtol=1e-6, atol=1e-8)
 
         t0 = time.perf_counter()
         for _ in range(_PERF_REPS):
-            _multidose(obs, dt, da, theta)
+            _transit_1cmt_pkpd_multidose(obs, dt, da, theta)
         rust_s = time.perf_counter() - t0
 
         t0 = time.perf_counter()
@@ -619,6 +701,10 @@ _SENS_OBS   = [0.5, 1.0, 2.0, 4.0, 8.0, 12.0, 24.0]
 _SENS_DT    = [0.0]
 _SENS_DA    = [100.0]
 
+# Theta used by the 2cmt_iv native individual fixture (FOCE / Laplacian tests)
+# Order matches required_names: (CL, V1, Q, V2)
+_NATIVE_INDIV_THETA = [5.0, 10.0, 2.0, 20.0]
+
 
 def _fd_sensitivity(obs_times, dose_times, dose_amts, theta, eps=1e-5):
     """
@@ -634,8 +720,8 @@ def _fd_sensitivity(obs_times, dose_times, dose_amts, theta, eps=1e-5):
         th_m = list(theta)
         th_p[j] += eps
         th_m[j] -= eps
-        s_p = np.array(_multidose(obs_times, dose_times, dose_amts, th_p))
-        s_m = np.array(_multidose(obs_times, dose_times, dose_amts, th_m))
+        s_p = np.array(_transit_1cmt_pkpd_multidose(obs_times, dose_times, dose_amts, th_p))
+        s_m = np.array(_transit_1cmt_pkpd_multidose(obs_times, dose_times, dose_amts, th_m))
         sens_fd[:, j, :] = (s_p - s_m) / (2.0 * eps)
     return sens_fd
 
@@ -644,13 +730,11 @@ def _fd_sensitivity(obs_times, dose_times, dose_amts, theta, eps=1e-5):
 class TestSensitivityProbeAccuracy:
     """Analytical forward sensitivities match central FD at rtol ≤ 1e-4."""
 
-    @pytest.fixture(autouse=True)
-    def _skip(self):
-        if _sens_probe is None or _multidose is None:
-            pytest.skip("sensitivity probe not available")
+    _skip = _require(_transit_1cmt_pkpd_sens, _transit_1cmt_pkpd_multidose)
+
 
     def _run(self, obs, dt, da, theta, *, rtol=1e-4, eps=1e-5):
-        states_raw, sens_raw = _sens_probe(obs, dt, da, theta)
+        states_raw, sens_raw = _transit_1cmt_pkpd_sens(obs, dt, da, theta)
         states = np.array(states_raw)
         sens = np.array(sens_raw).reshape(len(obs), 8, 4)
         sens_fd = _fd_sensitivity(obs, dt, da, theta, eps=eps)
@@ -691,8 +775,8 @@ class TestSensitivityProbeAccuracy:
         errors.  The linear-scaling identity is exact up to ODE integration
         error (~1e-8 relative per step) and is a far stricter test.
         """
-        _, s100_raw  = _sens_probe(_SENS_OBS, _SENS_DT, [100.0],  _SENS_THETA)
-        _, s2000_raw = _sens_probe(_SENS_OBS, _SENS_DT, [2000.0], _SENS_THETA)
+        _, s100_raw  = _transit_1cmt_pkpd_sens(_SENS_OBS, _SENS_DT, [100.0],  _SENS_THETA)
+        _, s2000_raw = _transit_1cmt_pkpd_sens(_SENS_OBS, _SENS_DT, [2000.0], _SENS_THETA)
         s100  = np.array(s100_raw ).reshape(len(_SENS_OBS), 8, 4)
         s2000 = np.array(s2000_raw).reshape(len(_SENS_OBS), 8, 4)
 
@@ -721,7 +805,7 @@ class TestSensitivityProbeAccuracy:
         """
         theta = list(_SENS_THETA)
         theta[4] = 0.0   # EMAX = 0
-        _, sens_raw = _sens_probe(_SENS_OBS, _SENS_DT, _SENS_DA, theta)
+        _, sens_raw = _transit_1cmt_pkpd_sens(_SENS_OBS, _SENS_DT, _SENS_DA, theta)
         sens = np.array(sens_raw).reshape(len(_SENS_OBS), 8, 4)
         # dA4/dEC50 must be zero when EMAX=0
         np.testing.assert_allclose(sens[:, 5, 3], 0.0, atol=1e-10,
@@ -735,14 +819,14 @@ class TestSensitivityProbeAccuracy:
     def test_sensitivity_wrt_ktr_at_early_time(self):
         """dA2/dKTR should be positive early (more transit → more absorbed)."""
         obs = [0.5, 1.0]
-        _, sens_raw = _sens_probe(obs, _SENS_DT, _SENS_DA, _SENS_THETA)
+        _, sens_raw = _transit_1cmt_pkpd_sens(obs, _SENS_DT, _SENS_DA, _SENS_THETA)
         sens = np.array(sens_raw).reshape(len(obs), 8, 4)
         # At 0.5h absorption is driving — A2 rising with KTR
         assert sens[0, 0, 1] > 0, "dA2/dKTR should be positive at t=0.5h"
 
     def test_dA1_dKTR_is_negative(self):
         """Increasing KTR drains A1 faster → dA1/dKTR < 0 at all obs times."""
-        _, sens_raw = _sens_probe(_SENS_OBS, _SENS_DT, _SENS_DA, _SENS_THETA)
+        _, sens_raw = _transit_1cmt_pkpd_sens(_SENS_OBS, _SENS_DT, _SENS_DA, _SENS_THETA)
         sens = np.array(sens_raw).reshape(len(_SENS_OBS), 8, 4)
         # A1 decays as exp(-ktr*t), so dA1/dKTR = -t * A1 < 0
         assert np.all(sens[:, 0, 0] <= 0.0), "dA1/dKTR must be ≤ 0"
@@ -760,7 +844,7 @@ class TestSensitivityProbeAccuracy:
         obs = [0.5, 1.0]   # before dose at t=2
         dt  = [2.0]
         da  = [100.0]
-        states_raw, sens_raw = _sens_probe(obs, dt, da, _SENS_THETA)
+        states_raw, sens_raw = _transit_1cmt_pkpd_sens(obs, dt, da, _SENS_THETA)
         states = np.array(states_raw)
         sens   = np.array(sens_raw).reshape(len(obs), 8, 4)
         np.testing.assert_array_equal(states, 0.0)
@@ -768,11 +852,11 @@ class TestSensitivityProbeAccuracy:
 
     def test_validation_unsorted_obs_times_raises(self):
         with pytest.raises(Exception, match="sorted"):
-            _sens_probe([4.0, 1.0], _SENS_DT, _SENS_DA, _SENS_THETA)
+            _transit_1cmt_pkpd_sens([4.0, 1.0], _SENS_DT, _SENS_DA, _SENS_THETA)
 
     def test_validation_wrong_theta_length_raises(self):
         with pytest.raises(Exception):
-            _sens_probe(_SENS_OBS, _SENS_DT, _SENS_DA, [0.5, 0.3])
+            _transit_1cmt_pkpd_sens(_SENS_OBS, _SENS_DT, _SENS_DA, [0.5, 0.3])
 
 
 # ===========================================================================
@@ -788,25 +872,14 @@ class TestPFIMNativeSensitivityPath:
     matrices against the existing finite-difference implementations.
     """
 
-    @pytest.fixture(autouse=True)
-    def _skip(self):
-        if _sens_probe is None or _multidose is None:
-            pytest.skip("sensitivity probe not available")
-        try:
-            from openpkpd.model.individual import (
-                IndividualModel, _native_cvodes_advan6_sensitivity_probe_multidose_rust,
-            )
-            if _native_cvodes_advan6_sensitivity_probe_multidose_rust is None:
-                pytest.skip("sensitivity probe not compiled in individual.py context")
-        except ImportError:
-            pytest.skip("IndividualModel not importable")
+    _skip = _require_with_indiv(_transit_1cmt_pkpd_sens, _transit_1cmt_pkpd_multidose)
 
     def _make_native_individual(self):
         """Build a minimal IndividualModel with a native ADVAN6 contract."""
         return _build_native_individual()
 
     def _make_pfim_engine(self, indiv, pk_callable, param_names):
-        """Build a PFIMEngine around the native individual."""
+        """Build a PFIMEngine around the 2cmt_iv native individual."""
         from openpkpd.design.pfim import PFIMEngine
 
         pop_model = MagicMock()
@@ -814,13 +887,12 @@ class TestPFIMNativeSensitivityPath:
         pop_model.individual_model.return_value = indiv
         pop_model.trans = 2
 
-        n_theta = 8
         n_eta = 2
-        omega = 0.04 * np.eye(n_eta)   # 20% CV on CL, V
+        omega = 0.04 * np.eye(n_eta)   # 20% CV on CL, V1
         sigma = np.array([[0.01]])
 
         class Params:
-            theta = np.array(_SENS_THETA)
+            theta = np.array(_NATIVE_INDIV_THETA)  # (CL, V1, Q, V2) — 4 values
 
         Params.omega = omega
         Params.sigma = sigma
@@ -828,41 +900,41 @@ class TestPFIMNativeSensitivityPath:
         return PFIMEngine(population_model=pop_model, init_params=Params())
 
     def _predict_F(self, pk_callable, param_names, theta, eta, times, dose_times, dose_amts):
-        """Compute F = A3/V at *times* using the multidose probe.
+        """Compute F = A1/V1 at *times* using the 2cmt_iv multidose probe.
 
-        This is the same computation the native path performs, expressed as
-        plain Python + Rust probe calls — giving an independent FD reference
-        without going through IndividualModel.evaluate() or pk_sub.solve().
+        Mirrors the computation inside _compute_G_and_Z_native for the 2cmt_iv
+        template: output_cmt_idx=0 (central compartment A1), vol_param_name="V1".
+        Used as an independent FD reference without going through
+        IndividualModel.evaluate() or pk_sub.solve().
         """
         pk_params = pk_callable(list(theta), list(eta), t=0.0)
         ode_theta = [float(pk_params[n]) for n in param_names]
-        V = float(pk_params["V"])
-        states_raw = _multidose(sorted(times), dose_times, dose_amts, ode_theta)
-        # Re-order to match requested times (probe requires sorted input)
+        V1 = float(pk_params["V1"])
         order = np.argsort(times, kind="stable")
         inv = np.empty_like(order); inv[order] = np.arange(len(times))
-        A3 = np.array(states_raw)[:, 2][inv]
-        return A3 / V
+        states_raw = _2cmt_iv_probe(np.array(times)[order].tolist(), dose_times, dose_amts, ode_theta)
+        A1 = np.array(states_raw)[:, 0][inv]   # central compartment, index 0
+        return A1 / V1
 
     def test_native_G_matches_fd_G(self):
-        """_compute_G_and_Z_native G matrix matches FD of F=A3/V w.r.t. pop theta.
+        """_compute_G_and_Z_native G matrix matches FD of F=A1/V1 w.r.t. pop theta.
 
-        Reference is computed directly from _multidose + pk_callable, so it is
-        independent of IndividualModel.evaluate() / pk_sub.solve() and does not
-        require a fully-working solver mock.
+        Reference is computed directly from _2cmt_iv_probe + pk_callable, so it
+        is independent of IndividualModel.evaluate() / pk_sub.solve() and does
+        not require a fully-working solver mock.
         """
         indiv, pk_callable, param_names = self._make_native_individual()
         engine = self._make_pfim_engine(indiv, pk_callable, param_names)
 
         times = np.array([1.0, 4.0, 8.0, 24.0])
-        theta = np.array(_SENS_THETA)
+        theta = np.array(_NATIVE_INDIV_THETA)
         eta_zero = np.zeros(2)
         eps = 1e-5
         dose_times = [0.0]
         dose_amts  = [100.0]
 
         native_result = engine._compute_G_and_Z_native(times, theta, indiv, 2)
-        assert native_result is not None, "native path should activate"
+        assert native_result is not None, "native path should activate for 2cmt_iv"
         G_native, _ = native_result
 
         n_theta = len(theta)
@@ -875,16 +947,13 @@ class TestPFIMNativeSensitivityPath:
                 - self._predict_F(pk_callable, param_names, tm, eta_zero, times, dose_times, dose_amts)
             ) / (2.0 * eps)
 
-        # atol=1e-6: the FD reference itself has ODE-noise ~1e-7 for entries
-        # that are analytically zero (EMAX/EC50/KOUT/E0 don't enter the A3 ODE).
-        # Non-zero entries (|G| ~ 0.03–11) are dominated by the rtol=1e-3 bound.
         np.testing.assert_allclose(G_native, G_fd, rtol=1e-3, atol=1e-6,
                                    err_msg="Native G deviates from direct FD reference")
 
     def test_native_Z_matches_fd_Z(self):
-        """_compute_G_and_Z_native Z matrix matches FD of F=A3/V w.r.t. eta.
+        """_compute_G_and_Z_native Z matrix matches FD of F=A1/V1 w.r.t. eta.
 
-        Reference is computed directly from _multidose + pk_callable (with
+        Reference is computed directly from _2cmt_iv_probe + pk_callable (with
         perturbed eta), giving an independent test of the chain rule application
         through the pk_callable's eta derivatives.
         """
@@ -892,7 +961,7 @@ class TestPFIMNativeSensitivityPath:
         engine = self._make_pfim_engine(indiv, pk_callable, param_names)
 
         times = np.array([1.0, 4.0, 8.0, 24.0])
-        theta = np.array(_SENS_THETA)
+        theta = np.array(_NATIVE_INDIV_THETA)
         n_eta = 2
         eps = 1e-5
         dose_times = [0.0]
@@ -911,8 +980,6 @@ class TestPFIMNativeSensitivityPath:
                 - self._predict_F(pk_callable, param_names, theta, em, times, dose_times, dose_amts)
             ) / (2.0 * eps)
 
-        # atol=1e-6: same rationale as G — FD reference has ODE integration noise
-        # on entries where the true sensitivity is analytically small.
         np.testing.assert_allclose(Z_native, Z_fd, rtol=1e-3, atol=1e-6,
                                    err_msg="Native Z deviates from direct FD reference")
 
@@ -922,15 +989,15 @@ class TestPFIMNativeSensitivityPath:
         The native path cannot be compared against engine._numerical_gradient_prediction
         in isolation because that method relies on IndividualModel.evaluate() →
         pk_sub.solve(), which is a MagicMock in this test.  Instead we build a
-        reference FIM directly from the Rust multidose probe + pk_callable (the
-        same low-level primitives the native path uses) and verify the full FIM
+        reference FIM directly from _2cmt_iv_probe + pk_callable (the same
+        low-level primitives the native path uses) and verify the full FIM
         formula:  M = G^T V^{-1} G  where  V = Z Ω Z^T + σ² I.
         """
         indiv, pk_callable, param_names = self._make_native_individual()
         engine = self._make_pfim_engine(indiv, pk_callable, param_names)
 
         times  = np.array([1.0, 4.0, 8.0, 24.0])
-        theta  = np.array(_SENS_THETA)
+        theta  = np.array(_NATIVE_INDIV_THETA)
         n_eta  = 2
         n_theta = len(theta)
         eps    = 1e-5
@@ -967,13 +1034,8 @@ class TestPFIMNativeSensitivityPath:
         V_inv = np.linalg.inv(V)
         fim_ref = G_ref.T @ V_inv @ G_ref
 
-        # atol=1e-3: G columns for PD parameters (EMAX/EC50/KOUT/E0) are
-        # analytically zero (they don't enter the A3 ODE).  Native correctly
-        # returns exactly zero for those columns; FD reference has ~1e-7 noise
-        # per G entry which amplifies to ~1e-4 in FIM cross-terms via V^{-1}.
-        # Main-block entries (KTR/KA/CL/V × KTR/KA/CL/V, magnitude ~650-1870)
-        # are still tightly bounded by rtol=5e-3 (≤ 0.5% relative error).
-        np.testing.assert_allclose(fim_native, fim_ref, rtol=5e-3, atol=1e-3,
+        # All 4 params (CL, V1, Q, V2) contribute non-zero G columns for 2cmt_iv.
+        np.testing.assert_allclose(fim_native, fim_ref, rtol=5e-3, atol=1e-6,
                                    err_msg="Native FIM deviates from direct FD reference FIM")
 
     def test_native_path_disabled_when_no_contract(self):
@@ -983,10 +1045,10 @@ class TestPFIMNativeSensitivityPath:
         engine = self._make_pfim_engine(indiv, pk_callable, param_names)
 
         # Sabotage the contract
-        indiv._native_advan6_mixed_pkpd_contract = None
+        indiv._native_ode_contract = None
 
         times = np.array([1.0, 4.0])
-        theta = np.array(_SENS_THETA)
+        theta = np.array(_NATIVE_INDIV_THETA)
         result = engine._compute_G_and_Z_native(times, theta, indiv, 2)
         assert result is None
 
@@ -997,11 +1059,17 @@ class TestPFIMNativeSensitivityPath:
 
 def _build_native_individual():
     """
-    Build a minimal but real IndividualModel with a native ADVAN6 contract.
+    Build a minimal but real IndividualModel backed by the 2cmt_iv native template.
 
-    Reused by PFIM and FOCE test sections so the fixture lives once.
-    pk_callable is an identity map: theta[0..7] → ODE params, with
-    log-normal eta shifts on CL (eta[0]) and V (eta[1]).
+    Reused by the FOCE and Laplacian native-path test sections.  The model has
+    two compartments (central A1, peripheral A2) with a single IV bolus dose.
+    pk_callable is an identity map: theta[0..3] → (CL, V1, Q, V2), with
+    log-normal eta shifts on CL (eta[0]) and V1 (eta[1]).
+
+    The 2cmt_iv template is chosen because:
+      • Its required_names match exactly — no greedy mis-match risk.
+      • It has a sensitivity probe, so native G_i and Hessian are available.
+      • n_compartments=2 matches the template's n_states=2.
     """
     from openpkpd.model.individual import IndividualModel
 
@@ -1018,18 +1086,21 @@ def _build_native_individual():
     dose_event = MagicMock()
     dose_event.time = 0.0
     dose_event.amount = 100.0
-    dose_event.is_infusion = False
+    dose_event.rate = 0.0   # 0.0 = bolus; >0.0 = constant-rate infusion
     dose_event.compartment = 1
     se.dose_events = [dose_event]
 
-    param_names = ("KTR", "KA", "CL", "V", "EMAX", "EC50", "KOUT", "E0")
+    # required_names order for the 2cmt_iv template
+    param_names = ("CL", "V1", "Q", "V2")
 
     def pk_callable(theta, eta, t=0.0, covariates=None):
         th = list(theta)
-        result = {name: float(th[i]) for i, name in enumerate(param_names)}
-        result["CL"] = float(th[2]) * np.exp(eta[0] if len(eta) > 0 else 0.0)
-        result["V"]  = float(th[3]) * np.exp(eta[1] if len(eta) > 1 else 0.0)
-        return result
+        return {
+            "CL": float(th[0]) * np.exp(eta[0] if len(eta) > 0 else 0.0),
+            "V1": float(th[1]) * np.exp(eta[1] if len(eta) > 1 else 0.0),
+            "Q":  float(th[2]),
+            "V2": float(th[3]),
+        }
 
     def error_callable(theta, eta, eps, f, ipred, y, t, a=None, covariates=None, sigma=None):
         return {"Y": f * (1 + eps[0]), "IPRED": f}
@@ -1037,7 +1108,7 @@ def _build_native_individual():
 
     pk_sub = MagicMock()
     pk_sub.advan = 6
-    pk_sub.n_compartments = 4
+    pk_sub.n_compartments = 2   # must match 2cmt_iv template n_states=2
 
     indiv = IndividualModel(
         subject_events=se,
@@ -1058,17 +1129,14 @@ class TestFOCENativeGiPath:
     replaces n_eta full-ODE FD evaluations with one CVODES sensitivity solve.
     """
 
-    @pytest.fixture(autouse=True)
-    def _skip(self):
-        if _sens_probe is None or _multidose is None:
-            pytest.skip("sensitivity probe not available")
-        try:
-            from openpkpd.model.individual import IndividualModel
-        except ImportError:
-            pytest.skip("IndividualModel not importable")
+    _skip = _require_with_indiv(_transit_1cmt_pkpd_sens, _transit_1cmt_pkpd_multidose)
 
     def _G_i_fd(self, pk_callable, param_names, theta, eta, obs_mask, eps=1e-5):
-        """FD reference for G_i using _multidose + pk_callable (no IndividualModel.evaluate)."""
+        """FD reference for G_i using the 2cmt_iv probe + pk_callable.
+
+        Uses _2cmt_iv_probe (state index 0 = A1 central, volume param V1) to
+        match the model built by _build_native_individual().
+        """
         n_eta = len(eta)
         obs_times = np.array([0.5, 1.0, 2.0, 4.0, 8.0, 12.0, 24.0])[obs_mask]
         dose_times = [0.0]
@@ -1077,15 +1145,14 @@ class TestFOCENativeGiPath:
         def F(eta_val):
             pk_params = pk_callable(list(theta), list(eta_val), t=0.0)
             ode_theta = [float(pk_params[n]) for n in param_names]
-            V = float(pk_params["V"])
+            V1 = float(pk_params["V1"])
             order = np.argsort(obs_times, kind="stable")
             inv = np.empty_like(order); inv[order] = np.arange(len(obs_times))
-            states_raw = _multidose(obs_times[order].tolist(), dose_times, dose_amts, ode_theta)
-            A3 = np.array(states_raw)[:, 2][inv]
-            return A3 / V
+            states_raw = _2cmt_iv_probe(obs_times[order].tolist(), dose_times, dose_amts, ode_theta)
+            A1 = np.array(states_raw)[:, 0][inv]   # central compartment, index 0
+            return A1 / V1
 
         G = np.zeros((len(obs_times), n_eta))
-        f0 = F(eta)
         for k in range(n_eta):
             ep = np.array(eta, dtype=float); ep[k] += eps
             em = np.array(eta, dtype=float); em[k] -= eps
@@ -1095,7 +1162,7 @@ class TestFOCENativeGiPath:
     def test_G_i_matches_fd_at_eta_zero(self):
         """native G_i at η=0 matches central FD reference (rtol=1e-3)."""
         indiv, pk_callable, param_names = _build_native_individual()
-        theta = np.array(_SENS_THETA)
+        theta = np.array(_NATIVE_INDIV_THETA)
         eta   = np.zeros(2)
         obs_mask = np.ones(7, dtype=bool)
 
@@ -1110,7 +1177,7 @@ class TestFOCENativeGiPath:
     def test_G_i_matches_fd_at_nonzero_eta(self):
         """native G_i evaluated at η̂≠0 matches FD (tests correct non-zero-eta evaluation)."""
         indiv, pk_callable, param_names = _build_native_individual()
-        theta = np.array(_SENS_THETA)
+        theta = np.array(_NATIVE_INDIV_THETA)
         eta   = np.array([0.15, -0.20])   # realistic ETA values
         obs_mask = np.ones(7, dtype=bool)
 
@@ -1124,7 +1191,7 @@ class TestFOCENativeGiPath:
     def test_G_i_differs_at_nonzero_vs_zero_eta(self):
         """G_i is genuinely evaluated at the provided η (not cached at η=0)."""
         indiv, pk_callable, param_names = _build_native_individual()
-        theta = np.array(_SENS_THETA)
+        theta = np.array(_NATIVE_INDIV_THETA)
         obs_mask = np.ones(7, dtype=bool)
 
         G0 = indiv.native_advan6_prediction_eta_jacobian(theta, np.zeros(2), obs_mask, n_eta=2)
@@ -1136,7 +1203,7 @@ class TestFOCENativeGiPath:
     def test_G_i_respects_obs_mask(self):
         """obs_mask filters the output rows — masked observations are excluded."""
         indiv, pk_callable, param_names = _build_native_individual()
-        theta = np.array(_SENS_THETA)
+        theta = np.array(_NATIVE_INDIV_THETA)
         eta   = np.zeros(2)
         full_mask    = np.ones(7, dtype=bool)
         partial_mask = np.array([True, False, True, True, False, True, True])
@@ -1152,9 +1219,9 @@ class TestFOCENativeGiPath:
         """native path declines mixed PK/PD model (DVID-aware output not implemented)."""
         indiv, _, _ = _build_native_individual()
         # Force the model to look like mixed PK/PD
-        if indiv._native_advan6_mixed_pkpd_contract is not None:
-            indiv._native_advan6_mixed_pkpd_contract["is_mixed_pkpd"] = True
-        theta = np.array(_SENS_THETA)
+        if indiv._native_ode_contract is not None:
+            indiv._native_ode_contract["is_pkpd"] = True
+        theta = np.array(_NATIVE_INDIV_THETA)
         result = indiv.native_advan6_prediction_eta_jacobian(
             theta, np.zeros(2), np.ones(7, dtype=bool), n_eta=2
         )
@@ -1163,9 +1230,9 @@ class TestFOCENativeGiPath:
     def test_G_i_returns_none_when_no_contract(self):
         """native G_i returns None gracefully when contract is absent."""
         indiv, _, _ = _build_native_individual()
-        indiv._native_advan6_mixed_pkpd_contract = None
+        indiv._native_ode_contract = None
         result = indiv.native_advan6_prediction_eta_jacobian(
-            np.array(_SENS_THETA), np.zeros(2), np.ones(7, dtype=bool), n_eta=2
+            np.array(_NATIVE_INDIV_THETA), np.zeros(2), np.ones(7, dtype=bool), n_eta=2
         )
         assert result is None
 
@@ -1173,7 +1240,7 @@ class TestFOCENativeGiPath:
         """_compute_G_i() delegates to native path for ADVAN6 native-contract models."""
         from openpkpd.estimation.foce import _compute_G_i
         indiv, pk_callable, param_names = _build_native_individual()
-        theta    = np.array(_SENS_THETA)
+        theta    = np.array(_NATIVE_INDIV_THETA)
         eta      = np.zeros(2)
         sigma    = np.array([[0.01]])
         obs_mask = np.ones(7, dtype=bool)
@@ -1189,7 +1256,7 @@ class TestFOCENativeGiPath:
 
 
 # ===========================================================================
-# Section 8 — Sensitivity probe performance
+# Section 8 — Sensitivity probe performance (transit_1cmt_pkpd)
 # ===========================================================================
 
 class TestSensitivityProbePerformance:
@@ -1208,10 +1275,8 @@ class TestSensitivityProbePerformance:
     is a net benefit and guard against regressions.
     """
 
-    @pytest.fixture(autouse=True)
-    def _skip(self):
-        if _sens_probe is None or _multidose is None:
-            pytest.skip("sensitivity probe not available")
+    _skip = _require(_transit_1cmt_pkpd_sens, _transit_1cmt_pkpd_multidose)
+
 
     def test_sensitivity_probe_faster_than_fd_equivalent(self):
         obs   = _SENS_OBS
@@ -1222,19 +1287,19 @@ class TestSensitivityProbePerformance:
         n_fd_pairs = 10   # 2×(8 theta + 2 eta) = 20 evaluations → 10 pairs of ±eps
 
         # Warm-up
-        _sens_probe(obs, dt, da, theta)
+        _transit_1cmt_pkpd_sens(obs, dt, da, theta)
         for _ in range(n_fd_pairs):
-            _multidose(obs, dt, da, theta)
+            _transit_1cmt_pkpd_multidose(obs, dt, da, theta)
 
         t0 = time.perf_counter()
         for _ in range(n_reps):
-            _sens_probe(obs, dt, da, theta)
+            _transit_1cmt_pkpd_sens(obs, dt, da, theta)
         sens_s = time.perf_counter() - t0
 
         t0 = time.perf_counter()
         for _ in range(n_reps):
             for _ in range(n_fd_pairs):
-                _multidose(obs, dt, da, theta)
+                _transit_1cmt_pkpd_multidose(obs, dt, da, theta)
         fd_s = time.perf_counter() - t0
 
         speedup = fd_s / sens_s
@@ -1248,7 +1313,7 @@ class TestSensitivityProbePerformance:
 
 
 # ===========================================================================
-# Section 9 — Laplacian native Hessian
+# Section 9 — Laplacian native Hessian (transit_1cmt_pkpd)
 # ===========================================================================
 
 class TestLaplacianNativeHessian:
@@ -1272,19 +1337,12 @@ class TestLaplacianNativeHessian:
       - integration: laplacian._outer_ofv_subject_term calls the method
     """
 
-    @pytest.fixture(autouse=True)
-    def _skip(self):
-        if _sens_probe is None or _multidose is None:
-            pytest.skip("sensitivity probe not available")
-        try:
-            from openpkpd.model.individual import IndividualModel
-        except ImportError:
-            pytest.skip("IndividualModel not importable")
+    _skip = _require_with_indiv(_transit_1cmt_pkpd_sens, _transit_1cmt_pkpd_multidose)
 
     def test_native_hessian_is_positive_definite(self):
         """Gauss-Newton Hessian must be symmetric PD (required for log|H| stability)."""
         indiv, _, _ = _build_native_individual()
-        theta = np.array(_SENS_THETA)
+        theta = np.array(_NATIVE_INDIV_THETA)
         eta   = np.zeros(2)
         omega = 0.04 * np.eye(2)
         sigma = np.array([[0.01]])
@@ -1301,11 +1359,16 @@ class TestLaplacianNativeHessian:
         This validates the Gauss-Newton formula without depending on the
         full obj_eta numerical Hessian (which requires actual observed DV).
         Tolerance rtol=1e-6 reflects double-precision arithmetic only.
+
+        Uses the 2cmt_iv sensitivity probe (4 params, 2 states) consistent
+        with the fixture built by _build_native_individual().
         """
-        from openpkpd.model.individual import _native_cvodes_advan6_sensitivity_probe_multidose_rust as probe
+        n_params = 4  # CL, V1, Q, V2
+        n_states = 2  # central (A1), peripheral (A2)
+        out_state = 0  # A1 = central compartment output
 
         indiv, pk_callable, _ = _build_native_individual()
-        theta = np.array(_SENS_THETA)
+        theta = np.array(_NATIVE_INDIV_THETA)
         eta   = np.zeros(2)
         omega = 0.04 * np.eye(2)
         sigma = np.array([[0.01]])
@@ -1313,25 +1376,30 @@ class TestLaplacianNativeHessian:
         H = indiv.eta_objective_hessian(theta, eta, omega, sigma)
         data_term = H - 2.0 * np.linalg.inv(omega)
 
-        # Build the same reference manually
-        contract = indiv._native_advan6_mixed_pkpd_contract
-        param_names = contract["required_names"]
+        # Build the same reference manually using the 2cmt_iv sensitivity probe.
+        # NOTE: contract["required_names"] is a legacy field holding the warfarin
+        # param list — do NOT use it here.  The fixture is a known 2cmt_iv model.
+        contract = indiv._native_ode_contract
+        param_names = ("CL", "V1", "Q", "V2")     # 2cmt_iv required_names
         pk0 = pk_callable(list(theta), [0.0, 0.0])
         ode_theta = [float(pk0[n]) for n in param_names]
-        V = float(pk0["V"])
-        v_idx = list(param_names).index("V")
+        V1 = float(pk0["V1"])
+        v_idx = list(param_names).index("V1")
 
         obs_times = [0.5, 1.0, 2.0, 4.0, 8.0, 12.0, 24.0]
-        states_raw, sens_raw = probe(obs_times, contract["dose_times"], contract["dose_amts"], ode_theta)
-        states = np.array(states_raw, dtype=float)  # (7, 4)
-        sens   = np.array(sens_raw,   dtype=float).reshape(7, 8, 4)
+        n_obs = len(obs_times)
+        states_raw, sens_raw = _2cmt_iv_sens(
+            obs_times, contract["dose_times"], contract["dose_amts"], ode_theta
+        )
+        states = np.array(states_raw, dtype=float)               # (n_obs, n_states)
+        sens   = np.array(sens_raw,   dtype=float).reshape(n_obs, n_params, n_states)
 
-        A3 = states[:, 2]
-        dF_dODE = sens[:, :, 2] / V
-        dF_dODE[:, v_idx] -= A3 / (V * V)
+        A1 = states[:, out_state]
+        dF_dODE = sens[:, :, out_state] / V1    # (n_obs, n_params) — ∂(A1/V1)/∂ODE_theta
+        dF_dODE[:, v_idx] -= A1 / (V1 * V1)    # quotient rule for V1 dependence
 
         eps = 1e-5
-        J = np.zeros((8, 2))
+        J = np.zeros((n_params, 2))
         for k in range(2):
             ep = [0.0, 0.0]; ep[k] += eps
             em = [0.0, 0.0]; em[k] -= eps
@@ -1340,8 +1408,8 @@ class TestLaplacianNativeHessian:
             for j, name in enumerate(param_names):
                 J[j, k] = (float(pp.get(name, 0.0)) - float(pm.get(name, 0.0))) / (2 * eps)
 
-        G_ref = dF_dODE @ J                    # (7, 2)
-        ipred = A3 / V
+        G_ref = dF_dODE @ J                    # (n_obs, 2)
+        ipred = A1 / V1
         var_ref = np.maximum(float(sigma[0, 0]) * ipred ** 2, 1e-10)
         data_ref = 2.0 * (G_ref.T / var_ref) @ G_ref
 
@@ -1357,7 +1425,7 @@ class TestLaplacianNativeHessian:
         so the data contribution must differ at η=0 vs η=[0.3, -0.2].
         """
         indiv, _, _ = _build_native_individual()
-        theta = np.array(_SENS_THETA)
+        theta = np.array(_NATIVE_INDIV_THETA)
         omega = 0.04 * np.eye(2)
         sigma = np.array([[0.01]])
         omega_inv_2 = 2.0 * np.linalg.inv(omega)
@@ -1381,33 +1449,33 @@ class TestLaplacianNativeHessian:
         not a NotImplementedError.
         """
         indiv, _, _ = _build_native_individual()
-        if indiv._native_advan6_mixed_pkpd_contract is not None:
-            indiv._native_advan6_mixed_pkpd_contract["is_mixed_pkpd"] = True
+        if indiv._native_ode_contract is not None:
+            indiv._native_ode_contract["is_pkpd"] = True
 
         # _native_gauss_newton_hessian must return None for mixed model
         result = indiv._native_gauss_newton_hessian(
-            np.array(_SENS_THETA), np.zeros(2), 0.04 * np.eye(2), np.array([[0.01]])
+            np.array(_NATIVE_INDIV_THETA), np.zeros(2), 0.04 * np.eye(2), np.array([[0.01]])
         )
         assert result is None, "Mixed-model native path must return None"
 
         # eta_objective_hessian falls back to numerical and still returns a matrix
         H = indiv.eta_objective_hessian(
-            np.array(_SENS_THETA), np.zeros(2), 0.04 * np.eye(2), np.array([[0.01]])
+            np.array(_NATIVE_INDIV_THETA), np.zeros(2), 0.04 * np.eye(2), np.array([[0.01]])
         )
         assert H.shape == (2, 2), "Fallback Hessian has wrong shape"
 
     def test_native_fallback_when_no_contract(self):
         """No native contract → native path returns None → method falls back to numerical."""
         indiv, _, _ = _build_native_individual()
-        indiv._native_advan6_mixed_pkpd_contract = None
+        indiv._native_ode_contract = None
 
         result = indiv._native_gauss_newton_hessian(
-            np.array(_SENS_THETA), np.zeros(2), 0.04 * np.eye(2), np.array([[0.01]])
+            np.array(_NATIVE_INDIV_THETA), np.zeros(2), 0.04 * np.eye(2), np.array([[0.01]])
         )
         assert result is None, "No-contract native path must return None"
 
         H = indiv.eta_objective_hessian(
-            np.array(_SENS_THETA), np.zeros(2), 0.04 * np.eye(2), np.array([[0.01]])
+            np.array(_NATIVE_INDIV_THETA), np.zeros(2), 0.04 * np.eye(2), np.array([[0.01]])
         )
         assert H.shape == (2, 2), "Fallback Hessian has wrong shape"
 
@@ -1424,7 +1492,7 @@ class TestLaplacianNativeHessian:
             "IndividualModel must expose eta_objective_hessian"
         )
 
-        theta = np.array(_SENS_THETA)
+        theta = np.array(_NATIVE_INDIV_THETA)
         omega = 0.04 * np.eye(2)
         sigma = np.array([[0.01]])
         n_obs = 7
@@ -1473,7 +1541,7 @@ class TestLaplacianNativeHessian:
 
 
 # ===========================================================================
-# Section 8 — New ODE template state & sensitivity validation
+# Section 10 — ODE template state & sensitivity validation
 # ===========================================================================
 #
 # Five standard PK shapes added in P1 expansion:
@@ -1488,16 +1556,6 @@ class TestLaplacianNativeHessian:
 #   2. Compares the sensitivity probe against central FD of the state probe.
 #   3. Verifies a multi-dose scenario (2 doses, 24h apart).
 
-_1cmt_iv_probe     = _try_import("native_cvodes_1cmt_iv_probe_multidose")
-_1cmt_iv_sens      = _try_import("native_cvodes_1cmt_iv_sensitivity_probe_multidose")
-_1cmt_oral_probe   = _try_import("native_cvodes_1cmt_oral_probe_multidose")
-_1cmt_oral_sens    = _try_import("native_cvodes_1cmt_oral_sensitivity_probe_multidose")
-_2cmt_iv_probe     = _try_import("native_cvodes_2cmt_iv_probe_multidose")
-_2cmt_iv_sens      = _try_import("native_cvodes_2cmt_iv_sensitivity_probe_multidose")
-_2cmt_oral_probe   = _try_import("native_cvodes_2cmt_oral_probe_multidose")
-_2cmt_oral_sens    = _try_import("native_cvodes_2cmt_oral_sensitivity_probe_multidose")
-_3cmt_iv_probe     = _try_import("native_cvodes_3cmt_iv_probe_multidose")
-_3cmt_iv_sens      = _try_import("native_cvodes_3cmt_iv_sensitivity_probe_multidose")
 
 _TPL_OBS  = [0.5, 1.0, 2.0, 4.0, 8.0, 12.0, 24.0, 48.0]
 _TPL_DOSE_1 = ([0.0], [100.0])
@@ -1545,16 +1603,74 @@ def _fd_sensitivity_generic(probe_fn, obs_times, dose_times, dose_amts, theta,
     return sens
 
 
+def _scipy_infusion_multidose(obs_times, dose_times, dose_amts, dose_rates,
+                               rhs_factory, ic, rtol=1e-10, atol=1e-12):
+    """Scipy Radau reference for a mixed bolus / constant-rate infusion schedule.
+
+    ``rhs_factory(rate)`` must return a callable ``f(t, y)`` representing the
+    ODE RHS with the given constant forcing rate into compartment 0 (central).
+    """
+    # Build breakpoints: (time, bolus_delta, rate_delta)
+    bps = []
+    for t, amt, rate in zip(dose_times, dose_amts, dose_rates):
+        if rate == 0.0:
+            bps.append((t, amt, 0.0))
+        else:
+            bps.append((t, 0.0, rate))
+            bps.append((t + amt / rate, 0.0, -rate))
+    bps.sort(key=lambda x: (x[0], -x[2]))  # time asc, positive rate_delta first
+
+    obs_order = sorted(range(len(obs_times)), key=lambda i: obs_times[i])
+    results: dict = {}
+    y = list(ic)
+    t_cur = 0.0
+    active_rate = 0.0
+    bp_idx = 0
+
+    for obs_i in obs_order:
+        t_obs = obs_times[obs_i]
+        # Drain all breakpoints that fall at or before t_obs
+        while bp_idx < len(bps) and bps[bp_idx][0] <= t_obs:
+            t_bp, bolus, rate_delta = bps[bp_idx]
+            if t_cur < t_bp:
+                sol = solve_ivp(rhs_factory(active_rate), [t_cur, t_bp], y,
+                                method="Radau", rtol=rtol, atol=atol)
+                y = sol.y[:, -1].tolist()
+                t_cur = t_bp
+            y[0] += bolus
+            active_rate += rate_delta
+            bp_idx += 1
+        if t_cur < t_obs:
+            sol = solve_ivp(rhs_factory(active_rate), [t_cur, t_obs], y,
+                            method="Radau", rtol=rtol, atol=atol)
+            y = sol.y[:, -1].tolist()
+            t_cur = t_obs
+        results[obs_i] = list(y)
+    return np.array([results[i] for i in range(len(obs_times))])
+
+
+def _fd_sensitivity_infusion(probe_fn, obs_times, dose_times, dose_amts, dose_rates,
+                              theta, n_params, n_states, eps=1e-5):
+    """Central-FD for infusion probes (extra dose_rates arg); → (n_obs, n_params, n_states)."""
+    n_t = len(obs_times)
+    sens = np.zeros((n_t, n_params, n_states))
+    for j in range(n_params):
+        th_p = list(theta); th_p[j] += eps
+        th_m = list(theta); th_m[j] -= eps
+        sp = np.array(probe_fn(obs_times, dose_times, dose_amts, dose_rates, th_p))
+        sm = np.array(probe_fn(obs_times, dose_times, dose_amts, dose_rates, th_m))
+        sens[:, j, :] = (sp - sm) / (2.0 * eps)
+    return sens
+
+
 # ---------------------------------------------------------------------------
 # 1-compartment IV
 # ---------------------------------------------------------------------------
 
 class TestTemplate1cmtIv:
 
-    @pytest.fixture(autouse=True)
-    def _skip(self):
-        if _1cmt_iv_probe is None:
-            pytest.skip("1cmt_iv probe not compiled in")
+    _skip = _require(_1cmt_iv_probe)
+
 
     _THETA = [0.13, 8.0]   # CL, V
 
@@ -1598,10 +1714,8 @@ class TestTemplate1cmtIv:
 
 class TestTemplate1cmtOral:
 
-    @pytest.fixture(autouse=True)
-    def _skip(self):
-        if _1cmt_oral_probe is None:
-            pytest.skip("1cmt_oral probe not compiled in")
+    _skip = _require(_1cmt_oral_probe)
+
 
     _THETA = [0.4, 0.13, 8.0]   # KA, CL, V
 
@@ -1648,10 +1762,8 @@ class TestTemplate1cmtOral:
 
 class TestTemplate2cmtIv:
 
-    @pytest.fixture(autouse=True)
-    def _skip(self):
-        if _2cmt_iv_probe is None:
-            pytest.skip("2cmt_iv probe not compiled in")
+    _skip = _require(_2cmt_iv_probe)
+
 
     _THETA = [0.13, 8.0, 0.6, 20.0]   # CL, V1, Q, V2
 
@@ -1702,10 +1814,8 @@ class TestTemplate2cmtIv:
 
 class TestTemplate2cmtOral:
 
-    @pytest.fixture(autouse=True)
-    def _skip(self):
-        if _2cmt_oral_probe is None:
-            pytest.skip("2cmt_oral probe not compiled in")
+    _skip = _require(_2cmt_oral_probe)
+
 
     _THETA = [0.4, 0.13, 8.0, 0.6, 20.0]   # KA, CL, V2, Q, V3
 
@@ -1756,10 +1866,8 @@ class TestTemplate2cmtOral:
 
 class TestTemplate3cmtIv:
 
-    @pytest.fixture(autouse=True)
-    def _skip(self):
-        if _3cmt_iv_probe is None:
-            pytest.skip("3cmt_iv probe not compiled in")
+    _skip = _require(_3cmt_iv_probe)
+
 
     # CL, V1, Q2, V2, Q3, V3
     _THETA = [0.13, 8.0, 0.6, 20.0, 0.3, 50.0]
@@ -1806,7 +1914,7 @@ class TestTemplate3cmtIv:
 
 
 # ===========================================================================
-# Section 9 — Cross-validation: CVODES templates vs analytical ADVAN solvers
+# Section 11 — Cross-validation: CVODES templates vs analytical ADVAN solvers
 # ===========================================================================
 #
 # The analytical ADVAN1/2/3/4/5 solvers are independently validated against
@@ -1847,10 +1955,8 @@ def _advan_doses(dose_times, dose_amts, cmt=1):
 class TestNativeCvodes1CmtIvVsADVAN1:
     """native_cvodes_1cmt_iv_probe vs ADVAN1 exact solution."""
 
-    @pytest.fixture(autouse=True)
-    def _skip(self):
-        if _1cmt_iv_probe is None:
-            pytest.skip("1cmt_iv probe not compiled in")
+    _skip = _require(_1cmt_iv_probe)
+
 
     # typical theophylline-like params; K = CL/V
     _CL, _V = 0.044, 31.8   # L/h, L  (Boeckmann theophylline population means)
@@ -1895,10 +2001,8 @@ class TestNativeCvodes1CmtIvVsADVAN1:
 class TestNativeCvodes1CmtOralVsADVAN2:
     """native_cvodes_1cmt_oral_probe vs ADVAN2 (Bateman) exact solution."""
 
-    @pytest.fixture(autouse=True)
-    def _skip(self):
-        if _1cmt_oral_probe is None:
-            pytest.skip("1cmt_oral probe not compiled in")
+    _skip = _require(_1cmt_oral_probe)
+
 
     # Boeckmann theophylline population means
     _KA, _CL, _V = 1.49, 0.044, 31.8
@@ -1949,10 +2053,8 @@ class TestNativeCvodes2CmtIvVsADVAN3:
     that published external benchmark.
     """
 
-    @pytest.fixture(autouse=True)
-    def _skip(self):
-        if _2cmt_iv_probe is None:
-            pytest.skip("2cmt_iv probe not compiled in")
+    _skip = _require(_2cmt_iv_probe)
+
 
     # Typical params (micro CL/V form)
     _THETA_TYP = [0.13, 8.0, 0.6, 20.0]   # CL, V1, Q, V2
@@ -2019,10 +2121,8 @@ class TestNativeCvodes2CmtIvVsADVAN3:
 class TestNativeCvodes2CmtOralVsADVAN4:
     """native_cvodes_2cmt_oral_probe vs ADVAN4 exact solution."""
 
-    @pytest.fixture(autouse=True)
-    def _skip(self):
-        if _2cmt_oral_probe is None:
-            pytest.skip("2cmt_oral probe not compiled in")
+    _skip = _require(_2cmt_oral_probe)
+
 
     _KA, _CL, _V2, _Q, _V3 = 0.4, 0.13, 8.0, 0.6, 20.0
     _THETA = [_KA, _CL, _V2, _Q, _V3]   # CVODES order
@@ -2060,10 +2160,8 @@ class TestNativeCvodes2CmtOralVsADVAN4:
 class TestNativeCvodes3CmtIvVsADVAN5:
     """native_cvodes_3cmt_iv_probe vs ADVAN5 exact solution."""
 
-    @pytest.fixture(autouse=True)
-    def _skip(self):
-        if _3cmt_iv_probe is None:
-            pytest.skip("3cmt_iv probe not compiled in")
+    _skip = _require(_3cmt_iv_probe)
+
 
     _CL, _V1, _Q2, _V2, _Q3, _V3 = 0.13, 8.0, 0.6, 20.0, 0.3, 50.0
     _THETA = [_CL, _V1, _Q2, _V2, _Q3, _V3]   # CVODES order
@@ -2114,25 +2212,16 @@ class TestNativeCvodes3CmtIvVsADVAN5:
 
 
 # ===========================================================================
-# Section 10 — 3cmt_oral / 4cmt_iv / 4cmt_oral: scipy + analytical validation
+# Section 12 — 3cmt_oral / 4cmt_iv / 4cmt_oral: scipy + analytical validation
 # ===========================================================================
-
-_3oral_probe  = _try_import("native_cvodes_3cmt_oral_probe_multidose")
-_3oral_sens   = _try_import("native_cvodes_3cmt_oral_sensitivity_probe_multidose")
-_4iv_probe    = _try_import("native_cvodes_4cmt_iv_probe_multidose")
-_4iv_sens     = _try_import("native_cvodes_4cmt_iv_sensitivity_probe_multidose")
-_4oral_probe  = _try_import("native_cvodes_4cmt_oral_probe_multidose")
-_4oral_sens   = _try_import("native_cvodes_4cmt_oral_sensitivity_probe_multidose")
 
 
 # ── 3-cmt oral ───────────────────────────────────────────────────────────────
 
 class TestTemplate3CmtOral:
 
-    @pytest.fixture(autouse=True)
-    def _skip(self):
-        if _3oral_probe is None:
-            pytest.skip("3cmt_oral probe not compiled in")
+    _skip = _require(_3cmt_oral_probe)
+
 
     _THETA = [0.4, 0.13, 8.0, 0.6, 20.0, 0.3, 50.0]   # KA,CL,V2,Q3,V3,Q4,V4
 
@@ -2147,30 +2236,30 @@ class TestTemplate3CmtOral:
 
     def test_state_single_dose_matches_scipy(self):
         obs,(dt,da)=_TPL_OBS,_TPL_DOSE_1
-        np.testing.assert_allclose(np.array(_3oral_probe(obs,dt,da,self._THETA)),
+        np.testing.assert_allclose(np.array(_3cmt_oral_probe(obs,dt,da,self._THETA)),
                                    self._scipy_ref(obs,dt,da,self._THETA), rtol=5e-5, atol=1e-7)
 
     def test_state_two_doses_matches_scipy(self):
         obs,(dt,da)=_TPL_OBS,_TPL_DOSE_2
-        np.testing.assert_allclose(np.array(_3oral_probe(obs,dt,da,self._THETA)),
+        np.testing.assert_allclose(np.array(_3cmt_oral_probe(obs,dt,da,self._THETA)),
                                    self._scipy_ref(obs,dt,da,self._THETA), rtol=5e-5, atol=1e-7)
 
     def test_central_peaks_then_declines(self):
         obs=list(np.linspace(0.25,48.0,50))
-        got=np.array(_3oral_probe(obs,*_TPL_DOSE_1,self._THETA))
+        got=np.array(_3cmt_oral_probe(obs,*_TPL_DOSE_1,self._THETA))
         a2=got[:,1]; peak=int(np.argmax(a2))
         assert peak>0 and np.all(np.diff(a2[peak:])<=1e-4)
 
     def test_both_peripherals_receive_drug(self):
-        got=np.array(_3oral_probe(_TPL_OBS,*_TPL_DOSE_1,self._THETA))
+        got=np.array(_3cmt_oral_probe(_TPL_OBS,*_TPL_DOSE_1,self._THETA))
         assert np.max(got[:,2])>0.0 and np.max(got[:,3])>0.0
 
     def test_sensitivity_matches_fd(self):
-        if _3oral_sens is None: pytest.skip("3cmt_oral sens probe not compiled in")
+        if _3cmt_oral_sens is None: pytest.skip("3cmt_oral sens probe not compiled in")
         obs,(dt,da)=_TPL_OBS,_TPL_DOSE_1
-        _,sens_raw=_3oral_sens(obs,dt,da,self._THETA)
+        _,sens_raw=_3cmt_oral_sens(obs,dt,da,self._THETA)
         sens=np.array(sens_raw).reshape(len(obs),7,4)
-        sens_fd=_fd_sensitivity_generic(_3oral_probe,obs,dt,da,self._THETA,7,4)
+        sens_fd=_fd_sensitivity_generic(_3cmt_oral_probe,obs,dt,da,self._THETA,7,4)
         np.testing.assert_allclose(sens,sens_fd,rtol=1e-4,atol=1e-4*max(da))
 
     def test_vs_advan12_single_dose(self):
@@ -2181,7 +2270,7 @@ class TestTemplate3CmtOral:
         sol=ADVAN12().solve({"KA":ka,"K":cl/v2,"K12":q3/v2,"K21":q3/v3,
                              "K13":q4/v2,"K31":q4/v4,"V2":v2},
                             _advan_doses(dt,da),np.array(obs))
-        got=np.array(_3oral_probe(obs,dt,da,th))[:,1]/v2
+        got=np.array(_3cmt_oral_probe(obs,dt,da,th))[:,1]/v2
         np.testing.assert_allclose(got,sol.ipred,rtol=1e-4,atol=1e-8)
 
     def test_vs_advan12_two_doses(self):
@@ -2191,7 +2280,7 @@ class TestTemplate3CmtOral:
         sol=ADVAN12().solve({"KA":ka,"K":cl/v2,"K12":q3/v2,"K21":q3/v3,
                              "K13":q4/v2,"K31":q4/v4,"V2":v2},
                             _advan_doses(dt,da),np.array(obs))
-        got=np.array(_3oral_probe(obs,dt,da,th))[:,1]/v2
+        got=np.array(_3cmt_oral_probe(obs,dt,da,th))[:,1]/v2
         np.testing.assert_allclose(got,sol.ipred,rtol=1e-4,atol=1e-8)
 
 
@@ -2199,10 +2288,8 @@ class TestTemplate3CmtOral:
 
 class TestTemplate4CmtIv:
 
-    @pytest.fixture(autouse=True)
-    def _skip(self):
-        if _4iv_probe is None:
-            pytest.skip("4cmt_iv probe not compiled in")
+    _skip = _require(_4cmt_iv_probe)
+
 
     _THETA = [0.13, 8.0, 0.6, 20.0, 0.3, 50.0, 0.1, 100.0]  # CL,V1,Q2,V2,Q3,V3,Q4,V4
 
@@ -2216,24 +2303,24 @@ class TestTemplate4CmtIv:
 
     def test_state_single_dose_matches_scipy(self):
         obs,(dt,da)=_TPL_OBS,_TPL_DOSE_1
-        np.testing.assert_allclose(np.array(_4iv_probe(obs,dt,da,self._THETA)),
+        np.testing.assert_allclose(np.array(_4cmt_iv_probe(obs,dt,da,self._THETA)),
                                    self._scipy_ref(obs,dt,da,self._THETA),rtol=5e-5,atol=1e-7)
 
     def test_state_two_doses_matches_scipy(self):
         obs,(dt,da)=_TPL_OBS,_TPL_DOSE_2
-        np.testing.assert_allclose(np.array(_4iv_probe(obs,dt,da,self._THETA)),
+        np.testing.assert_allclose(np.array(_4cmt_iv_probe(obs,dt,da,self._THETA)),
                                    self._scipy_ref(obs,dt,da,self._THETA),rtol=5e-5,atol=1e-7)
 
     def test_all_three_peripherals_receive_drug(self):
-        got=np.array(_4iv_probe(_TPL_OBS,*_TPL_DOSE_1,self._THETA))
+        got=np.array(_4cmt_iv_probe(_TPL_OBS,*_TPL_DOSE_1,self._THETA))
         assert all(np.max(got[:,i])>0 for i in [1,2,3])
 
     def test_sensitivity_matches_fd(self):
-        if _4iv_sens is None: pytest.skip("4cmt_iv sens probe not compiled in")
+        if _4cmt_iv_sens is None: pytest.skip("4cmt_iv sens probe not compiled in")
         obs,(dt,da)=_TPL_OBS,_TPL_DOSE_1
-        _,sens_raw=_4iv_sens(obs,dt,da,self._THETA)
+        _,sens_raw=_4cmt_iv_sens(obs,dt,da,self._THETA)
         sens=np.array(sens_raw).reshape(len(obs),8,4)
-        sens_fd=_fd_sensitivity_generic(_4iv_probe,obs,dt,da,self._THETA,8,4)
+        sens_fd=_fd_sensitivity_generic(_4cmt_iv_probe,obs,dt,da,self._THETA,8,4)
         np.testing.assert_allclose(sens,sens_fd,rtol=1e-4,atol=1e-4*max(da))
 
     def test_vs_advan5_single_dose(self):
@@ -2244,7 +2331,7 @@ class TestTemplate4CmtIv:
         sol=ADVAN5().solve({"K":cl/v1,"K12":q2/v1,"K21":q2/v2,
                             "K13":q3/v1,"K31":q3/v3,"K14":q4/v1,"K41":q4/v4,"V1":v1},
                            _advan_doses(dt,da),np.array(obs))
-        got=np.array(_4iv_probe(obs,dt,da,th))[:,0]/v1
+        got=np.array(_4cmt_iv_probe(obs,dt,da,th))[:,0]/v1
         np.testing.assert_allclose(got,sol.ipred,rtol=1e-4,atol=1e-8)
 
     def test_vs_advan5_two_doses(self):
@@ -2254,7 +2341,7 @@ class TestTemplate4CmtIv:
         sol=ADVAN5().solve({"K":cl/v1,"K12":q2/v1,"K21":q2/v2,
                             "K13":q3/v1,"K31":q3/v3,"K14":q4/v1,"K41":q4/v4,"V1":v1},
                            _advan_doses(dt,da),np.array(obs))
-        got=np.array(_4iv_probe(obs,dt,da,th))[:,0]/v1
+        got=np.array(_4cmt_iv_probe(obs,dt,da,th))[:,0]/v1
         np.testing.assert_allclose(got,sol.ipred,rtol=1e-4,atol=1e-8)
 
 
@@ -2262,10 +2349,8 @@ class TestTemplate4CmtIv:
 
 class TestTemplate4CmtOral:
 
-    @pytest.fixture(autouse=True)
-    def _skip(self):
-        if _4oral_probe is None:
-            pytest.skip("4cmt_oral probe not compiled in")
+    _skip = _require(_4cmt_oral_probe)
+
 
     _THETA=[0.4,0.13,8.0,0.6,20.0,0.3,50.0,0.1,100.0]  # KA,CL,V2,Q3,V3,Q4,V4,Q5,V5
 
@@ -2280,29 +2365,578 @@ class TestTemplate4CmtOral:
 
     def test_state_single_dose_matches_scipy(self):
         obs,(dt,da)=_TPL_OBS,_TPL_DOSE_1
-        np.testing.assert_allclose(np.array(_4oral_probe(obs,dt,da,self._THETA)),
+        np.testing.assert_allclose(np.array(_4cmt_oral_probe(obs,dt,da,self._THETA)),
                                    self._scipy_ref(obs,dt,da,self._THETA),rtol=5e-5,atol=1e-7)
 
     def test_state_two_doses_matches_scipy(self):
         obs,(dt,da)=_TPL_OBS,_TPL_DOSE_2
-        np.testing.assert_allclose(np.array(_4oral_probe(obs,dt,da,self._THETA)),
+        np.testing.assert_allclose(np.array(_4cmt_oral_probe(obs,dt,da,self._THETA)),
                                    self._scipy_ref(obs,dt,da,self._THETA),rtol=5e-5,atol=1e-7)
 
     def test_central_peaks_then_declines(self):
         obs=list(np.linspace(0.25,48.0,60))
-        got=np.array(_4oral_probe(obs,*_TPL_DOSE_1,self._THETA))
+        got=np.array(_4cmt_oral_probe(obs,*_TPL_DOSE_1,self._THETA))
         a2=got[:,1]; peak=int(np.argmax(a2))
         assert peak>0 and np.all(np.diff(a2[peak:])<=1e-4)
 
     def test_all_three_peripherals_receive_drug(self):
-        got=np.array(_4oral_probe(_TPL_OBS,*_TPL_DOSE_1,self._THETA))
+        got=np.array(_4cmt_oral_probe(_TPL_OBS,*_TPL_DOSE_1,self._THETA))
         assert all(np.max(got[:,i])>0 for i in [2,3,4])
 
     def test_sensitivity_matches_fd(self):
-        if _4oral_sens is None: pytest.skip("4cmt_oral sens probe not compiled in")
+        if _4cmt_oral_sens is None: pytest.skip("4cmt_oral sens probe not compiled in")
         obs,(dt,da)=_TPL_OBS,_TPL_DOSE_1
-        _,sens_raw=_4oral_sens(obs,dt,da,self._THETA)
+        _,sens_raw=_4cmt_oral_sens(obs,dt,da,self._THETA)
         sens=np.array(sens_raw).reshape(len(obs),9,5)
-        sens_fd=_fd_sensitivity_generic(_4oral_probe,obs,dt,da,self._THETA,9,5)
+        sens_fd=_fd_sensitivity_generic(_4cmt_oral_probe,obs,dt,da,self._THETA,9,5)
         np.testing.assert_allclose(sens,sens_fd,rtol=1e-4,atol=1e-4*max(da))
 
+
+# ===========================================================================
+# Section 13 — constant-rate infusion probes  (1–4 cmt IV)
+# ===========================================================================
+#
+# For each IV template the infusion probe is validated against:
+#   a) scipy Radau (independent solver, same ODE)  — single and two-infusion
+#   b) analytical solution (1-cmt IV only; closed-form exists)
+#   c) mixed bolus + infusion schedule
+#   d) sensitivity probe vs central finite differences
+#
+# Observation grid spans before, during, and after the infusion window.
+# Single infusion : amt=100, rate=10  → 10 h duration at t=0
+# Two infusions   : t=[0, 25], amt=[100,80], rate=[10,8] → 10h each
+# Mixed           : t=[0, 25], amt=[100,80], rate=[0,10]  → bolus then 10h inf
+
+_INF_OBS   = [1.0, 5.0, 9.0, 10.5, 14.0, 20.0, 30.0, 48.0]
+_INF1_D    = ([0.0],       [100.0], [10.0])          # (times, amts, rates)
+_INF2_D    = ([0.0, 25.0], [100.0, 80.0], [10.0, 8.0])
+_INF_MIX_D = ([0.0, 25.0], [100.0, 80.0], [0.0, 10.0])
+
+
+# ---------------------------------------------------------------------------
+# 1-compartment IV infusion
+# ---------------------------------------------------------------------------
+
+class TestInfusion1cmtIv:
+
+    _skip = _require(_1cmt_iv_inf_probe)
+
+
+    _THETA = [1.0, 10.0]   # CL=1, V=10 → k=0.1 h⁻¹
+
+    def _scipy_ref(self, obs, dt, da, dr, theta=None):
+        cl, v = theta if theta is not None else self._THETA
+        def rf(rate): return lambda t, y: [rate - (cl / v) * y[0]]
+        return _scipy_infusion_multidose(obs, dt, da, dr, rf, [0.0])
+
+    def test_single_infusion_matches_scipy(self):
+        obs, (dt, da, dr) = _INF_OBS, _INF1_D
+        np.testing.assert_allclose(
+            np.array(_1cmt_iv_inf_probe(obs, dt, da, dr, self._THETA)),
+            self._scipy_ref(obs, dt, da, dr), rtol=5e-5, atol=1e-7)
+
+    def test_single_infusion_matches_analytical(self):
+        """During infusion: A1 = (R/k)(1-e^{-kt}).  After: A1(T)·e^{-k(t-T)}."""
+        cl, v = self._THETA
+        k = cl / v
+        amt, rate = _INF1_D[1][0], _INF1_D[2][0]
+        T = amt / rate
+        A1_T = (rate / k) * (1.0 - np.exp(-k * T))
+        analytical = [
+            (rate / k) * (1.0 - np.exp(-k * t)) if t <= T
+            else A1_T * np.exp(-k * (t - T))
+            for t in _INF_OBS
+        ]
+        got = np.array(_1cmt_iv_inf_probe(_INF_OBS, *_INF1_D, self._THETA))[:, 0]
+        np.testing.assert_allclose(got, analytical, rtol=1e-5, atol=1e-8)
+
+    def test_two_infusions_match_scipy(self):
+        obs, (dt, da, dr) = _INF_OBS, _INF2_D
+        np.testing.assert_allclose(
+            np.array(_1cmt_iv_inf_probe(obs, dt, da, dr, self._THETA)),
+            self._scipy_ref(obs, dt, da, dr), rtol=5e-5, atol=1e-7)
+
+    def test_mixed_bolus_and_infusion_matches_scipy(self):
+        obs, (dt, da, dr) = _INF_OBS, _INF_MIX_D
+        np.testing.assert_allclose(
+            np.array(_1cmt_iv_inf_probe(obs, dt, da, dr, self._THETA)),
+            self._scipy_ref(obs, dt, da, dr), rtol=5e-5, atol=1e-7)
+
+    def test_sensitivity_matches_fd(self):
+        if _1cmt_iv_inf_sens is None:
+            pytest.skip("1cmt_iv infusion sensitivity probe not compiled in")
+        obs, (dt, da, dr) = _INF_OBS, _INF1_D
+        _, sens_raw = _1cmt_iv_inf_sens(obs, dt, da, dr, self._THETA)
+        sens = np.array(sens_raw).reshape(len(obs), 2, 1)
+        sens_fd = _fd_sensitivity_infusion(
+            _1cmt_iv_inf_probe, obs, dt, da, dr, self._THETA, 2, 1)
+        np.testing.assert_allclose(sens, sens_fd, rtol=1e-4, atol=1e-4 * max(da))
+
+
+# ---------------------------------------------------------------------------
+# 2-compartment IV infusion
+# ---------------------------------------------------------------------------
+
+class TestInfusion2cmtIv:
+
+    _skip = _require(_2cmt_iv_inf_probe)
+
+
+    _THETA = [1.5, 8.0, 0.5, 15.0]   # CL, V1, Q, V2
+
+    def _scipy_ref(self, obs, dt, da, dr, theta):
+        cl, v1, q, v2 = theta
+        k10 = cl / v1; k12 = q / v1; k21 = q / v2
+        def rf(rate):
+            return lambda t, y: [
+                rate - (k10 + k12) * y[0] + k21 * y[1],
+                k12 * y[0] - k21 * y[1],
+            ]
+        return _scipy_infusion_multidose(obs, dt, da, dr, rf, [0.0, 0.0])
+
+    def test_single_infusion_matches_scipy(self):
+        obs, (dt, da, dr) = _INF_OBS, _INF1_D
+        ref = self._scipy_ref(obs, dt, da, dr, self._THETA)
+        got = np.array(_2cmt_iv_inf_probe(obs, dt, da, dr, self._THETA))
+        np.testing.assert_allclose(got, ref, rtol=5e-5, atol=1e-7)
+
+    def test_two_infusions_match_scipy(self):
+        obs, (dt, da, dr) = _INF_OBS, _INF2_D
+        ref = self._scipy_ref(obs, dt, da, dr, self._THETA)
+        got = np.array(_2cmt_iv_inf_probe(obs, dt, da, dr, self._THETA))
+        np.testing.assert_allclose(got, ref, rtol=5e-5, atol=1e-7)
+
+    def test_mixed_bolus_and_infusion_matches_scipy(self):
+        obs, (dt, da, dr) = _INF_OBS, _INF_MIX_D
+        ref = self._scipy_ref(obs, dt, da, dr, self._THETA)
+        got = np.array(_2cmt_iv_inf_probe(obs, dt, da, dr, self._THETA))
+        np.testing.assert_allclose(got, ref, rtol=5e-5, atol=1e-7)
+
+    def test_peripheral_receives_drug(self):
+        got = np.array(_2cmt_iv_inf_probe(_INF_OBS, *_INF1_D, self._THETA))
+        assert np.max(got[:, 1]) > 0
+
+    def test_sensitivity_matches_fd(self):
+        if _2cmt_iv_inf_sens is None:
+            pytest.skip("2cmt_iv infusion sensitivity probe not compiled in")
+        obs, (dt, da, dr) = _INF_OBS, _INF1_D
+        _, sens_raw = _2cmt_iv_inf_sens(obs, dt, da, dr, self._THETA)
+        sens = np.array(sens_raw).reshape(len(obs), 4, 2)
+        sens_fd = _fd_sensitivity_infusion(
+            _2cmt_iv_inf_probe, obs, dt, da, dr, self._THETA, 4, 2)
+        np.testing.assert_allclose(sens, sens_fd, rtol=1e-4, atol=1e-4 * max(da))
+
+
+# ---------------------------------------------------------------------------
+# 3-compartment IV infusion
+# ---------------------------------------------------------------------------
+
+class TestInfusion3cmtIv:
+
+    _skip = _require(_3cmt_iv_inf_probe)
+
+
+    _THETA = [2.0, 10.0, 1.0, 20.0, 0.5, 30.0]   # CL,V1,Q2,V2,Q3,V3
+
+    def _scipy_ref(self, obs, dt, da, dr, theta):
+        cl, v1, q2, v2, q3, v3 = theta
+        k10 = cl / v1; k12 = q2 / v1; k21 = q2 / v2
+        k13 = q3 / v1; k31 = q3 / v3
+        def rf(rate):
+            return lambda t, y: [
+                rate - (k10 + k12 + k13) * y[0] + k21 * y[1] + k31 * y[2],
+                k12 * y[0] - k21 * y[1],
+                k13 * y[0] - k31 * y[2],
+            ]
+        return _scipy_infusion_multidose(obs, dt, da, dr, rf, [0.0, 0.0, 0.0])
+
+    def test_single_infusion_matches_scipy(self):
+        obs, (dt, da, dr) = _INF_OBS, _INF1_D
+        ref = self._scipy_ref(obs, dt, da, dr, self._THETA)
+        got = np.array(_3cmt_iv_inf_probe(obs, dt, da, dr, self._THETA))
+        np.testing.assert_allclose(got, ref, rtol=5e-5, atol=1e-7)
+
+    def test_two_infusions_match_scipy(self):
+        obs, (dt, da, dr) = _INF_OBS, _INF2_D
+        ref = self._scipy_ref(obs, dt, da, dr, self._THETA)
+        got = np.array(_3cmt_iv_inf_probe(obs, dt, da, dr, self._THETA))
+        np.testing.assert_allclose(got, ref, rtol=5e-5, atol=1e-7)
+
+    def test_mixed_bolus_and_infusion_matches_scipy(self):
+        obs, (dt, da, dr) = _INF_OBS, _INF_MIX_D
+        ref = self._scipy_ref(obs, dt, da, dr, self._THETA)
+        got = np.array(_3cmt_iv_inf_probe(obs, dt, da, dr, self._THETA))
+        np.testing.assert_allclose(got, ref, rtol=5e-5, atol=1e-7)
+
+    def test_both_peripherals_receive_drug(self):
+        got = np.array(_3cmt_iv_inf_probe(_INF_OBS, *_INF1_D, self._THETA))
+        assert np.max(got[:, 1]) > 0 and np.max(got[:, 2]) > 0
+
+    def test_sensitivity_matches_fd(self):
+        if _3cmt_iv_inf_sens is None:
+            pytest.skip("3cmt_iv infusion sensitivity probe not compiled in")
+        obs, (dt, da, dr) = _INF_OBS, _INF1_D
+        _, sens_raw = _3cmt_iv_inf_sens(obs, dt, da, dr, self._THETA)
+        sens = np.array(sens_raw).reshape(len(obs), 6, 3)
+        sens_fd = _fd_sensitivity_infusion(
+            _3cmt_iv_inf_probe, obs, dt, da, dr, self._THETA, 6, 3)
+        np.testing.assert_allclose(sens, sens_fd, rtol=1e-4, atol=1e-4 * max(da))
+
+
+# ---------------------------------------------------------------------------
+# 4-compartment IV infusion
+# ---------------------------------------------------------------------------
+
+class TestInfusion4cmtIv:
+
+    _skip = _require(_4cmt_iv_inf_probe)
+
+
+    _THETA = [2.0, 10.0, 1.0, 20.0, 0.5, 30.0, 0.2, 40.0]  # CL,V1,Q2,V2,Q3,V3,Q4,V4
+
+    def _scipy_ref(self, obs, dt, da, dr, theta):
+        cl, v1, q2, v2, q3, v3, q4, v4 = theta
+        k10=cl/v1; k12=q2/v1; k21=q2/v2; k13=q3/v1; k31=q3/v3; k14=q4/v1; k41=q4/v4
+        def rf(rate):
+            return lambda t, y: [
+                rate - (k10+k12+k13+k14)*y[0] + k21*y[1] + k31*y[2] + k41*y[3],
+                k12*y[0] - k21*y[1],
+                k13*y[0] - k31*y[2],
+                k14*y[0] - k41*y[3],
+            ]
+        return _scipy_infusion_multidose(obs, dt, da, dr, rf, [0.0, 0.0, 0.0, 0.0])
+
+    def test_single_infusion_matches_scipy(self):
+        obs, (dt, da, dr) = _INF_OBS, _INF1_D
+        ref = self._scipy_ref(obs, dt, da, dr, self._THETA)
+        got = np.array(_4cmt_iv_inf_probe(obs, dt, da, dr, self._THETA))
+        np.testing.assert_allclose(got, ref, rtol=5e-5, atol=1e-7)
+
+    def test_two_infusions_match_scipy(self):
+        obs, (dt, da, dr) = _INF_OBS, _INF2_D
+        ref = self._scipy_ref(obs, dt, da, dr, self._THETA)
+        got = np.array(_4cmt_iv_inf_probe(obs, dt, da, dr, self._THETA))
+        np.testing.assert_allclose(got, ref, rtol=5e-5, atol=1e-7)
+
+    def test_mixed_bolus_and_infusion_matches_scipy(self):
+        obs, (dt, da, dr) = _INF_OBS, _INF_MIX_D
+        ref = self._scipy_ref(obs, dt, da, dr, self._THETA)
+        got = np.array(_4cmt_iv_inf_probe(obs, dt, da, dr, self._THETA))
+        np.testing.assert_allclose(got, ref, rtol=5e-5, atol=1e-7)
+
+    def test_all_peripherals_receive_drug(self):
+        got = np.array(_4cmt_iv_inf_probe(_INF_OBS, *_INF1_D, self._THETA))
+        assert all(np.max(got[:, i]) > 0 for i in [1, 2, 3])
+
+    def test_sensitivity_matches_fd(self):
+        if _4cmt_iv_inf_sens is None:
+            pytest.skip("4cmt_iv infusion sensitivity probe not compiled in")
+        obs, (dt, da, dr) = _INF_OBS, _INF1_D
+        _, sens_raw = _4cmt_iv_inf_sens(obs, dt, da, dr, self._THETA)
+        sens = np.array(sens_raw).reshape(len(obs), 8, 4)
+        sens_fd = _fd_sensitivity_infusion(
+            _4cmt_iv_inf_probe, obs, dt, da, dr, self._THETA, 8, 4)
+        np.testing.assert_allclose(sens, sens_fd, rtol=1e-4, atol=1e-6)
+
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Section 14 — ALAG (Absorption Lag Time) support
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# ALAG{cmt} is a model-estimated lag time before a dose enters the system.
+# The native path must shift each dose time by ALAG{compartment} before
+# passing the dose schedule to the Rust probe, exactly as advan6._prepare_doses
+# does for the Python ODE path.
+#
+# Tests verify:
+#   1. _apply_alag helper (unit level)
+#   2. State probe: 1cmt_oral + ALAG1 vs analytical solution with lag time
+#   3. IndividualModel dispatch: pk_callable returns ALAG1 → correct IPRED
+#   4. Sensitivity probe: G_i with ALAG1 matches FD reference (rtol=1e-3)
+#
+# Analytical solution for 1cmt_oral with lag time tlag:
+#   C(t) = 0                                          for t ≤ tlag
+#   C(t) = D/V * KA/(KA-k) * (e^{-k(t-tlag)}
+#                              - e^{-KA(t-tlag)})     for t > tlag
+#   where k = CL/V
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def _oral_lag_analytical(
+    obs: list[float],
+    dose_time: float,
+    dose_amt: float,
+    KA: float,
+    CL: float,
+    V: float,
+    tlag: float,
+) -> np.ndarray:
+    """Analytical 1cmt oral solution with lag time."""
+    k = CL / V
+    conc = np.zeros(len(obs))
+    for i, t in enumerate(obs):
+        t_eff = t - (dose_time + tlag)
+        if t_eff > 0.0:
+            conc[i] = (dose_amt / V) * (KA / (KA - k)) * (
+                np.exp(-k * t_eff) - np.exp(-KA * t_eff)
+            )
+    return conc
+
+
+class TestApplyAlagHelper:
+    """Unit tests for the _apply_alag module-level helper."""
+
+    def test_no_alag_keys_returns_same_list(self):
+        """If pk_params contains no ALAG keys, the original list is returned."""
+        from openpkpd.model.individual import _apply_alag
+        dt = [0.0, 12.0]
+        result = _apply_alag(dt, [1, 1], {"CL": 5.0, "V": 10.0})
+        assert result is dt, "should return original list unchanged (fast path)"
+
+    def test_alag1_shifts_compartment_1_doses(self):
+        """ALAG1=2.5 shifts all compartment-1 dose times by 2.5."""
+        from openpkpd.model.individual import _apply_alag
+        result = _apply_alag([0.0, 12.0], [1, 1], {"ALAG1": 2.5})
+        assert result == [2.5, 14.5]
+
+    def test_alag_is_compartment_specific(self):
+        """ALAG2=1.0 only shifts doses into compartment 2."""
+        from openpkpd.model.individual import _apply_alag
+        result = _apply_alag([0.0, 6.0], [1, 2], {"ALAG1": 0.0, "ALAG2": 1.0})
+        assert result[0] == pytest.approx(0.0)
+        assert result[1] == pytest.approx(7.0)
+
+    def test_zero_alag_leaves_times_unchanged(self):
+        """ALAG1=0.0 is a no-op."""
+        from openpkpd.model.individual import _apply_alag
+        result = _apply_alag([0.0, 24.0], [1, 1], {"ALAG1": 0.0})
+        assert result == [0.0, 24.0]
+
+
+class TestAlagStateProbe:
+    """State probe: 1cmt_oral with ALAG1 vs analytical solution."""
+
+    _KA   = 1.5
+    _CL   = 0.5
+    _V    = 10.0
+    _ALAG = 2.0          # 2-hour lag
+    _DOSE = 100.0
+    _OBS  = [0.5, 1.0, 1.5, 2.0, 3.0, 5.0, 8.0, 12.0, 24.0]
+    _THETA = [_KA, _CL, _V]
+
+    _skip = _require(_1cmt_oral_probe)
+
+
+    def test_no_alag_deviates_from_analytical(self):
+        """Baseline: probe without lag does NOT match the lagged analytical solution."""
+        analytic = _oral_lag_analytical(
+            self._OBS, 0.0, self._DOSE, self._KA, self._CL, self._V, self._ALAG
+        )
+        states_raw = _1cmt_oral_probe(self._OBS, [0.0], [self._DOSE], self._THETA)
+        ipred_no_lag = np.array(states_raw)[:, 1] / self._V
+        # Pre-lag observations (t ≤ 2) should have non-zero ipred without lag fix.
+        pre_lag_mask = np.array(self._OBS) <= self._ALAG
+        assert np.any(ipred_no_lag[pre_lag_mask] > 0.01), (
+            "Without ALAG fix, probe should give non-zero concentrations before lag ends"
+        )
+        assert not np.allclose(ipred_no_lag, analytic, atol=0.1), (
+            "Without ALAG fix, probe should NOT match lagged analytical solution"
+        )
+
+    def test_alag_shifted_probe_matches_analytical(self):
+        """Probe with ALAG-shifted dose time matches analytical lagged solution."""
+        analytic = _oral_lag_analytical(
+            self._OBS, 0.0, self._DOSE, self._KA, self._CL, self._V, self._ALAG
+        )
+        shifted_dt = [0.0 + self._ALAG]   # dose_time + ALAG1
+        states_raw = _1cmt_oral_probe(self._OBS, shifted_dt, [self._DOSE], self._THETA)
+        ipred = np.array(states_raw)[:, 1] / self._V
+        np.testing.assert_allclose(ipred, analytic, rtol=1e-5, atol=1e-8,
+                                   err_msg="ALAG-shifted probe must match analytical solution")
+
+    def test_pre_lag_concentrations_are_zero(self):
+        """Observations at or before the lag time must have zero concentration."""
+        shifted_dt = [0.0 + self._ALAG]
+        states_raw = _1cmt_oral_probe(self._OBS, shifted_dt, [self._DOSE], self._THETA)
+        ipred = np.array(states_raw)[:, 1] / self._V
+        pre_lag = [i for i, t in enumerate(self._OBS) if t <= self._ALAG]
+        for i in pre_lag:
+            assert ipred[i] < 1e-8, f"C({self._OBS[i]}) should be ~0 before lag ends"
+
+
+class TestAlagIndividualDispatch:
+    """IndividualModel dispatch: ALAG1 in pk_callable → correct native IPRED."""
+
+    _KA   = 1.5
+    _CL   = 0.5
+    _V    = 10.0
+    _ALAG = 2.0
+    _DOSE = 100.0
+    _OBS  = [0.5, 1.0, 2.0, 3.0, 5.0, 8.0, 12.0, 24.0]
+
+    _skip = _require_with_indiv(_1cmt_oral_probe)
+
+    def _build_indiv(self, alag1: float):
+        from openpkpd.model.individual import IndividualModel
+        se = MagicMock()
+        se.obs_times = np.array(self._OBS)
+        se.obs_dv = np.full(len(self._OBS), np.nan)
+        se.obs_mdv = np.zeros(len(self._OBS), dtype=int)
+        se.obs_cmt = np.ones(len(self._OBS), dtype=int)
+        se.observation_mask.return_value = np.ones(len(self._OBS), dtype=bool)
+        se.covariate_df = None
+        se.covariate_at.return_value = {}
+        se.covariate_change_times.return_value = []
+
+        dose_event = MagicMock()
+        dose_event.time = 0.0
+        dose_event.amount = self._DOSE
+        dose_event.rate = 0.0
+        dose_event.compartment = 1
+        se.dose_events = [dose_event]
+
+        def pk_callable(theta, eta, t=0.0, covariates=None):
+            return {"KA": self._KA, "CL": self._CL, "V": self._V, "ALAG1": alag1}
+
+        def error_callable(theta, eta, eps, f, ipred, y, t, a=None, covariates=None, sigma=None):
+            return {"Y": f * (1 + eps[0]), "IPRED": f}
+        error_callable._source = "Y = F * (1 + EPS[0])"
+
+        pk_sub = MagicMock()
+        pk_sub.advan = 6
+        pk_sub.n_compartments = 2   # 1cmt_oral has n_states=2
+
+        return IndividualModel(
+            subject_events=se,
+            pk_subroutine=pk_sub,
+            pk_callable=pk_callable,
+            error_callable=error_callable,
+            n_eps=1,
+        )
+
+    def test_alag_zero_baseline(self):
+        """ALAG1=0 gives the same result as no lag."""
+        indiv = self._build_indiv(alag1=0.0)
+        contract = indiv._native_ode_contract
+        assert contract is not None
+        pk_params = {"KA": self._KA, "CL": self._CL, "V": self._V, "ALAG1": 0.0}
+        sol = indiv._try_native_ode_probe(pk_params, np.array(self._OBS))
+        assert sol is not None, "native probe should activate for 1cmt_oral"
+        analytic = _oral_lag_analytical(
+            self._OBS, 0.0, self._DOSE, self._KA, self._CL, self._V, tlag=0.0
+        )
+        np.testing.assert_allclose(sol.ipred, analytic, rtol=1e-5, atol=1e-8)
+
+    def test_alag1_shifts_dose_correctly(self):
+        """ALAG1=2.0 → native IPRED matches analytical solution with tlag=2."""
+        indiv = self._build_indiv(alag1=self._ALAG)
+        pk_params = {
+            "KA": self._KA, "CL": self._CL, "V": self._V, "ALAG1": self._ALAG
+        }
+        sol = indiv._try_native_ode_probe(pk_params, np.array(self._OBS))
+        assert sol is not None, "native probe should activate for 1cmt_oral + ALAG1"
+        analytic = _oral_lag_analytical(
+            self._OBS, 0.0, self._DOSE, self._KA, self._CL, self._V, tlag=self._ALAG
+        )
+        np.testing.assert_allclose(sol.ipred, analytic, rtol=1e-5, atol=1e-8,
+                                   err_msg="ALAG-dispatched IPRED must match analytical")
+
+    def test_contract_stores_dose_compartments(self):
+        """Contract must include dose_compartments for ALAG dispatch to work."""
+        indiv = self._build_indiv(alag1=0.0)
+        contract = indiv._native_ode_contract
+        assert contract is not None
+        assert "dose_compartments" in contract, "contract must store dose_compartments"
+        assert contract["dose_compartments"] == [1]
+
+
+class TestAlagSensitivity:
+    """Native G_i with ALAG1 must match FD of (ALAG-shifted) predictions."""
+
+    _KA   = 1.5
+    _CL   = 0.5
+    _V    = 10.0
+    _ALAG = 1.5
+    _DOSE = 100.0
+    _OBS  = [2.0, 4.0, 8.0, 12.0, 24.0]
+
+    _skip = _require_with_indiv(_1cmt_oral_sens)
+
+    def _build_indiv(self):
+        from openpkpd.model.individual import IndividualModel
+        se = MagicMock()
+        se.obs_times = np.array(self._OBS)
+        se.obs_dv = np.full(len(self._OBS), np.nan)
+        se.obs_mdv = np.zeros(len(self._OBS), dtype=int)
+        se.obs_cmt = np.ones(len(self._OBS), dtype=int)
+        se.observation_mask.return_value = np.ones(len(self._OBS), dtype=bool)
+        se.covariate_df = None
+        se.covariate_at.return_value = {}
+        se.covariate_change_times.return_value = []
+
+        dose_event = MagicMock()
+        dose_event.time = 0.0
+        dose_event.amount = self._DOSE
+        dose_event.rate = 0.0
+        dose_event.compartment = 1
+        se.dose_events = [dose_event]
+
+        # theta = [KA, CL, V]; eta shifts CL and V log-normally
+        def pk_callable(theta, eta, t=0.0, covariates=None):
+            th = list(theta)
+            return {
+                "KA":    float(th[0]),
+                "CL":    float(th[1]) * np.exp(eta[0] if len(eta) > 0 else 0.0),
+                "V":     float(th[2]) * np.exp(eta[1] if len(eta) > 1 else 0.0),
+                "ALAG1": self._ALAG,   # constant lag, not eta-dependent
+            }
+
+        def error_callable(theta, eta, eps, f, ipred, y, t, a=None, covariates=None, sigma=None):
+            return {"Y": f * (1 + eps[0]), "IPRED": f}
+        error_callable._source = "Y = F * (1 + EPS[0])"
+
+        pk_sub = MagicMock()
+        pk_sub.advan = 6
+        pk_sub.n_compartments = 2
+
+        return IndividualModel(
+            subject_events=se,
+            pk_subroutine=pk_sub,
+            pk_callable=pk_callable,
+            error_callable=error_callable,
+            n_eps=1,
+        )
+
+    def test_G_i_with_alag_matches_fd(self):
+        """G_i computed natively with ALAG1 matches central FD of ALAG-shifted probe."""
+        indiv = self._build_indiv()
+        theta = np.array([self._KA, self._CL, self._V])
+        eta   = np.zeros(2)
+        obs_mask = np.ones(len(self._OBS), dtype=bool)
+
+        G_native = indiv.native_advan6_prediction_eta_jacobian(theta, eta, obs_mask, n_eta=2)
+        assert G_native is not None, "native G_i should activate for 1cmt_oral + ALAG1"
+
+        # FD reference: perturb eta, re-evaluate via ALAG-shifted 1cmt_oral probe
+        eps = 1e-5
+        n_eta = 2
+        shifted_dt = [0.0 + self._ALAG]
+        G_fd = np.zeros((len(self._OBS), n_eta))
+        for k in range(n_eta):
+            ep = [0.0] * n_eta; ep[k] += eps
+            em = [0.0] * n_eta; em[k] -= eps
+
+            def ipred_at(eta_val):
+                pk = {"KA": self._KA,
+                      "CL": self._CL * np.exp(eta_val[0]),
+                      "V":  self._V  * np.exp(eta_val[1]),
+                      "ALAG1": self._ALAG}
+                ode_theta = [pk["KA"], pk["CL"], pk["V"]]
+                raw = _1cmt_oral_probe(self._OBS, shifted_dt, [self._DOSE], ode_theta)
+                return np.array(raw)[:, 1] / pk["V"]
+
+            G_fd[:, k] = (ipred_at(ep) - ipred_at(em)) / (2.0 * eps)
+
+        np.testing.assert_allclose(G_native, G_fd, rtol=1e-3, atol=1e-8,
+                                   err_msg="G_i with ALAG1 must match FD reference")

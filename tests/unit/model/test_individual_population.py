@@ -629,101 +629,90 @@ class TestIndividualModel:
         expected_ll += log_likelihood_normal(2.0, 1.0, 1.0)
         assert result == pytest.approx(-2.0 * expected_ll)
 
-    def test_evaluate_observation_model_uses_native_advan6_mixed_pkpd_probe_when_available(
+    def test_evaluate_observation_model_uses_native_ode_probe_when_available(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        """evaluate_observation_model routes through the native template probe.
+
+        Uses a 1cmt_iv model (n_compartments=1, params CL+V) with a
+        proportional error model.  The template's state_probe_fn is replaced
+        with a fake that records calls and returns controlled amounts, allowing
+        us to verify both the call signature and the downstream IPRED calculation
+        without needing the actual Rust extension in this unit test.
+        """
+        from openpkpd.model import individual as _indiv_mod
+
+        tmpl = _indiv_mod._NATIVE_ODE_TEMPLATE_MAP.get("1cmt_iv")
+        if tmpl is None or tmpl.state_probe_fn is None:
+            pytest.skip("1cmt_iv probe not compiled in")
+
         compiler = NMTRANCompiler()
         events = SubjectEvents(
             subject_id=1,
             dose_events=[DoseEvent(time=0.0, amount=100.0, compartment=1)],
             obs_times=np.array([0.5, 24.0], dtype=float),
             obs_dv=np.array([0.0, 44.0], dtype=float),
-            obs_cmt=np.array([3, 4], dtype=int),
+            obs_cmt=np.ones(2, dtype=int),
             obs_mdv=np.zeros(2, dtype=int),
-            obs_covariates=[{"DVID": 1.0}, {"DVID": 2.0}],
+            obs_covariates=[{}, {}],
         )
 
-        class _NativeMixedPK(PKSubroutine):
+        class _Native1CmtPK(PKSubroutine):
             advan = 6
-            n_compartments = 10
+            n_compartments = 1
 
             def solve(self, *args, **kwargs):
-                raise AssertionError("native probe should bypass python solve()")
+                raise AssertionError("native probe should bypass Python solve()")
 
             def apply_trans(self, raw_params: dict[str, float], trans: int) -> dict[str, float]:
                 return dict(raw_params)
 
-        calls: list[tuple[list[float], float, list[float]]] = []
+        CL, V = 0.134, 8.6756
+        calls: list[tuple] = []
 
-        # The code prefers the multidose probe; patch it with the
-        # multidose signature (obs_times, dose_times, dose_amts, theta).
-        def _fake_multidose_probe(
+        def _fake_state_probe(
             times: list[float],
             dose_times: list[float],
             dose_amts: list[float],
-            theta8: list[float],
+            theta: list[float],
         ) -> list[list[float]]:
-            calls.append((list(times), list(dose_times), list(dose_amts), list(theta8)))
-            return [
-                [80.0, 10.0, 30.0, -5.0],
-                [0.1, 0.2, 12.0, -7.5],
-            ]
+            calls.append((list(times), list(dose_times), list(dose_amts), list(theta)))
+            # Returns (n_obs, n_states=1): central compartment amounts
+            return [[80.0], [50.0]]
 
-        monkeypatch.setattr(
-            "openpkpd.model.individual._native_cvodes_advan6_mixed_pkpd_probe_multidose_rust",
-            _fake_multidose_probe,
-        )
-        monkeypatch.setattr(
-            "openpkpd.model.individual._native_cvodes_advan6_mixed_pkpd_probe_rust",
-            lambda *a, **kw: [],  # kept so contract builder finds it non-None
-        )
+        # Patch only the state_probe_fn on the 1cmt_iv template object.
+        # __slots__ attributes are mutable via setattr; monkeypatch restores them.
+        monkeypatch.setattr(tmpl, "state_probe_fn", _fake_state_probe)
 
-        error_callable = compiler.compile_error(
-            "PKPROP = THETA(9)\n"
-            "PKADD = THETA(10)\n"
-            "PDADD = THETA(11)\n"
-            "IPRED = THETA(8) + A(4)\n"
-            "W = PDADD\n"
-            "Y = IPRED + W*EPS(2)\n"
-            "IF (DVID == 1) W = SQRT((PKPROP*F)**2 + PKADD**2)\n"
-            "IF (DVID == 1) Y = F + W*EPS(1)"
-        )
+        error_callable = compiler.compile_error("Y = F * (1 + EPS(1))")
 
         def pk_callable(theta, eta, t=0.0, covariates=None):
-            return {
-                "KTR": 0.8968,
-                "KA": 0.8887,
-                "CL": 0.1337,
-                "V": 8.6756,
-                "EMAX": 0.999,
-                "EC50": 1.5735,
-                "KOUT": 0.0552,
-                "E0": 101.3225,
-                "PCMT": 3.0,
-            }
+            return {"CL": CL, "V": V}
 
         model = IndividualModel(
             subject_events=events,
-            pk_subroutine=_NativeMixedPK(),
+            pk_subroutine=_Native1CmtPK(),
             pk_callable=pk_callable,
             error_callable=error_callable,
-            n_eps=2,
+            n_eps=1,
         )
 
-        theta = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 101.3225, 0.2, 3.0, 5.0], dtype=float)
-        sigma = np.diag([0.25, 0.04])
-        ipred, _, f, pred, _ = model.evaluate_observation_model(theta, np.array([]), sigma, trans=1)
+        theta = np.array([1.0], dtype=float)
+        sigma = np.diag([0.25])
+        ipred, _, f, pred, _ = model.evaluate_observation_model(
+            theta, np.array([]), sigma, trans=1
+        )
 
-        assert len(calls) == 1
-        # Multidose probe signature: (obs_times, dose_times, dose_amts, theta)
-        assert calls[0][0] == [0.5, 24.0]          # obs_times
-        assert calls[0][1] == [0.0]                 # dose_times: single dose at t=0
-        assert calls[0][2] == pytest.approx([100.0])  # dose_amts
-        np.testing.assert_allclose(calls[0][3], [0.8968, 0.8887, 0.1337, 8.6756, 0.999, 1.5735, 0.0552, 101.3225])
-        np.testing.assert_allclose(ipred, [30.0 / 8.6756, 12.0 / 8.6756])
+        assert len(calls) == 1, "native state probe must be called exactly once"
+        # Probe signature: (obs_times, dose_times, dose_amts, theta=[CL, V])
+        assert calls[0][0] == pytest.approx([0.5, 24.0])   # obs_times
+        assert calls[0][1] == pytest.approx([0.0])           # dose_times
+        assert calls[0][2] == pytest.approx([100.0])         # dose_amts
+        assert calls[0][3] == pytest.approx([CL, V])         # theta in required order
+        # 1cmt_iv: IPRED = A_central / V
+        np.testing.assert_allclose(ipred, [80.0 / V, 50.0 / V])
         np.testing.assert_allclose(f, ipred)
-        np.testing.assert_allclose(pred, [30.0 / 8.6756, 101.3225 - 7.5])
 
     def test_obj_eta_with_iov_etas_sums_block_penalties(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1821,7 +1810,7 @@ class TestPopulationModel:
 
 
 # ===========================================================================
-# Detection-logic gate tests for _build_native_advan6_mixed_pkpd_contract
+# Detection-logic gate tests for _build_native_ode_contract
 # ===========================================================================
 # These tests verify that every blocking condition in the native-path
 # contract builder returns None correctly, and that the "happy path"
@@ -1920,7 +1909,7 @@ def _build_mixed_pkpd_model(
 
 class TestNativeAdvan6DetectionGates:
     """
-    One test per blocking condition in _build_native_advan6_mixed_pkpd_contract.
+    One test per blocking condition in _build_native_ode_contract.
 
     Each test patches away the native module if needed and asserts that the
     contract is exactly None when a gate condition is violated.
@@ -1928,30 +1917,32 @@ class TestNativeAdvan6DetectionGates:
 
     def test_happy_path_builds_contract(self) -> None:
         model = _build_mixed_pkpd_model()
-        contract = model._native_advan6_mixed_pkpd_contract
+        contract = model._native_ode_contract
         if contract is None:
             pytest.skip("native-cvodes extension not compiled in")
         assert isinstance(contract, dict)
         assert "dose_amount" in contract
         assert contract["dose_amount"] == pytest.approx(100.0)
-        assert "required_names" in contract
-        assert "KTR" in contract["required_names"]
+        # dose_compartments was added to support ALAG{cmt} dispatch
+        assert "dose_compartments" in contract
+        assert contract["dose_compartments"] == [1]
 
     def test_gate_no_native_module_returns_none(self, monkeypatch) -> None:
-        monkeypatch.setattr(
-            "openpkpd.model.individual._native_cvodes_advan6_mixed_pkpd_probe_rust",
-            None,
-        )
+        # The contract builder gates on "at least one template has a state probe".
+        # Simulate no compiled extension by replacing the template list with an
+        # empty list; the builder then returns None immediately.
+        from openpkpd.model import individual as _indiv
+        monkeypatch.setattr(_indiv, "_NATIVE_ODE_TEMPLATES", [])
         model = _build_mixed_pkpd_model()
-        assert model._native_advan6_mixed_pkpd_contract is None
+        assert model._native_ode_contract is None
 
     def test_gate_wrong_advan_number_returns_none(self, monkeypatch) -> None:
         monkeypatch.setattr(
-            "openpkpd.model.individual._native_cvodes_advan6_mixed_pkpd_probe_rust",
+            "openpkpd.model.individual._native_cvodes_transit_1cmt_pkpd_probe_rust",
             lambda *a, **kw: [],
         )
         model = _build_mixed_pkpd_model(pk_subroutine=_FakeADVAN2())
-        assert model._native_advan6_mixed_pkpd_contract is None
+        assert model._native_ode_contract is None
 
     def test_gate_wrong_error_model_returns_none(self, monkeypatch) -> None:
         """An error model that is not in _NATIVE_SUPPORTED_ERROR_MODELS returns None.
@@ -1960,7 +1951,7 @@ class TestNativeAdvan6DetectionGates:
         multi-EPS pattern that doesn't match any known template is still rejected.
         """
         monkeypatch.setattr(
-            "openpkpd.model.individual._native_cvodes_advan6_mixed_pkpd_probe_rust",
+            "openpkpd.model.individual._native_cvodes_transit_1cmt_pkpd_probe_rust",
             lambda *a, **kw: [],
         )
         compiler = NMTRANCompiler()
@@ -1986,54 +1977,54 @@ class TestNativeAdvan6DetectionGates:
             error_callable=compiler.compile_error(unknown_error),
             n_eps=2,
         )
-        assert model._native_advan6_mixed_pkpd_contract is None
+        assert model._native_ode_contract is None
 
     def test_proportional_error_model_activates_native_path(self, monkeypatch) -> None:
         """After P1b: proportional error model now builds a non-None contract."""
         monkeypatch.setattr(
-            "openpkpd.model.individual._native_cvodes_advan6_mixed_pkpd_probe_rust",
+            "openpkpd.model.individual._native_cvodes_transit_1cmt_pkpd_probe_rust",
             lambda *a, **kw: [],
         )
         model = _build_mixed_pkpd_model(
             error_code=_SIMPLE_PROP_ERROR_CODE,
             obs_covariates=None,
         )
-        contract = model._native_advan6_mixed_pkpd_contract
+        contract = model._native_ode_contract
         assert contract is not None
-        assert contract["is_mixed_pkpd"] is False
+        assert contract["is_pkpd"] is False
 
     def test_gate_occasion_indices_returns_none(self, monkeypatch) -> None:
         monkeypatch.setattr(
-            "openpkpd.model.individual._native_cvodes_advan6_mixed_pkpd_probe_rust",
+            "openpkpd.model.individual._native_cvodes_transit_1cmt_pkpd_probe_rust",
             lambda *a, **kw: [],
         )
         model = _build_mixed_pkpd_model(
             occasion_indices=np.array([1, 1, 2, 2]),
         )
-        assert model._native_advan6_mixed_pkpd_contract is None
+        assert model._native_ode_contract is None
 
     def test_gate_extra_covariate_column_returns_none(self, monkeypatch) -> None:
         import pandas as pd
         monkeypatch.setattr(
-            "openpkpd.model.individual._native_cvodes_advan6_mixed_pkpd_probe_rust",
+            "openpkpd.model.individual._native_cvodes_transit_1cmt_pkpd_probe_rust",
             lambda *a, **kw: [],
         )
         cov_df = pd.DataFrame({"TIME": _OBS_TIMES, "DVID": [1, 1, 2, 2], "WT": [70, 70, 70, 70]})
         model = _build_mixed_pkpd_model(covariate_df=cov_df)
-        assert model._native_advan6_mixed_pkpd_contract is None
+        assert model._native_ode_contract is None
 
     def test_gate_zero_doses_returns_none(self, monkeypatch) -> None:
         monkeypatch.setattr(
-            "openpkpd.model.individual._native_cvodes_advan6_mixed_pkpd_probe_rust",
+            "openpkpd.model.individual._native_cvodes_transit_1cmt_pkpd_probe_rust",
             lambda *a, **kw: [],
         )
         model = _build_mixed_pkpd_model(dose_events=[])
-        assert model._native_advan6_mixed_pkpd_contract is None
+        assert model._native_ode_contract is None
 
     def test_multiple_doses_activate_native_path(self, monkeypatch) -> None:
         """After P1a: multiple IV bolus doses now build a non-None contract."""
         monkeypatch.setattr(
-            "openpkpd.model.individual._native_cvodes_advan6_mixed_pkpd_probe_rust",
+            "openpkpd.model.individual._native_cvodes_transit_1cmt_pkpd_probe_rust",
             lambda *a, **kw: [],
         )
         two_doses = [
@@ -2041,44 +2032,51 @@ class TestNativeAdvan6DetectionGates:
             DoseEvent(time=24.0, amount=100.0, compartment=1),
         ]
         model = _build_mixed_pkpd_model(dose_events=two_doses)
-        contract = model._native_advan6_mixed_pkpd_contract
+        contract = model._native_ode_contract
         assert contract is not None
         assert contract["dose_times"] == [0.0, 24.0]
         assert contract["dose_amts"] == [100.0, 100.0]
 
-    def test_gate_infusion_dose_returns_none(self, monkeypatch) -> None:
-        monkeypatch.setattr(
-            "openpkpd.model.individual._native_cvodes_advan6_mixed_pkpd_probe_rust",
-            lambda *a, **kw: [],
-        )
+    def test_infusion_dose_builds_contract_with_has_infusion_flag(self) -> None:
+        """Infusion doses are now supported on the native path.
+
+        The contract is built with has_infusion=True so that probe dispatch can
+        route to the infusion-aware Rust kernels.  Prior to infusion support the
+        contract would return None; this test documents the new behaviour.
+        """
         infusion = [DoseEvent(time=0.0, amount=100.0, compartment=1, rate=10.0)]
         model = _build_mixed_pkpd_model(dose_events=infusion)
-        assert model._native_advan6_mixed_pkpd_contract is None
+        contract = model._native_ode_contract
+        if contract is None:
+            pytest.skip("native-cvodes extension not compiled in")
+        assert contract is not None
+        assert contract["has_infusion"] is True
+        assert contract["dose_rates"] == [10.0]
 
     def test_late_dose_activates_native_path(self, monkeypatch) -> None:
         """After P1a: a dose at any time (not just t=0) builds a contract."""
         monkeypatch.setattr(
-            "openpkpd.model.individual._native_cvodes_advan6_mixed_pkpd_probe_rust",
+            "openpkpd.model.individual._native_cvodes_transit_1cmt_pkpd_probe_rust",
             lambda *a, **kw: [],
         )
         late = [DoseEvent(time=1.0, amount=100.0, compartment=1)]
         model = _build_mixed_pkpd_model(dose_events=late)
-        contract = model._native_advan6_mixed_pkpd_contract
+        contract = model._native_ode_contract
         assert contract is not None
         assert contract["dose_times"] == [1.0]
 
     def test_gate_wrong_dose_compartment_returns_none(self, monkeypatch) -> None:
         monkeypatch.setattr(
-            "openpkpd.model.individual._native_cvodes_advan6_mixed_pkpd_probe_rust",
+            "openpkpd.model.individual._native_cvodes_transit_1cmt_pkpd_probe_rust",
             lambda *a, **kw: [],
         )
         wrong_cmt = [DoseEvent(time=0.0, amount=100.0, compartment=2)]
         model = _build_mixed_pkpd_model(dose_events=wrong_cmt)
-        assert model._native_advan6_mixed_pkpd_contract is None
+        assert model._native_ode_contract is None
 
     def test_gate_unsorted_obs_times_returns_none(self, monkeypatch) -> None:
         monkeypatch.setattr(
-            "openpkpd.model.individual._native_cvodes_advan6_mixed_pkpd_probe_rust",
+            "openpkpd.model.individual._native_cvodes_transit_1cmt_pkpd_probe_rust",
             lambda *a, **kw: [],
         )
         unsorted_times = np.array([4.0, 1.0, 0.5, 24.0], dtype=float)
@@ -2086,10 +2084,10 @@ class TestNativeAdvan6DetectionGates:
         model = _build_mixed_pkpd_model(
             obs_times=unsorted_times, obs_dv=unsorted_dv
         )
-        assert model._native_advan6_mixed_pkpd_contract is None
+        assert model._native_ode_contract is None
 
     def test_probe_gate_missing_required_pk_param_returns_none(self, monkeypatch) -> None:
-        """_try_native_advan6_mixed_pkpd_probe returns None if a required name is absent."""
+        """_try_native_ode_probe returns None if a required name is absent."""
         compiler = NMTRANCompiler()
 
         def _bad_pk(theta, eta, t=0.0, covariates=None):
@@ -2112,14 +2110,14 @@ class TestNativeAdvan6DetectionGates:
             error_callable=compiler.compile_error(_MIXED_PKPD_ERROR_CODE),
             n_eps=2,
         )
-        if model._native_advan6_mixed_pkpd_contract is None:
+        if model._native_ode_contract is None:
             pytest.skip("native-cvodes extension not compiled in")
         pk_params = _bad_pk(np.array([]), np.array([]))
-        result = model._try_native_advan6_mixed_pkpd_probe(pk_params, _OBS_TIMES)
+        result = model._try_native_ode_probe(pk_params, _OBS_TIMES)
         assert result is None
 
     def test_probe_gate_wrong_pcmt_returns_none(self, monkeypatch) -> None:
-        """_try_native_advan6_mixed_pkpd_probe returns None when PCMT != 3."""
+        """_try_native_ode_probe returns None when PCMT != 3."""
         compiler = NMTRANCompiler()
 
         def _pcmt2_pk(theta, eta, t=0.0, covariates=None):
@@ -2145,8 +2143,8 @@ class TestNativeAdvan6DetectionGates:
             error_callable=compiler.compile_error(_MIXED_PKPD_ERROR_CODE),
             n_eps=2,
         )
-        if model._native_advan6_mixed_pkpd_contract is None:
+        if model._native_ode_contract is None:
             pytest.skip("native-cvodes extension not compiled in")
         pk_params = _pcmt2_pk(np.array([]), np.array([]))
-        result = model._try_native_advan6_mixed_pkpd_probe(pk_params, _OBS_TIMES)
+        result = model._try_native_ode_probe(pk_params, _OBS_TIMES)
         assert result is None

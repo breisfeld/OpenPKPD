@@ -39,8 +39,8 @@ _2oral    = _P("native_cvodes_2cmt_oral_probe_multidose")
 _2oral_s  = _P("native_cvodes_2cmt_oral_sensitivity_probe_multidose")
 _3iv      = _P("native_cvodes_3cmt_iv_probe_multidose")
 _3iv_s    = _P("native_cvodes_3cmt_iv_sensitivity_probe_multidose")
-_warf     = _P("native_cvodes_advan6_mixed_pkpd_probe_multidose")
-_warf_s   = _P("native_cvodes_advan6_mixed_pkpd_sensitivity_probe_multidose")
+_warf     = _P("native_cvodes_transit_1cmt_pkpd_probe_multidose")
+_warf_s   = _P("native_cvodes_transit_1cmt_pkpd_sensitivity_probe_multidose")
 
 OBS  = [0.5, 1.0, 2.0, 4.0, 8.0, 12.0, 24.0, 48.0]
 DT1  = [0.0]; DA1 = [100.0]
@@ -131,7 +131,7 @@ if _3iv:
     CASES.append(("3cmt_iv",   _3iv, _rhs_3iv(*th),   [0.0,0.0,0.0], th, _3iv_s,   6))
 if _warf:
     th = [0.3, 0.3, 0.1, 8.0, 0.5, 0.3, 0.05, 100.0]
-    CASES.append(("warfarin_pkpd", _warf, _rhs_warf(*th), [DA1[0],0,0,0], th, _warf_s, 8))
+    CASES.append(("transit_1cmt_pkpd", _warf, _rhs_warf(*th), [DA1[0],0,0,0], th, _warf_s, 8))
 
 
 def run_benchmarks(n=N):

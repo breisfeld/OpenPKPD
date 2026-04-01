@@ -2112,3 +2112,197 @@ class TestNativeCvodes3CmtIvVsADVAN5:
         np.testing.assert_allclose(states[:, 2], sol.amounts[:, 2],
                                    rtol=1e-4, atol=1e-8, err_msg="Periph-2 mismatch")
 
+
+# ===========================================================================
+# Section 10 — 3cmt_oral / 4cmt_iv / 4cmt_oral: scipy + analytical validation
+# ===========================================================================
+
+_3oral_probe  = _try_import("native_cvodes_3cmt_oral_probe_multidose")
+_3oral_sens   = _try_import("native_cvodes_3cmt_oral_sensitivity_probe_multidose")
+_4iv_probe    = _try_import("native_cvodes_4cmt_iv_probe_multidose")
+_4iv_sens     = _try_import("native_cvodes_4cmt_iv_sensitivity_probe_multidose")
+_4oral_probe  = _try_import("native_cvodes_4cmt_oral_probe_multidose")
+_4oral_sens   = _try_import("native_cvodes_4cmt_oral_sensitivity_probe_multidose")
+
+
+# ── 3-cmt oral ───────────────────────────────────────────────────────────────
+
+class TestTemplate3CmtOral:
+
+    @pytest.fixture(autouse=True)
+    def _skip(self):
+        if _3oral_probe is None:
+            pytest.skip("3cmt_oral probe not compiled in")
+
+    _THETA = [0.4, 0.13, 8.0, 0.6, 20.0, 0.3, 50.0]   # KA,CL,V2,Q3,V3,Q4,V4
+
+    def _scipy_ref(self, obs, dt, da, th):
+        ka, cl, v2, q3, v3, q4, v4 = th
+        k10=cl/v2; k23=q3/v2; k32=q3/v3; k24=q4/v2; k42=q4/v4
+        def rhs(t, y): return [
+            -ka*y[0],
+            ka*y[0]-(k10+k23+k24)*y[1]+k32*y[2]+k42*y[3],
+            k23*y[1]-k32*y[2], k24*y[1]-k42*y[3]]
+        return _scipy_generic_multidose(obs, dt, da, rhs, [0.0]*4)
+
+    def test_state_single_dose_matches_scipy(self):
+        obs,(dt,da)=_TPL_OBS,_TPL_DOSE_1
+        np.testing.assert_allclose(np.array(_3oral_probe(obs,dt,da,self._THETA)),
+                                   self._scipy_ref(obs,dt,da,self._THETA), rtol=5e-5, atol=1e-7)
+
+    def test_state_two_doses_matches_scipy(self):
+        obs,(dt,da)=_TPL_OBS,_TPL_DOSE_2
+        np.testing.assert_allclose(np.array(_3oral_probe(obs,dt,da,self._THETA)),
+                                   self._scipy_ref(obs,dt,da,self._THETA), rtol=5e-5, atol=1e-7)
+
+    def test_central_peaks_then_declines(self):
+        obs=list(np.linspace(0.25,48.0,50))
+        got=np.array(_3oral_probe(obs,*_TPL_DOSE_1,self._THETA))
+        a2=got[:,1]; peak=int(np.argmax(a2))
+        assert peak>0 and np.all(np.diff(a2[peak:])<=1e-4)
+
+    def test_both_peripherals_receive_drug(self):
+        got=np.array(_3oral_probe(_TPL_OBS,*_TPL_DOSE_1,self._THETA))
+        assert np.max(got[:,2])>0.0 and np.max(got[:,3])>0.0
+
+    def test_sensitivity_matches_fd(self):
+        if _3oral_sens is None: pytest.skip("3cmt_oral sens probe not compiled in")
+        obs,(dt,da)=_TPL_OBS,_TPL_DOSE_1
+        _,sens_raw=_3oral_sens(obs,dt,da,self._THETA)
+        sens=np.array(sens_raw).reshape(len(obs),7,4)
+        sens_fd=_fd_sensitivity_generic(_3oral_probe,obs,dt,da,self._THETA,7,4)
+        np.testing.assert_allclose(sens,sens_fd,rtol=1e-4,atol=1e-4*max(da))
+
+    def test_vs_advan12_single_dose(self):
+        """Cross-validation against ADVAN12 exact solution (NONMEM ADVAN12)."""
+        from openpkpd.pk.analytical.advan12 import ADVAN12
+        obs,(dt,da)=_XV_OBS,_XV_DOSE1; th=self._THETA
+        ka,cl,v2,q3,v3,q4,v4=th
+        sol=ADVAN12().solve({"KA":ka,"K":cl/v2,"K12":q3/v2,"K21":q3/v3,
+                             "K13":q4/v2,"K31":q4/v4,"V2":v2},
+                            _advan_doses(dt,da),np.array(obs))
+        got=np.array(_3oral_probe(obs,dt,da,th))[:,1]/v2
+        np.testing.assert_allclose(got,sol.ipred,rtol=1e-4,atol=1e-8)
+
+    def test_vs_advan12_two_doses(self):
+        from openpkpd.pk.analytical.advan12 import ADVAN12
+        obs,(dt,da)=_XV_OBS,_XV_DOSE2; th=self._THETA
+        ka,cl,v2,q3,v3,q4,v4=th
+        sol=ADVAN12().solve({"KA":ka,"K":cl/v2,"K12":q3/v2,"K21":q3/v3,
+                             "K13":q4/v2,"K31":q4/v4,"V2":v2},
+                            _advan_doses(dt,da),np.array(obs))
+        got=np.array(_3oral_probe(obs,dt,da,th))[:,1]/v2
+        np.testing.assert_allclose(got,sol.ipred,rtol=1e-4,atol=1e-8)
+
+
+# ── 4-cmt IV ─────────────────────────────────────────────────────────────────
+
+class TestTemplate4CmtIv:
+
+    @pytest.fixture(autouse=True)
+    def _skip(self):
+        if _4iv_probe is None:
+            pytest.skip("4cmt_iv probe not compiled in")
+
+    _THETA = [0.13, 8.0, 0.6, 20.0, 0.3, 50.0, 0.1, 100.0]  # CL,V1,Q2,V2,Q3,V3,Q4,V4
+
+    def _scipy_ref(self, obs, dt, da, th):
+        cl,v1,q2,v2,q3,v3,q4,v4=th
+        k10=cl/v1; k12=q2/v1; k21=q2/v2; k13=q3/v1; k31=q3/v3; k14=q4/v1; k41=q4/v4
+        def rhs(t,y): return [
+            -(k10+k12+k13+k14)*y[0]+k21*y[1]+k31*y[2]+k41*y[3],
+            k12*y[0]-k21*y[1], k13*y[0]-k31*y[2], k14*y[0]-k41*y[3]]
+        return _scipy_generic_multidose(obs,dt,da,rhs,[0.0]*4)
+
+    def test_state_single_dose_matches_scipy(self):
+        obs,(dt,da)=_TPL_OBS,_TPL_DOSE_1
+        np.testing.assert_allclose(np.array(_4iv_probe(obs,dt,da,self._THETA)),
+                                   self._scipy_ref(obs,dt,da,self._THETA),rtol=5e-5,atol=1e-7)
+
+    def test_state_two_doses_matches_scipy(self):
+        obs,(dt,da)=_TPL_OBS,_TPL_DOSE_2
+        np.testing.assert_allclose(np.array(_4iv_probe(obs,dt,da,self._THETA)),
+                                   self._scipy_ref(obs,dt,da,self._THETA),rtol=5e-5,atol=1e-7)
+
+    def test_all_three_peripherals_receive_drug(self):
+        got=np.array(_4iv_probe(_TPL_OBS,*_TPL_DOSE_1,self._THETA))
+        assert all(np.max(got[:,i])>0 for i in [1,2,3])
+
+    def test_sensitivity_matches_fd(self):
+        if _4iv_sens is None: pytest.skip("4cmt_iv sens probe not compiled in")
+        obs,(dt,da)=_TPL_OBS,_TPL_DOSE_1
+        _,sens_raw=_4iv_sens(obs,dt,da,self._THETA)
+        sens=np.array(sens_raw).reshape(len(obs),8,4)
+        sens_fd=_fd_sensitivity_generic(_4iv_probe,obs,dt,da,self._THETA,8,4)
+        np.testing.assert_allclose(sens,sens_fd,rtol=1e-4,atol=1e-4*max(da))
+
+    def test_vs_advan5_single_dose(self):
+        """Cross-validation against ADVAN5 (N-compartment linear exact solution)."""
+        from openpkpd.pk.analytical.advan5 import ADVAN5
+        obs,(dt,da)=_XV_OBS,_XV_DOSE1; th=self._THETA
+        cl,v1,q2,v2,q3,v3,q4,v4=th
+        sol=ADVAN5().solve({"K":cl/v1,"K12":q2/v1,"K21":q2/v2,
+                            "K13":q3/v1,"K31":q3/v3,"K14":q4/v1,"K41":q4/v4,"V1":v1},
+                           _advan_doses(dt,da),np.array(obs))
+        got=np.array(_4iv_probe(obs,dt,da,th))[:,0]/v1
+        np.testing.assert_allclose(got,sol.ipred,rtol=1e-4,atol=1e-8)
+
+    def test_vs_advan5_two_doses(self):
+        from openpkpd.pk.analytical.advan5 import ADVAN5
+        obs,(dt,da)=_XV_OBS,_XV_DOSE2; th=self._THETA
+        cl,v1,q2,v2,q3,v3,q4,v4=th
+        sol=ADVAN5().solve({"K":cl/v1,"K12":q2/v1,"K21":q2/v2,
+                            "K13":q3/v1,"K31":q3/v3,"K14":q4/v1,"K41":q4/v4,"V1":v1},
+                           _advan_doses(dt,da),np.array(obs))
+        got=np.array(_4iv_probe(obs,dt,da,th))[:,0]/v1
+        np.testing.assert_allclose(got,sol.ipred,rtol=1e-4,atol=1e-8)
+
+
+# ── 4-cmt oral ───────────────────────────────────────────────────────────────
+
+class TestTemplate4CmtOral:
+
+    @pytest.fixture(autouse=True)
+    def _skip(self):
+        if _4oral_probe is None:
+            pytest.skip("4cmt_oral probe not compiled in")
+
+    _THETA=[0.4,0.13,8.0,0.6,20.0,0.3,50.0,0.1,100.0]  # KA,CL,V2,Q3,V3,Q4,V4,Q5,V5
+
+    def _scipy_ref(self,obs,dt,da,th):
+        ka,cl,v2,q3,v3,q4,v4,q5,v5=th
+        k10=cl/v2;k23=q3/v2;k32=q3/v3;k24=q4/v2;k42=q4/v4;k25=q5/v2;k52=q5/v5
+        def rhs(t,y): return [
+            -ka*y[0],
+            ka*y[0]-(k10+k23+k24+k25)*y[1]+k32*y[2]+k42*y[3]+k52*y[4],
+            k23*y[1]-k32*y[2],k24*y[1]-k42*y[3],k25*y[1]-k52*y[4]]
+        return _scipy_generic_multidose(obs,dt,da,rhs,[0.0]*5)
+
+    def test_state_single_dose_matches_scipy(self):
+        obs,(dt,da)=_TPL_OBS,_TPL_DOSE_1
+        np.testing.assert_allclose(np.array(_4oral_probe(obs,dt,da,self._THETA)),
+                                   self._scipy_ref(obs,dt,da,self._THETA),rtol=5e-5,atol=1e-7)
+
+    def test_state_two_doses_matches_scipy(self):
+        obs,(dt,da)=_TPL_OBS,_TPL_DOSE_2
+        np.testing.assert_allclose(np.array(_4oral_probe(obs,dt,da,self._THETA)),
+                                   self._scipy_ref(obs,dt,da,self._THETA),rtol=5e-5,atol=1e-7)
+
+    def test_central_peaks_then_declines(self):
+        obs=list(np.linspace(0.25,48.0,60))
+        got=np.array(_4oral_probe(obs,*_TPL_DOSE_1,self._THETA))
+        a2=got[:,1]; peak=int(np.argmax(a2))
+        assert peak>0 and np.all(np.diff(a2[peak:])<=1e-4)
+
+    def test_all_three_peripherals_receive_drug(self):
+        got=np.array(_4oral_probe(_TPL_OBS,*_TPL_DOSE_1,self._THETA))
+        assert all(np.max(got[:,i])>0 for i in [2,3,4])
+
+    def test_sensitivity_matches_fd(self):
+        if _4oral_sens is None: pytest.skip("4cmt_oral sens probe not compiled in")
+        obs,(dt,da)=_TPL_OBS,_TPL_DOSE_1
+        _,sens_raw=_4oral_sens(obs,dt,da,self._THETA)
+        sens=np.array(sens_raw).reshape(len(obs),9,5)
+        sens_fd=_fd_sensitivity_generic(_4oral_probe,obs,dt,da,self._THETA,9,5)
+        np.testing.assert_allclose(sens,sens_fd,rtol=1e-4,atol=1e-4*max(da))
+

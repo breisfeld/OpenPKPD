@@ -19,6 +19,18 @@ import os
 from pathlib import Path
 
 
+def _deduplicate_dirs(dirs: list[Path]) -> list[Path]:
+    """Return a deduplicated, order-preserving list of existing directories."""
+    seen: set[Path] = set()
+    out: list[Path] = []
+    for path in dirs:
+        resolved = path.resolve()
+        if resolved.is_dir() and resolved not in seen:
+            seen.add(resolved)
+            out.append(resolved)
+    return out
+
+
 def _development_sundials_lib_dirs() -> list[Path]:
     dirs: list[Path] = []
 
@@ -36,14 +48,7 @@ def _development_sundials_lib_dirs() -> list[Path]:
             continue
         dirs.extend(sorted(build_dir.glob("sundials-sys-*/out/lib")))
 
-    seen: set[Path] = set()
-    out: list[Path] = []
-    for path in dirs:
-        resolved = path.resolve()
-        if resolved.is_dir() and resolved not in seen:
-            seen.add(resolved)
-            out.append(resolved)
-    return out
+    return _deduplicate_dirs(dirs)
 
 
 def _native_development_fallback_enabled() -> bool:
@@ -56,14 +61,7 @@ def _candidate_sundials_lib_dirs() -> list[Path]:
     if _native_development_fallback_enabled():
         dirs.extend(_development_sundials_lib_dirs())
 
-    seen: set[Path] = set()
-    out: list[Path] = []
-    for path in dirs:
-        resolved = path.resolve()
-        if resolved.is_dir() and resolved not in seen:
-            seen.add(resolved)
-            out.append(resolved)
-    return out
+    return _deduplicate_dirs(dirs)
 
 
 def _candidate_package_lib_dirs() -> list[Path]:

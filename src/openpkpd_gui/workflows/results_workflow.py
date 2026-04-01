@@ -17,6 +17,7 @@ from openpkpd_gui.domain.workspace import Workspace
 from openpkpd_gui.services.artifact_service import ArtifactService
 from openpkpd_gui.services.workflow_state_service import describe_fit_input_changes
 from openpkpd_gui.widgets.collapsible_section import build_collapsible_section
+from openpkpd_gui.widgets.scenario_comparison import build_scenario_comparison_widget
 from openpkpd_gui.widgets.combined_header import build_combined_header
 from openpkpd_gui.widgets.dismissible_hint import build_dismissible_hint
 from openpkpd_gui.widgets.output_browser import (
@@ -829,6 +830,10 @@ def build_results_workflow(
     comparison_action_button.setObjectName("results-comparison-action-button")
     comparison_action_button.setMinimumHeight(32)
 
+    comparison_table_widget, _refresh_comparison_table = build_scenario_comparison_widget(
+        project, (qt_core, qt_gui, qt_widgets)
+    )
+
     stale_warning_label = qt_widgets.QLabel(format_results_stale_warning(project))
     stale_warning_label.setObjectName("results-stale-warning-label")
     stale_warning_label.setWordWrap(True)
@@ -918,6 +923,25 @@ def build_results_workflow(
     report_summary_label = qt_widgets.QLabel("No report available yet.")
     report_summary_label.setObjectName("results-report-summary-label")
     report_summary_label.setWordWrap(True)
+
+    # ── Inline report action buttons (P2-F) ──────────────────────────────
+    open_report_button = qt_widgets.QPushButton("Open Report")
+    open_report_button.setObjectName("results-open-report-button")
+    open_report_button.setToolTip("Open the latest HTML report in the system browser")
+    open_report_button.setEnabled(False)
+    export_report_pdf_button = qt_widgets.QPushButton("Export PDF…")
+    export_report_pdf_button.setObjectName("results-export-report-pdf-button")
+    export_report_pdf_button.setToolTip("Save the latest report as a PDF file")
+    export_report_pdf_button.setEnabled(False)
+    report_action_row_widget = qt_widgets.QWidget(root)
+    report_action_row_widget.setObjectName("results-report-action-row")
+    _report_action_row = qt_widgets.QHBoxLayout(report_action_row_widget)
+    _report_action_row.setContentsMargins(0, 0, 0, 0)
+    _report_action_row.setSpacing(6)
+    _report_action_row.addWidget(open_report_button)
+    _report_action_row.addWidget(export_report_pdf_button)
+    _report_action_row.addStretch(1)
+
     preview_panel_obj = build_output_preview_panel(root, object_prefix="results-artifact")
     artifact_preview_title = preview_panel_obj.title_label
     artifact_preview_metadata = preview_panel_obj.metadata_label
@@ -1044,6 +1068,7 @@ def build_results_workflow(
     artifact_column.addWidget(plot_type_row_widget)
     artifact_column.addWidget(artifact_summary_label)
     artifact_column.addWidget(report_summary_label)
+    artifact_column.addWidget(report_action_row_widget)
     artifact_column.addWidget(artifacts_hint_label)
     artifact_column.addWidget(artifacts_list, 1)
     artifact_preview_section, _, artifact_preview_layout, _artifact_preview_toggle = (
@@ -1081,6 +1106,7 @@ def build_results_workflow(
     layout.addWidget(hint_widget)
     layout.addWidget(overview_label)
     layout.addWidget(comparison_label)
+    layout.addWidget(comparison_table_widget)
     layout.addWidget(comparison_panel_label)
     layout.addWidget(comparison_delta_label)
     layout.addWidget(artifact_delta_label)
@@ -1260,6 +1286,8 @@ def build_results_workflow(
             report_summary_label.setText(f"Latest report · {latest_report.label}")
         open_latest_report_action.setEnabled(has_report)
         export_latest_report_pdf_action.setEnabled(has_report)
+        open_report_button.setEnabled(has_report)
+        export_report_pdf_button.setEnabled(has_report)
         open_latest_plot_action.setEnabled(has_plot)
         save_latest_plot_copy_action.setEnabled(has_plot)
 
@@ -1456,6 +1484,7 @@ def build_results_workflow(
         current_runs = review_runs(project, _analysis_filter_text())
         overview_label.setText(format_results_overview(project))
         comparison_label.setText(format_results_comparison_summary(project))
+        _refresh_comparison_table(project)
         comparison_panel_label.setText(format_results_comparison_panel(project))
         comparison_delta_label.setText(format_results_comparison_delta(project))
         artifact_delta_label.setText(format_results_artifact_delta(project))
@@ -1499,6 +1528,10 @@ def build_results_workflow(
     artifacts_list.itemActivated.connect(_open_artifact_list_item)
     artifacts_list.itemDoubleClicked.connect(_open_artifact_list_item)
     open_artifact_button.clicked.connect(_open_selected_artifact)
+    open_report_button.clicked.connect(_open_latest_report)
+    export_report_pdf_button.clicked.connect(
+        lambda: _call_root_callback("_project_export_latest_report_pdf")
+    )
     open_convergence_action.triggered.connect(lambda: _open_plot_group("convergence"))
     open_gof_action.triggered.connect(lambda: _open_plot_group("gof"))
     open_residual_action.triggered.connect(lambda: _open_plot_group("residuals"))

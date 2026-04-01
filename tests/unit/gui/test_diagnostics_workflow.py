@@ -441,3 +441,105 @@ def test_diagnostics_workflow_does_not_shutdown_injected_job_runner() -> None:
     app.processEvents()
 
     assert job_runner.shutdown_calls == []
+
+
+# ---------------------------------------------------------------------------
+# P2-B: subject filter combo
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_diagnostics_workflow_has_subject_filter_combo() -> None:
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+
+    _, _, qt_widgets = load_qt_modules()
+    app = qt_widgets.QApplication.instance() or qt_widgets.QApplication(
+        ["test", "-platform", "offscreen"]
+    )
+    widget = build_diagnostics_workflow(Workspace(name="SubjectFilter"))
+    try:
+        combo = widget.findChild(qt_widgets.QComboBox, "diagnostics-subject-filter")
+        assert combo is not None
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()
+
+
+@pytest.mark.unit
+def test_diagnostics_subject_filter_has_all_subjects_default() -> None:
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+
+    _, _, qt_widgets = load_qt_modules()
+    app = qt_widgets.QApplication.instance() or qt_widgets.QApplication(
+        ["test", "-platform", "offscreen"]
+    )
+    widget = build_diagnostics_workflow(Workspace(name="SubjectDefault"))
+    try:
+        combo = widget.findChild(qt_widgets.QComboBox, "diagnostics-subject-filter")
+        assert combo.itemText(0) == "All subjects"
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()
+
+
+@pytest.mark.unit
+def test_diagnostics_subject_filter_populated_from_csv(tmp_path: Path) -> None:
+    """Subject filter is populated with subject IDs from the diagnostics CSV artifact."""
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+
+    try:
+        import pandas as pd
+    except ImportError:
+        pytest.skip("pandas not available")
+
+    _, _, qt_widgets = load_qt_modules()
+    app = qt_widgets.QApplication.instance() or qt_widgets.QApplication(
+        ["test", "-platform", "offscreen"]
+    )
+
+    # Build a diagnostics CSV with known subjects
+    csv_path = tmp_path / "diagnostics.csv"
+    pd.DataFrame(
+        {
+            "ID": ["S1", "S1", "S2", "S3"],
+            "TIME": [0.0, 1.0, 0.0, 0.0],
+            "DV": [1.0, 2.0, 1.5, 1.2],
+            "PRED": [1.1, 1.9, 1.4, 1.3],
+            "IPRED": [1.05, 1.95, 1.45, 1.25],
+            "CWRES": [0.1, -0.2, 0.3, 0.0],
+            "IWRES": [0.05, -0.1, 0.15, 0.0],
+        }
+    ).to_csv(csv_path, index=False)
+
+    workspace = Workspace(name="SubjectCSV")
+    diag_artifact = ArtifactRecord(
+        kind="table",
+        label="Diagnostics CSV",
+        path=str(csv_path),
+        metadata={"artifact_role": "diagnostics_table"},
+    )
+    workspace.active_scenario.add_artifact(diag_artifact)
+
+    widget = build_diagnostics_workflow(workspace)
+    try:
+        widget.show()
+        app.processEvents()
+        # Trigger a refresh to populate the combo
+        if hasattr(widget, "_refresh_workflow"):
+            widget._refresh_workflow()
+        app.processEvents()
+
+        combo = widget.findChild(qt_widgets.QComboBox, "diagnostics-subject-filter")
+        items = [combo.itemText(i) for i in range(combo.count())]
+        assert "S1" in items
+        assert "S2" in items
+        assert "S3" in items
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()

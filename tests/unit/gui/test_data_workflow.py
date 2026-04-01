@@ -490,6 +490,8 @@ def test_format_example_dataset_details_includes_provenance_metadata() -> None:
 
 
 def test_format_example_dataset_details_html_includes_clickable_actions() -> None:
+    from pathlib import Path
+
     example = _catalog_example(
         readme_path="/tmp/examples/catalog/pk/oral/demo/README.md",
         source_kind="imported",
@@ -499,10 +501,16 @@ def test_format_example_dataset_details_html_includes_clickable_actions() -> Non
 
     details = format_example_dataset_details_html(example)
 
+    # file_link() calls Path.resolve() which expands symlinks (e.g. /tmp → /private/tmp on macOS).
+    # Build expected URIs using the same resolution so the test is platform-portable.
+    dataset_uri = Path("/tmp/shared_data/demo/demo.csv").resolve().as_uri()
+    bundle_dir_uri = Path("/tmp/examples/catalog/pk/oral/demo").resolve().as_uri()
+    readme_uri = Path("/tmp/examples/catalog/pk/oral/demo/README.md").resolve().as_uri()
+
     assert "<b>Demo dataset</b>" in details
-    assert 'href="file:///tmp/shared_data/demo/demo.csv"' in details
-    assert 'href="file:///tmp/examples/catalog/pk/oral/demo"' in details
-    assert 'href="file:///tmp/examples/catalog/pk/oral/demo/README.md"' in details
+    assert f'href="{dataset_uri}"' in details
+    assert f'href="{bundle_dir_uri}"' in details
+    assert f'href="{readme_uri}"' in details
     assert 'href="https://github.com/NMautoverse/NMdata"' in details
     assert copy_link("/tmp/shared_data/demo/demo.csv", label="Copy path") in details
     assert copy_link("https://github.com/NMautoverse/NMdata", label="Copy URL") in details

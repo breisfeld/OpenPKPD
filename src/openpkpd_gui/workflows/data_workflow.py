@@ -19,6 +19,7 @@ from openpkpd_gui.domain.workspace import Workspace
 from openpkpd_gui.services.data_service import DatasetImportOptions, DatasetService, ExampleDataset
 from openpkpd_gui.services.project_service import ProjectService
 from openpkpd_gui.services.validation_service import ValidationResult, ValidationSeverity
+from openpkpd_gui.widgets.column_mapping import build_column_mapping_widget, needs_mapping
 from openpkpd_gui.widgets.dismissible_hint import build_dismissible_hint
 from openpkpd_gui.widgets.link_formatting import (
     copy_link,
@@ -465,10 +466,17 @@ def build_data_workflow(
     example_group_layout.addWidget(example_row_widget)
     example_group_layout.addWidget(example_details_label)
 
+    # Column mapping panel — shown when CSV headers don't match NONMEM names
+    _mapping_widget, _get_input_columns, _refresh_mapping = build_column_mapping_widget(
+        [], (qt_core, qt_gui, qt_widgets)
+    )
+    _mapping_widget.setObjectName("data-column-mapping-group")
+
     layout.addWidget(title_label)
     layout.addWidget(hint_widget)
     layout.addWidget(control_row_widget)
     layout.addWidget(options_row_widget)
+    layout.addWidget(_mapping_widget)
     layout.addWidget(unsaved_label)
     layout.addWidget(summary_label)
     layout.addWidget(options_label)
@@ -649,11 +657,26 @@ def build_data_workflow(
             ignore_char=ignore_char_input.text(),
         )
 
-    def _load_from_path() -> None:
-        result = dataset_service.load_csv(path_input.text(), options=_collect_import_options())
+    def _maybe_show_mapping_panel(path: str) -> None:
+        """Peek at CSV headers; show the mapping panel if columns need remapping."""
+        opts = _collect_import_options()
+        csv_cols = dataset_service.peek_csv_columns(path, options=opts)
+        if csv_cols and needs_mapping(csv_cols):
+            _refresh_mapping(csv_cols)
+            _mapping_widget.setVisible(True)
+        else:
+            _mapping_widget.setVisible(False)
+
+    def _load_from_path(*, use_mapping: bool = False) -> None:
+        opts = _collect_import_options()
+        input_cols = _get_input_columns() if use_mapping and _mapping_widget.isVisible() else None
+        result = dataset_service.load_csv(
+            path_input.text(), options=opts, input_columns=input_cols
+        )
         if result.dataset_asset is not None:
             project_service.attach_dataset(project, result.dataset_asset)
             path_input.setText(result.dataset_asset.source_path or path_input.text())
+            _mapping_widget.setVisible(False)
             _sync_from_project()
             _notify_project_state_changed()
             return
@@ -664,6 +687,7 @@ def build_data_workflow(
 
     def _reload_if_path_set() -> None:
         if path_input.text().strip():
+            _maybe_show_mapping_panel(path_input.text())
             _load_from_path()
 
     def _browse_for_file() -> None:
@@ -679,6 +703,7 @@ def build_data_workflow(
             return
         save_gui_preferences(with_last_file_dialog_dir(preferences, selected_path))
         path_input.setText(selected_path)
+        _maybe_show_mapping_panel(selected_path)
         _load_from_path()
 
     def _load_selected_example() -> None:
@@ -728,6 +753,7 @@ def build_data_workflow(
         qt_gui.QDesktopServices.openUrl(qt_core.QUrl(href))
 
     browse_button.clicked.connect(_browse_for_file)
+    _mapping_widget._apply_btn.clicked.connect(lambda: _load_from_path(use_mapping=True))
     example_button.clicked.connect(_load_selected_example)
     example_selector.currentIndexChanged.connect(lambda _index: _update_example_selection())
     example_details_label.linkActivated.connect(_handle_example_details_link)

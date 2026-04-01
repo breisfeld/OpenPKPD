@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from openpkpd.data.dataset import NONMEMDataset
+from openpkpd_gui.domain.artifact import ArtifactRecord
 from openpkpd_gui.domain.dataset_asset import DatasetAsset
 from openpkpd_gui.domain.run_record import RunRecord
 from openpkpd_gui.domain.workspace import Workspace
@@ -45,6 +47,66 @@ class SCMRunResult:
     accepted_count: int
     final_ofv: float
     base_ofv: float
+
+
+def generate_scm_step_plot(
+    scm_result: SCMRunResult,
+    *,
+    run_id: str,
+    output_dir: Path,
+) -> ArtifactRecord | None:
+    """Generate a ΔOFV significance chart for the SCM steps and return an ArtifactRecord.
+
+    Shows −ΔOFV for each accepted forward step, sorted by effect size.
+    Returns ``None`` if matplotlib is unavailable or no steps were accepted.
+    """
+    accepted_rows = [r for r in scm_result.step_rows if r.get("accepted")]
+    if not accepted_rows:
+        return None
+    try:
+        import matplotlib
+        matplotlib.use("Agg", force=True)
+        import matplotlib.pyplot as plt
+
+        labels = [str(r.get("rel", "")) for r in accepted_rows]
+        neg_delta_ofv = [-float(r.get("delta_ofv", 0.0)) for r in accepted_rows]
+        # Sort by effect size (largest first, top-to-bottom)
+        pairs = sorted(zip(neg_delta_ofv, labels), reverse=True)
+        neg_delta_ofv_sorted = [v for v, _ in pairs]
+        labels_sorted = [lbl for _, lbl in pairs]
+
+        fig, ax = plt.subplots(figsize=(9, max(3.0, 0.5 * len(labels_sorted) + 1.5)))
+        colors = ["#2563eb" if v >= 3.84 else "#94a3b8" for v in neg_delta_ofv_sorted]
+        y_pos = list(range(len(labels_sorted)))
+        ax.barh(y_pos, neg_delta_ofv_sorted, color=colors, edgecolor="none", height=0.6)
+        ax.axvline(3.84, color="#ef4444", linestyle="--", linewidth=1.0, label="p<0.05 (χ²=3.84)")
+        ax.set_yticks(y_pos)
+        ax.set_yticklabels(labels_sorted, fontsize=9)
+        ax.set_xlabel("−ΔOFV (larger = stronger covariate effect)", fontsize=9)
+        ax.set_title("SCM: Accepted Covariate Steps", fontsize=10)
+        ax.legend(fontsize=8)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        fig.tight_layout()
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+        plot_path = output_dir / f"scm-step-significance-{run_id[:8]}.png"
+        fig.savefig(plot_path, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+
+        return ArtifactRecord(
+            kind="plot",
+            label="SCM: Accepted Covariate Steps",
+            path=str(plot_path),
+            source_run_id=run_id,
+            metadata={
+                "media_type": "image/png",
+                "artifact_role": "scm_step_plot",
+                "plot_type": "scm",
+            },
+        )
+    except Exception:
+        return None
 
 
 class SCMService:

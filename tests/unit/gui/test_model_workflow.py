@@ -931,12 +931,12 @@ def test_bayes_combo_item_present_in_built_widget(tmp_path) -> None:
     if not qt_widgets_available():
         pytest.skip("Qt not available")
 
-    from openpkpd_gui.app.qt_bindings import qt_widgets
+    _, _, qt_widgets = load_qt_modules()
     from openpkpd_gui.workflows.model_workflow import build_model_workflow
-    from openpkpd_gui.project.project import Project
+    from openpkpd_gui.domain.workspace import Workspace
 
     app = qt_widgets.QApplication.instance() or qt_widgets.QApplication([])
-    project = Project.create(tmp_path)
+    project = Workspace(root_path=str(tmp_path))
     widget = build_model_workflow(project)
     try:
         widget.show()
@@ -959,17 +959,17 @@ def test_bayesian_action_present_in_review_menu(tmp_path) -> None:
     if not qt_widgets_available():
         pytest.skip("Qt not available")
 
-    from openpkpd_gui.app.qt_bindings import qt_widgets
+    _, qt_gui, qt_widgets = load_qt_modules()
     from openpkpd_gui.workflows.results_workflow import build_results_workflow
-    from openpkpd_gui.project.project import Project
+    from openpkpd_gui.domain.workspace import Workspace
 
     app = qt_widgets.QApplication.instance() or qt_widgets.QApplication([])
-    project = Project.create(tmp_path)
+    project = Workspace(root_path=str(tmp_path))
     widget = build_results_workflow(project)
     try:
         widget.show()
         app.processEvents()
-        action = widget.findChild(qt_widgets.QAction,
+        action = widget.findChild(qt_gui.QAction,
                                   "results-open-bayesian-review-button")
         assert action is not None, (
             "open_bayesian_action (objectName='results-open-bayesian-review-button') "
@@ -979,6 +979,185 @@ def test_bayesian_action_present_in_review_menu(tmp_path) -> None:
         assert not action.isEnabled(), (
             "Bayesian action should be disabled until Bayesian artifacts are present"
         )
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()
+
+
+# ---------------------------------------------------------------------------
+# P3-D: Nonparametric step GUI
+# ---------------------------------------------------------------------------
+
+
+def _build_model_workflow_widget():
+    from openpkpd_gui.app.runtime import load_qt_modules
+    from openpkpd_gui.workflows.model_workflow import build_model_workflow
+    from openpkpd_gui.domain.workspace import Workspace
+
+    _, _, qt_widgets = load_qt_modules()
+    app = qt_widgets.QApplication.instance() or qt_widgets.QApplication(
+        ["test", "-platform", "offscreen"]
+    )
+    ws = Workspace(name="NP test")
+    widget = build_model_workflow(ws)
+    return widget, app, qt_widgets
+
+
+def test_nonparametric_in_estimation_combo() -> None:
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+    widget, app, qt_widgets = _build_model_workflow_widget()
+    try:
+        combo = widget.findChild(qt_widgets.QComboBox, "model-estimation-combo")
+        assert combo is not None
+        codes = [combo.itemData(i) for i in range(combo.count())]
+        assert "NONPARAMETRIC" in codes, "NONPARAMETRIC not in estimation method dropdown"
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()
+
+
+def test_nonparam_base_method_combo_present() -> None:
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+    widget, app, qt_widgets = _build_model_workflow_widget()
+    try:
+        combo = widget.findChild(qt_widgets.QComboBox, "model-nonparam-base-method-combo")
+        assert combo is not None, "model-nonparam-base-method-combo not found"
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()
+
+
+def test_nonparam_base_method_combo_hidden_for_foce() -> None:
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+    widget, app, qt_widgets = _build_model_workflow_widget()
+    try:
+        combo = widget.findChild(qt_widgets.QComboBox, "model-nonparam-base-method-combo")
+        assert combo is not None
+        # Default method is FOCE, so NP base combo should be hidden
+        assert combo.isHidden(), "NP base method combo should be hidden when FOCE is selected"
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()
+
+
+def test_nonparam_base_method_combo_has_expected_options() -> None:
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+    widget, app, qt_widgets = _build_model_workflow_widget()
+    try:
+        combo = widget.findChild(qt_widgets.QComboBox, "model-nonparam-base-method-combo")
+        assert combo is not None
+        codes = [combo.itemData(i) for i in range(combo.count())]
+        assert "FOCE" in codes
+        assert "FOCEI" in codes
+        assert "FO" in codes
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()
+
+
+def test_nonparam_base_method_label_present() -> None:
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+    widget, app, qt_widgets = _build_model_workflow_widget()
+    try:
+        label = widget.findChild(qt_widgets.QLabel, "model-nonparam-base-method-label")
+        assert label is not None, "model-nonparam-base-method-label not found"
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()
+
+
+# ---------------------------------------------------------------------------
+# P3-C: Parameter initialization assistance
+# ---------------------------------------------------------------------------
+
+from openpkpd_gui.workflows.model_workflow import (
+    suggest_theta_rows_for_advan,
+    suggest_omega_values_for_advan,
+)
+
+
+def test_suggest_theta_rows_advan2_trans2() -> None:
+    rows = suggest_theta_rows_for_advan(2, 2)
+    assert rows is not None
+    labels = [r["label"] for r in rows]
+    assert "KA" in labels
+    assert "CL" in labels
+    assert "V" in labels
+    assert len(rows) == 3
+
+
+def test_suggest_theta_rows_advan1_trans2() -> None:
+    rows = suggest_theta_rows_for_advan(1, 2)
+    assert rows is not None
+    labels = [r["label"] for r in rows]
+    assert "CL" in labels
+    assert "V" in labels
+    assert "KA" not in labels
+    assert len(rows) == 2
+
+
+def test_suggest_theta_rows_advan3_trans4() -> None:
+    rows = suggest_theta_rows_for_advan(3, 4)
+    assert rows is not None
+    labels = [r["label"] for r in rows]
+    assert "CL" in labels
+    assert "V1" in labels
+    assert "Q" in labels
+    assert "V2" in labels
+    assert len(rows) == 4
+
+
+def test_suggest_theta_rows_advan4_trans4() -> None:
+    rows = suggest_theta_rows_for_advan(4, 4)
+    assert rows is not None
+    labels = [r["label"] for r in rows]
+    assert "KA" in labels
+    assert "CL" in labels
+    assert "V1" in labels
+    assert "Q" in labels
+    assert "V2" in labels
+    assert len(rows) == 5
+
+
+def test_suggest_theta_rows_unknown_advan_returns_none() -> None:
+    assert suggest_theta_rows_for_advan(99, 1) is None
+
+
+def test_suggest_omega_values_advan2_trans2() -> None:
+    omega = suggest_omega_values_for_advan(2, 2)
+    assert omega is not None
+    assert len(omega) == 3
+    assert len(omega[0]) == 3
+    # Diagonal should be nonzero
+    assert omega[0][0] > 0
+    assert omega[1][1] > 0
+    assert omega[2][2] > 0
+    # Off-diagonal should be zero
+    assert omega[0][1] == 0.0
+
+
+def test_suggest_omega_values_unknown_returns_none() -> None:
+    assert suggest_omega_values_for_advan(99, 1) is None
+
+
+def test_suggest_button_present_in_model_workflow() -> None:
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+    widget, app, qt_widgets = _build_model_workflow_widget()
+    try:
+        btn = widget.findChild(qt_widgets.QPushButton, "model-suggest-theta-button")
+        assert btn is not None, "model-suggest-theta-button not found"
     finally:
         widget.close()
         widget.deleteLater()

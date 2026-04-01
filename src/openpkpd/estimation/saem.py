@@ -100,6 +100,7 @@ class SAEMMethod(EstimationMethod):
         seed: int | None = None,
         n_parallel: int = 1,
         phi_tol: float = 1e-3,
+        iteration_callback=None,
     ) -> None:
         self.n_iter_phase1 = n_iter_phase1
         self.n_iter_phase2 = n_iter_phase2
@@ -110,6 +111,7 @@ class SAEMMethod(EstimationMethod):
         self.n_parallel = n_parallel
         self.phi_tol = phi_tol
         self.rng = np.random.default_rng(seed)
+        self.iteration_callback = iteration_callback
 
     @staticmethod
     def _check_phase2_convergence(
@@ -499,6 +501,11 @@ class SAEMMethod(EstimationMethod):
                 except Exception:
                     ofv += 1e6
             ofv_history.append(ofv)
+            if self.iteration_callback is not None:
+                try:
+                    self.iteration_callback(k, ofv)
+                except Exception:
+                    pass
 
             if k % self.print_interval == 0:
                 phase = "P1" if is_phase1 else "P2"

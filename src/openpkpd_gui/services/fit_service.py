@@ -531,7 +531,7 @@ class FitService:
         built_model = translation.builder.build()
         ctx.check_cancelled()
         ctx.emit(f"Running {translation.estimation_method or 'FOCE'} estimation", progress=0.48)
-        estimation_result = self._estimate_built_model(built_model, n_parallel=n_parallel)
+        estimation_result = self._estimate_built_model(built_model, n_parallel=n_parallel, ctx=ctx)
         ctx.check_cancelled()
         ctx.emit("Collecting fitted parameters", progress=0.68)
         params = self._final_parameter_set(getattr(built_model, "params", None), estimation_result)
@@ -551,12 +551,20 @@ class FitService:
         )
 
     def _estimate_built_model(
-        self, built_model: object, *, n_parallel: int = 0
+        self, built_model: object, *, n_parallel: int = 0, ctx=None
     ) -> EstimationResult:
         estimation_kwargs = dict(getattr(built_model, "estimation_kwargs", {}))
         method_name = estimation_kwargs.pop("method", Method.FOCE)
         interaction = bool(estimation_kwargs.pop("interaction", False))
         maxeval = int(estimation_kwargs.pop("maxeval", 9999))
+
+        if ctx is not None:
+            def _iteration_callback(iteration: int, ofv: float) -> None:
+                ctx.emit(
+                    f"{iteration},{ofv:.6f}",
+                    kind="ofv",
+                )
+            estimation_kwargs["iteration_callback"] = _iteration_callback
 
         estimation = get_estimation_method(
             str(method_name),

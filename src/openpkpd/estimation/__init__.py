@@ -39,12 +39,14 @@ def get_estimation_method(
     m = method.upper()
     if m == Method.FO:
         kwargs.pop("n_parallel", None)
+        kwargs.pop("iteration_callback", None)
         return FOMethod(**kwargs)
     elif m in (Method.FOCE, Method.FOCEI):
         interact = interaction or (m == Method.FOCEI)
         return FOCEMethod(interaction=interact, **kwargs)
     elif m == Method.LAPLACIAN:
         kwargs.pop("n_parallel", None)
+        kwargs.pop("iteration_callback", None)
         return LaplacianMethod(**kwargs)
     elif m == Method.SAEM:
         kwargs.pop("maxeval", None)
@@ -56,9 +58,11 @@ def get_estimation_method(
         return IMPMethod(is_map=True, **kwargs)
     elif m == Method.BAYES:
         kwargs.pop("n_parallel", None)
+        kwargs.pop("iteration_callback", None)
         return BAYESMethod(**kwargs)
     elif m in (Method.NONPARAMETRIC, "NONPARM", "NP"):
         kwargs.pop("n_parallel", None)
+        kwargs.pop("iteration_callback", None)
         return NonparametricMethod(**kwargs)
     else:
         raise EstimationError(

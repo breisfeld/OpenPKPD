@@ -195,6 +195,29 @@ class DatasetService:
         return sorted(REQUIRED_COLUMNS)
 
     @staticmethod
+    def peek_csv_columns(
+        path: str,
+        *,
+        options: DatasetImportOptions | None = None,
+    ) -> list[str]:
+        """Return just the column headers from *path* without loading the full dataset.
+
+        Returns an empty list if the file cannot be read or has no header row.
+        This is intentionally permissive — full validation happens in ``load_csv``.
+        """
+        options = options or DatasetImportOptions()
+        try:
+            df = pd.read_csv(
+                path.strip(),
+                sep=options.effective_separator,
+                nrows=0,
+                comment=options.normalized_ignore_char,
+            )
+            return list(df.columns)
+        except Exception:
+            return []
+
+    @staticmethod
     def validation_from_asset(dataset_asset: DatasetAsset | None) -> ValidationResult:
         """Rebuild a ValidationResult from serialized dataset metadata."""
         result = ValidationResult()

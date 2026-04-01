@@ -589,3 +589,77 @@ def test_results_workflow_comparison_button_switches_to_target_scenario() -> Non
         widget.close()
         widget.deleteLater()
         app.processEvents()
+
+
+# ---------------------------------------------------------------------------
+# P2-F: Inline report action buttons
+# ---------------------------------------------------------------------------
+
+
+def _make_results_workflow_widget():
+    """Return (widget, app) for a fresh results workflow."""
+    from openpkpd_gui.app.runtime import load_qt_modules
+
+    _, _, qt_widgets = load_qt_modules()
+    app = qt_widgets.QApplication.instance() or qt_widgets.QApplication(
+        ["test", "-platform", "offscreen"]
+    )
+    ws = Workspace(name="Report buttons test")
+    widget = build_results_workflow(ws)
+    return widget, app, qt_widgets
+
+
+def test_open_report_button_present() -> None:
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+    widget, app, qt_widgets = _make_results_workflow_widget()
+    try:
+        btn = widget.findChild(qt_widgets.QPushButton, "results-open-report-button")
+        assert btn is not None, "Open Report button not found"
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()
+
+
+def test_export_report_pdf_button_present() -> None:
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+    widget, app, qt_widgets = _make_results_workflow_widget()
+    try:
+        btn = widget.findChild(qt_widgets.QPushButton, "results-export-report-pdf-button")
+        assert btn is not None, "Export PDF button not found"
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()
+
+
+def test_report_buttons_disabled_on_fresh_workflow() -> None:
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+    widget, app, qt_widgets = _make_results_workflow_widget()
+    try:
+        open_btn = widget.findChild(qt_widgets.QPushButton, "results-open-report-button")
+        pdf_btn = widget.findChild(qt_widgets.QPushButton, "results-export-report-pdf-button")
+        assert open_btn is not None
+        assert pdf_btn is not None
+        assert not open_btn.isEnabled(), "Open Report should be disabled when no report exists"
+        assert not pdf_btn.isEnabled(), "Export PDF should be disabled when no report exists"
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()
+
+
+def test_report_action_row_widget_present() -> None:
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+    widget, app, qt_widgets = _make_results_workflow_widget()
+    try:
+        row = widget.findChild(qt_widgets.QWidget, "results-report-action-row")
+        assert row is not None, "results-report-action-row widget not found"
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()

@@ -2629,6 +2629,7 @@ def create_main_window(
         stack.widget(index)._project_open_latest_report = _open_latest_report
         stack.widget(index)._project_export_latest_report_pdf = _export_latest_report_pdf
         stack.widget(index)._project_open_latest_plot = _open_latest_plot
+        stack.widget(index)._duplicate_scenario = _duplicate_scenario
 
     def _import_dataset() -> bool:
         return _trigger_workflow_button("data", "data-import-button")

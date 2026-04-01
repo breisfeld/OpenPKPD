@@ -385,6 +385,14 @@ def build_diagnostics_workflow(
     artifact_plot_type_combo.setObjectName("diagnostics-artifact-plot-type-filter")
     artifact_plot_type_combo.setProperty("persistComboSelection", True)
     filter_row.addWidget(artifact_plot_type_combo, 1)
+    filter_row.addWidget(qt_widgets.QLabel("Subject"))
+    subject_filter_combo = qt_widgets.QComboBox()
+    subject_filter_combo.setObjectName("diagnostics-subject-filter")
+    subject_filter_combo.setToolTip(
+        "Highlight this subject's observations in the preview when a GOF plot is selected."
+    )
+    subject_filter_combo.addItem("All subjects")
+    filter_row.addWidget(subject_filter_combo, 1)
 
     artifact_summary_label = qt_widgets.QLabel("0 outputs")
     artifact_summary_label.setObjectName("diagnostics-artifact-summary-label")
@@ -610,6 +618,71 @@ def build_diagnostics_workflow(
         if callable(callback):
             callback()
 
+    def _load_diagnostics_df():
+        """Return a DataFrame from the diagnostics CSV artifact, or None."""
+        diag_artifact = latest_diagnostics_role_artifact(current_artifacts, "diagnostics_table")
+        if diag_artifact is None or not diag_artifact.path:
+            return None
+        path = Path(diag_artifact.path)
+        if not path.exists():
+            return None
+        try:
+            import pandas as pd
+
+            return pd.read_csv(path)
+        except Exception:
+            return None
+
+    def _populate_subject_filter(df) -> None:
+        """Populate subject_filter_combo with IDs from *df* (None → keep only 'All subjects')."""
+        current = subject_filter_combo.currentText()
+        subject_filter_combo.blockSignals(True)
+        subject_filter_combo.clear()
+        subject_filter_combo.addItem("All subjects")
+        if df is not None and "ID" in df.columns:
+            ids = sorted(df["ID"].dropna().astype(str).unique().tolist())
+            subject_filter_combo.addItems(ids)
+        if current and current != "All subjects":
+            idx = subject_filter_combo.findText(current)
+            if idx >= 0:
+                subject_filter_combo.setCurrentIndex(idx)
+        subject_filter_combo.blockSignals(False)
+
+    def _refresh_subject_highlight() -> None:
+        """Re-render the active plot with the selected subject highlighted, if applicable."""
+        if current_artifact is None:
+            return
+        selected = subject_filter_combo.currentText()
+        if selected == "All subjects" or not selected:
+            # Fall back to normal file-based render
+            preview_panel_obj.render(
+                current_artifact,
+                empty_label="Select a diagnostics output to preview.",
+                on_has_path=lambda has_path: (
+                    export_artifact_action.setEnabled(has_path),
+                    open_artifact_action.setEnabled(has_path),
+                    open_folder_action.setEnabled(has_path),
+                ),
+            )
+            return
+        df = _load_diagnostics_df()
+        if df is None:
+            return
+        highlighted = preview_panel_obj.render_highlighted_artifact(
+            df, current_artifact, selected
+        )
+        if not highlighted:
+            # Artifact type doesn't support highlighting; show normally
+            preview_panel_obj.render(
+                current_artifact,
+                empty_label="Select a diagnostics output to preview.",
+                on_has_path=lambda has_path: (
+                    export_artifact_action.setEnabled(has_path),
+                    open_artifact_action.setEnabled(has_path),
+                    open_folder_action.setEnabled(has_path),
+                ),
+            )
+
     def _render_artifact_preview(artifact: ArtifactRecord | None) -> None:
         nonlocal current_artifact
         current_artifact = artifact
@@ -622,6 +695,12 @@ def build_diagnostics_workflow(
                 open_folder_action.setEnabled(has_path),
             ),
         )
+        # After rendering, try subject highlight if a subject is selected
+        selected = subject_filter_combo.currentText()
+        if artifact is not None and selected and selected != "All subjects":
+            df = _load_diagnostics_df()
+            if df is not None:
+                preview_panel_obj.render_highlighted_artifact(df, artifact, selected)
 
     def _open_selected_artifact() -> None:
         open_output_file(current_artifact)
@@ -708,6 +787,7 @@ def build_diagnostics_workflow(
             )
         )
         _refresh_next_action()
+        _populate_subject_filter(_load_diagnostics_df())
         if not current_artifacts:
             artifact_summary_label.setText("0 outputs")
             artifacts_list.clear()
@@ -771,6 +851,7 @@ def build_diagnostics_workflow(
     artifact_plot_type_combo.currentTextChanged.connect(
         lambda _text: _render_artifacts(current_artifacts)
     )
+    subject_filter_combo.currentTextChanged.connect(lambda _text: _refresh_subject_highlight())
     artifacts_list.currentRowChanged.connect(_handle_selection_changed)
     artifacts_list.itemActivated.connect(_open_list_item)
     artifacts_list.itemDoubleClicked.connect(_open_list_item)

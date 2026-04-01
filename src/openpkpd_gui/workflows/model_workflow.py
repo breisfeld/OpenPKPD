@@ -39,6 +39,8 @@ from openpkpd_gui.widgets.link_formatting import (
     external_link,
     file_link,
 )
+from openpkpd_gui.widgets.model_diagram import build_model_diagram_widget
+from openpkpd_gui.widgets.nmtran_highlighter import NmtranHighlighter
 from openpkpd_gui.widgets.responsive_layout import install_responsive_splitters
 from openpkpd_gui.widgets.scrollable_page import build_scrollable_page
 from openpkpd_gui.widgets.table_headers import configure_resizable_table_columns
@@ -68,6 +70,14 @@ _ESTIMATION_METHODS_DISPLAY: tuple[tuple[str, str], ...] = (
     ("IMP", "IMP — Importance sampling"),
     ("LAPLACIAN", "Laplacian — Laplace approximation"),
     ("BAYES", "BAYES — Full Bayesian NUTS (PyMC / built-in)"),
+    ("NONPARAMETRIC", "NONPARAMETRIC — Nonparametric support point estimation"),
+)
+
+_NP_METHODS = frozenset({"NONPARAMETRIC"})
+_NP_BASE_METHODS: tuple[tuple[str, str], ...] = (
+    ("FOCE", "FOCE"),
+    ("FOCEI", "FOCEI"),
+    ("FO", "FO"),
 )
 
 _ESTIMATION_HELP_TEXT = (
@@ -82,7 +92,11 @@ _ESTIMATION_HELP_TEXT = (
     "Returns the full posterior distribution, credible intervals, R-hat convergence "
     "diagnostics, and effective sample size. Supports PyMC or the built-in native "
     "backend. Slower than FOCE/SAEM but provides uncertainty quantification without "
-    "linearisation assumptions."
+    "linearisation assumptions.\n\n"
+    "NONPARAMETRIC: Two-step nonparametric estimation (NPML / support point approximation). "
+    "Step 1 runs a base parametric method (FOCE/FOCEI/FO) to obtain population parameters "
+    "and empirical Bayes estimates. Step 2 treats EBEs as support points and optimises their "
+    "weights by EM to maximise the marginal likelihood. Distribution-free IIV representation."
 )
 _ADVAN_HELP_TEXT = (
     "ADVAN selects the PK structural model (compartment structure).\n"
@@ -293,6 +307,81 @@ DEFAULT_OMEGA_VALUES = (
 DEFAULT_SIGMA_VALUES = ((0.1,),)
 THETA_TABLE_HEADERS = ("Label", "Lower", "Init", "Upper", "Fixed")
 MODEL_RESPONSIVE_LAYOUT_BREAKPOINT = 1180
+
+# ---------------------------------------------------------------------------
+# P3-C: Per-ADVAN/TRANS typical starting parameter values
+# ---------------------------------------------------------------------------
+# Keys are (advan, trans) pairs; values are (theta_rows, omega_diag, sigma_diag)
+_ADVAN_PRESETS: dict[
+    tuple[int, int],
+    tuple[list[dict[str, object]], list[float], list[float]],
+] = {
+    # 1-cmt IV bolus, CL/V parameterisation
+    (1, 2): (
+        [
+            {"label": "CL", "lower": 0.001, "init": 5.0, "upper": 100.0, "fixed": False},
+            {"label": "V", "lower": 0.1, "init": 30.0, "upper": 500.0, "fixed": False},
+        ],
+        [0.2, 0.2],
+        [0.1],
+    ),
+    # 1-cmt oral, CL/V/KA parameterisation
+    (2, 2): (
+        [
+            {"label": "KA", "lower": 0.01, "init": 1.5, "upper": 20.0, "fixed": False},
+            {"label": "CL", "lower": 0.001, "init": 0.08, "upper": 5.0, "fixed": False},
+            {"label": "V", "lower": 0.1, "init": 30.0, "upper": 500.0, "fixed": False},
+        ],
+        [0.3, 0.2, 0.2],
+        [0.1],
+    ),
+    # 2-cmt IV bolus, CL/V1/Q/V2 parameterisation
+    (3, 4): (
+        [
+            {"label": "CL", "lower": 0.001, "init": 5.0, "upper": 100.0, "fixed": False},
+            {"label": "V1", "lower": 0.1, "init": 30.0, "upper": 500.0, "fixed": False},
+            {"label": "Q", "lower": 0.001, "init": 2.0, "upper": 50.0, "fixed": False},
+            {"label": "V2", "lower": 0.1, "init": 50.0, "upper": 500.0, "fixed": False},
+        ],
+        [0.2, 0.2, 0.2, 0.2],
+        [0.1],
+    ),
+    # 2-cmt oral, CL/V1/Q/V2/KA parameterisation
+    (4, 4): (
+        [
+            {"label": "KA", "lower": 0.01, "init": 1.5, "upper": 20.0, "fixed": False},
+            {"label": "CL", "lower": 0.001, "init": 5.0, "upper": 100.0, "fixed": False},
+            {"label": "V1", "lower": 0.1, "init": 30.0, "upper": 500.0, "fixed": False},
+            {"label": "Q", "lower": 0.001, "init": 2.0, "upper": 50.0, "fixed": False},
+            {"label": "V2", "lower": 0.1, "init": 50.0, "upper": 500.0, "fixed": False},
+        ],
+        [0.3, 0.2, 0.2, 0.2, 0.2],
+        [0.1],
+    ),
+}
+
+
+def suggest_theta_rows_for_advan(
+    advan: int, trans: int
+) -> list[dict[str, object]] | None:
+    """Return typical THETA starting values for *advan*/*trans*, or ``None`` if unknown."""
+    preset = _ADVAN_PRESETS.get((advan, trans))
+    if preset is None:
+        return None
+    theta_rows, _, _ = preset
+    return [dict(row) for row in theta_rows]
+
+
+def suggest_omega_values_for_advan(
+    advan: int, trans: int
+) -> list[list[float]] | None:
+    """Return typical diagonal OMEGA values for *advan*/*trans*, or ``None`` if unknown."""
+    preset = _ADVAN_PRESETS.get((advan, trans))
+    if preset is None:
+        return None
+    _, omega_diag, _ = preset
+    n = len(omega_diag)
+    return [[omega_diag[i] if i == j else 0.0 for j in range(n)] for i in range(n)]
 
 
 def _default_theta_rows() -> list[dict[str, object]]:
@@ -703,11 +792,14 @@ def build_model_workflow(
     custom_subroutine_layout.addStretch(1)
     custom_subroutine_row.setVisible(model_combo.currentText().startswith("Custom"))
 
+    diagram_widget = build_model_diagram_widget(model_spec.advan, model_spec.trans)
+
     subroutine_row = qt_widgets.QVBoxLayout()
     subroutine_row.setContentsMargins(0, 0, 0, 0)
     subroutine_row.setSpacing(4)
     subroutine_row.addWidget(model_combo)
     subroutine_row.addWidget(custom_subroutine_row)
+    subroutine_row.addWidget(diagram_widget)
 
     def _make_help_button(title: str, text: str) -> qt_widgets.QToolButton:
         btn = qt_widgets.QToolButton()
@@ -754,8 +846,21 @@ def build_model_workflow(
     covariance_matrix_combo.currentTextChanged.connect(
         lambda text: covariance_matrix_combo.setToolTip(_COV_MATRIX_TOOLTIPS.get(text, ""))
     )
+    # Nonparametric base method sub-selector (P3-D)
+    nonparam_base_label = qt_widgets.QLabel("Base method:")
+    nonparam_base_label.setObjectName("model-nonparam-base-method-label")
+    nonparam_base_combo = qt_widgets.QComboBox()
+    nonparam_base_combo.setObjectName("model-nonparam-base-method-combo")
+    for _code, _label in _NP_BASE_METHODS:
+        nonparam_base_combo.addItem(_label, userData=_code)
+    _np_base_default = str(model_spec.estimation.options.get("base_method", "FOCE"))
+    _np_base_idx = max(0, nonparam_base_combo.findData(_np_base_default))
+    nonparam_base_combo.setCurrentIndex(_np_base_idx)
+
     estimation_row.addWidget(estimation_combo)
     estimation_row.addWidget(_make_help_button("Estimation Methods", _ESTIMATION_HELP_TEXT))
+    estimation_row.addWidget(nonparam_base_label)
+    estimation_row.addWidget(nonparam_base_combo)
     estimation_row.addWidget(covariance_checkbox)
     estimation_row.addWidget(covariance_matrix_combo)
     estimation_row.addWidget(_make_help_button("Covariance Step", _COV_HELP_TEXT))
@@ -895,12 +1000,18 @@ def build_model_workflow(
         else:
             retry_omega_scales_text = str(retry_omega_scales)
         retry_omega_scales_input.setText(retry_omega_scales_text)
+        np_base = str(options.get("base_method", "FOCE"))
+        np_base_idx = max(0, nonparam_base_combo.findData(np_base))
+        nonparam_base_combo.setCurrentIndex(np_base_idx)
 
     def _refresh_estimation_option_affordances() -> None:
         method = str(estimation_combo.currentData())
         advanced_enabled = method in _GRADIENT_METHODS
         interaction_enabled = method in _INTERACTION_METHODS
-        est_options_widget.setVisible(advanced_enabled)
+        np_enabled = method in _NP_METHODS
+        est_options_widget.setVisible(advanced_enabled and not np_enabled)
+        nonparam_base_label.setVisible(np_enabled)
+        nonparam_base_combo.setVisible(np_enabled)
         for widget in (
             maxeval_label,
             nstarts_label,
@@ -958,6 +1069,9 @@ def build_model_workflow(
     des_edit = qt_widgets.QPlainTextEdit(model_spec.des_code)
     des_edit.setObjectName("model-des-code")
     des_edit.setPlaceholderText("$DES code for ODE models")
+    NmtranHighlighter.attach(pk_edit)
+    NmtranHighlighter.attach(error_edit)
+    NmtranHighlighter.attach(des_edit)
     builder_layout.addWidget(qt_widgets.QLabel("$PK"))
     builder_layout.addWidget(pk_edit, 2)
     builder_layout.addWidget(qt_widgets.QLabel("$ERROR"))
@@ -983,6 +1097,7 @@ def build_model_workflow(
     control_stream_edit = qt_widgets.QPlainTextEdit(model_spec.control_stream_text)
     control_stream_edit.setObjectName("model-control-stream-text")
     control_stream_edit.setPlaceholderText("Paste or author a NONMEM control stream here.")
+    NmtranHighlighter.attach(control_stream_edit)
     control_stream_layout.addLayout(control_stream_button_row)
     ctl_dataset_note = qt_widgets.QLabel(
         "Dataset: opening or loading a control stream automatically loads its $DATA file "
@@ -1061,8 +1176,14 @@ def build_model_workflow(
     add_theta_button.setObjectName("model-add-theta-row")
     remove_theta_button = qt_widgets.QPushButton("Remove THETA row")
     remove_theta_button.setObjectName("model-remove-theta-row")
+    suggest_theta_button = qt_widgets.QPushButton("Suggest typical values")
+    suggest_theta_button.setObjectName("model-suggest-theta-button")
+    suggest_theta_button.setToolTip(
+        "Pre-fill THETA and OMEGA with typical starting values for the selected model structure"
+    )
     theta_button_row.addWidget(add_theta_button)
     theta_button_row.addWidget(remove_theta_button)
+    theta_button_row.addWidget(suggest_theta_button)
     theta_button_row.addStretch(1)
 
     omega_table = qt_widgets.QTableWidget()
@@ -1293,6 +1414,7 @@ def build_model_workflow(
                     "retain_best_iterate": retain_best_checkbox.isChecked(),
                     "retry_on_abnormal": retry_on_abnormal_checkbox.isChecked(),
                     "retry_omega_scales": retry_omega_scales,
+                    "base_method": nonparam_base_combo.currentData(),
                 },
             ),
             covariance=CovarianceConfig(
@@ -1590,6 +1712,30 @@ def build_model_workflow(
             _populate_theta_table(rows)
         parameter_summary_label.setText(format_parameter_summary(_collect_model_spec()))
 
+    def _suggest_theta_values() -> None:
+        """Pre-fill THETA and OMEGA with typical values for the current ADVAN/TRANS."""
+        advan = advan_spin.value()
+        trans = trans_spin.value()
+        theta_rows = suggest_theta_rows_for_advan(advan, trans)
+        omega_values = suggest_omega_values_for_advan(advan, trans)
+        if theta_rows is None:
+            qt_widgets.QMessageBox.information(
+                root,
+                "Suggest typical values",
+                f"No preset available for ADVAN{advan}/TRANS{trans}.\n"
+                "Typical values are provided for ADVAN1/TRANS2, ADVAN2/TRANS2, "
+                "ADVAN3/TRANS4, and ADVAN4/TRANS4.",
+            )
+            return
+        _populate_theta_table(theta_rows)
+        if omega_values is not None:
+            _populate_matrix_table(omega_table, omega_values, diagonal_fill=0.1)
+            _update_header_labels(omega_table, "ETA")
+            _shade_upper_triangle(omega_table)
+            _set_diagonal_tooltips(omega_table)
+        parameter_summary_label.setText(format_parameter_summary(_collect_model_spec()))
+        _update_unsaved_indicator()
+
     def _update_header_labels(table: qt_widgets.QTableWidget, prefix: str) -> None:
         n = table.columnCount()
         labels = [f"{prefix}{i + 1}" for i in range(n)]
@@ -1694,6 +1840,7 @@ def build_model_workflow(
         if not is_custom:
             advan_spin.setValue(advan)
             trans_spin.setValue(trans)
+            diagram_widget.update_diagram(advan, trans)
         _update_unsaved_indicator()
 
     def _sync_model_combo_from_spins() -> None:
@@ -1701,6 +1848,7 @@ def build_model_workflow(
         model_combo.blockSignals(True)
         model_combo.setCurrentIndex(idx)
         model_combo.blockSignals(False)
+        diagram_widget.update_diagram(advan_spin.value(), trans_spin.value())
         _update_unsaved_indicator()
 
     mode_radio_group.buttonToggled.connect(lambda _btn, _checked: _handle_mode_changed())
@@ -1714,6 +1862,7 @@ def build_model_workflow(
         example_details_label.linkActivated.connect(_handle_ctl_example_details_link)
     add_theta_button.clicked.connect(_add_theta_row)
     remove_theta_button.clicked.connect(_remove_theta_row)
+    suggest_theta_button.clicked.connect(_suggest_theta_values)
     add_omega_button.clicked.connect(_add_omega)
     remove_omega_button.clicked.connect(_remove_omega)
     add_sigma_button.clicked.connect(_add_sigma)

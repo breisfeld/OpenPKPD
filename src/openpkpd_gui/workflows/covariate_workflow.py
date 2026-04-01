@@ -17,6 +17,7 @@ from openpkpd_gui.services.scm_service import (
     SCMPreparationResult,
     SCMRunResult,
     SCMService,
+    generate_scm_step_plot,
 )
 from openpkpd_gui.widgets.dismissible_hint import build_dismissible_hint
 from openpkpd_gui.widgets.responsive_layout import (
@@ -542,6 +543,20 @@ def build_covariate_workflow(
             reference=float(_saved.get("reference", 70.0)),
         )
 
+    def _save_scm_forest_plot(scm_result: SCMRunResult, run_id: str) -> None:
+        """Generate and register a SCM step significance plot artifact (P3-B)."""
+        from pathlib import Path
+
+        from openpkpd_gui.app.settings import default_workspace_root_path
+
+        base = project.root_path
+        output_dir = (
+            Path(base).resolve() / "artifacts" if base else default_workspace_root_path() / "artifacts"
+        )
+        artifact = generate_scm_step_plot(scm_result, run_id=run_id, output_dir=output_dir)
+        if artifact is not None:
+            project.active_scenario.add_artifact(artifact)
+
     def _poll_future() -> None:
         nonlocal future
         if future is None or not future.done():
@@ -553,6 +568,7 @@ def build_covariate_workflow(
             last_result[0] = scm_result
             if scm_result is not None:
                 _render_results(scm_result.step_rows)
+                _save_scm_forest_plot(scm_result, run.run_id)
             _notify_project_state_changed()
         future = None
         poll_timer.stop()

@@ -21,6 +21,7 @@ from openpkpd_gui.services.fit_service import FitPreparationResult, FitService
 from openpkpd_gui.services.project_service import ProjectService
 from openpkpd_gui.services.validation_service import ValidationIssue
 from openpkpd_gui.widgets.collapsible_section import build_collapsible_section
+from openpkpd_gui.widgets.convergence_plot import build_convergence_plot_widget
 from openpkpd_gui.widgets.combined_header import build_combined_header
 from openpkpd_gui.widgets.dismissible_hint import build_dismissible_hint
 from openpkpd_gui.widgets.responsive_layout import (
@@ -254,6 +255,10 @@ def build_fit_workflow(
     preparation_layout.addWidget(next_action_button)
     preparation_layout.addWidget(validation_list, 1)
 
+    convergence_widget, _add_ofv_point, _reset_convergence, _finalize_convergence = (
+        build_convergence_plot_widget((qt_core, qt_gui, qt_widgets))
+    )
+
     run_panel = qt_widgets.QWidget(content_row_widget)
     run_panel.setObjectName("fit-run-panel")
     run_layout = qt_widgets.QVBoxLayout(run_panel)
@@ -261,6 +266,7 @@ def build_fit_workflow(
     run_layout.setSpacing(8)
     run_layout.addWidget(run_label)
     run_layout.addWidget(phase_label)
+    run_layout.addWidget(convergence_widget)
     run_layout.addWidget(log_section, 1)
 
     content_row_widget.addWidget(preparation_panel)
@@ -440,8 +446,16 @@ def build_fit_workflow(
         if not drained or active_run is None:
             return
         for event in drained:
-            active_run.add_log(f"[{event.kind}] {event.message}")
             streamed_event_count += 1
+            if event.kind == "ofv":
+                # Parse "iteration,ofv_value" and update live plot (don't log these)
+                try:
+                    iter_str, ofv_str = event.message.split(",", 1)
+                    _add_ofv_point(int(iter_str), float(ofv_str))
+                except (ValueError, AttributeError):
+                    pass
+                continue
+            active_run.add_log(f"[{event.kind}] {event.message}")
             if event.kind == "info":
                 phase_label.setText(event.message)
             if event.progress is not None:
@@ -454,6 +468,7 @@ def build_fit_workflow(
         run_progress.setRange(0, 0)
         cancel_button.setEnabled(False)
         cancel_button.setText("Cancel")
+        # Keep convergence plot visible after run completes (shows final result)
 
     def _notify_project_state_changed() -> None:
         callback = getattr(root, "_project_state_changed", None)
@@ -507,6 +522,9 @@ def build_fit_workflow(
             for artifact in artifacts:
                 artifact_service.register(project, artifact)
                 run.add_log(f"[artifact] {artifact.kind}: {artifact.label}")
+            # Finalize the OFV plot with the authoritative history
+            if outcome.value is not None and hasattr(outcome.value, "ofv_history"):
+                _finalize_convergence(list(outcome.value.ofv_history))
             _render_run(run)
             _notify_project_state_changed()
         future = None
@@ -542,6 +560,8 @@ def build_fit_workflow(
         cancel_button.setText("Cancel")
         run_progress.setVisible(True)
         run_progress.setRange(0, 0)
+        _reset_convergence()
+        convergence_widget.setVisible(True)
         poll_timer.start()
 
     def _cancel_run() -> None:

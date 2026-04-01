@@ -477,6 +477,7 @@ class FOCEMethod(EstimationMethod):
         retain_best_iterate: bool = True,
         retry_on_abnormal: bool | None = None,
         retry_omega_scales: tuple[float, ...] = (),
+        iteration_callback=None,
     ) -> None:
         self.interaction = interaction
         self.maxeval = maxeval
@@ -507,6 +508,7 @@ class FOCEMethod(EstimationMethod):
                 self.retry_omega_scales = (0.5, 0.25, 0.1)
         elif self.retry_on_abnormal is None:
             self.retry_on_abnormal = False
+        self.iteration_callback = iteration_callback
         self._iter = 0
         self._ofv_history: list[float] = []
         self._current_eta_hat: dict[int, np.ndarray] = {}
@@ -718,6 +720,11 @@ class FOCEMethod(EstimationMethod):
             self._outer_eval_cache_put(x, ofv, eta_hat)
             self._iter += 1
             self._ofv_history.append(ofv)
+            if self.iteration_callback is not None:
+                try:
+                    self.iteration_callback(self._iter, ofv)
+                except Exception:
+                    pass
             if ofv < self._best_outer_ofv:
                 self._best_outer_ofv = ofv
                 self._best_outer_x = np.asarray(x, dtype=float).copy()

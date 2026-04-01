@@ -64,12 +64,14 @@ class IMPMethod(EstimationMethod):
         seed: int | None = None,
         n_parallel: int = 1,
         is_map: bool = False,
+        iteration_callback=None,
     ) -> None:
         self.isample = isample
         self.maxeval = maxeval
         self.print_interval = print_interval
         self.n_parallel = n_parallel
         self.is_map = is_map
+        self.iteration_callback = iteration_callback
         self.rng = np.random.default_rng(seed)
         self._iter = 0
         self._ofv_history: list[float] = []
@@ -127,6 +129,11 @@ class IMPMethod(EstimationMethod):
             ofv = self._compute_imp_ofv(population_model, p)
             self._iter += 1
             self._ofv_history.append(ofv)
+            if self.iteration_callback is not None:
+                try:
+                    self.iteration_callback(self._iter, ofv)
+                except Exception:
+                    pass
             if self._iter % self.print_interval == 0:
                 logger.info(f"  Iter {self._iter:5d}  OFV={ofv:.4f}")
             return ofv

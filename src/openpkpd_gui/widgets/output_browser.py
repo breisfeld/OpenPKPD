@@ -40,6 +40,9 @@ class OutputPreviewPanel:
         qt_core,
         qt_gui,
         table_widget=None,
+        mpl_canvas_container=None,
+        mpl_canvas=None,
+        mpl_ax=None,
     ) -> None:
         self.title_label = title_label
         self.metadata_label = metadata_label
@@ -51,6 +54,9 @@ class OutputPreviewPanel:
         self._qt_core = qt_core
         self._qt_gui = qt_gui
         self.table_widget = table_widget
+        self.mpl_canvas_container = mpl_canvas_container
+        self.mpl_canvas = mpl_canvas
+        self.mpl_ax = mpl_ax
 
     def render(
         self,
@@ -125,6 +131,20 @@ class OutputPreviewPanel:
             self.stack.setCurrentWidget(self.browser)
             return
         if preview_kind == "image":
+            if self.mpl_canvas is not None:
+                try:
+                    import matplotlib.image as mpimg
+
+                    img = mpimg.imread(str(artifact_path))
+                    self.mpl_ax.clear()
+                    self.mpl_ax.imshow(img)
+                    self.mpl_ax.axis("off")
+                    self.mpl_canvas.figure.tight_layout(pad=0)
+                    self.mpl_canvas.draw()
+                    self.stack.setCurrentWidget(self.mpl_canvas_container)
+                    return
+                except Exception:
+                    pass
             pixmap = qt_gui.QPixmap(str(artifact_path))
             if not pixmap.isNull():
                 self.image_label.setPixmap(pixmap)
@@ -135,6 +155,87 @@ class OutputPreviewPanel:
             "Preview unavailable for this output type. Use Open to inspect it."
         )
         self.stack.setCurrentWidget(self.placeholder)
+
+    # ------------------------------------------------------------------ #
+    # GOF subject-highlighting                                             #
+    # ------------------------------------------------------------------ #
+
+    # Maps plot_type → (x_col, y_col | None for special types)
+    _GOF_PLOT_COLUMNS: dict[str, tuple[str, str] | None] = {
+        "dv_vs_ipred": ("IPRED", "DV"),
+        "dv_vs_pred": ("PRED", "DV"),
+        "cwres_vs_time": ("TIME", "CWRES"),
+        "cwres_vs_pred": ("PRED", "CWRES"),
+        "abs_iwres_vs_ipred": ("IPRED", "IWRES"),
+    }
+
+    def render_highlighted_artifact(
+        self,
+        diag_df,
+        artifact: ArtifactRecord,
+        selected_subject: str,
+    ) -> bool:
+        """Re-render a GOF artifact into the live canvas with *selected_subject* highlighted.
+
+        Returns ``True`` if the canvas was updated, ``False`` if re-rendering is
+        not supported for this artifact / environment.
+        """
+        if self.mpl_canvas is None or self.mpl_ax is None:
+            return False
+
+        plot_type = (artifact.metadata or {}).get("plot_type", "")
+        if plot_type not in self._GOF_PLOT_COLUMNS:
+            return False
+
+        try:
+            from openpkpd.plots import gof as _gof
+
+            ax = self.mpl_ax
+            ax.clear()
+
+            _render_fn = {
+                "dv_vs_ipred": _gof.dv_vs_ipred,
+                "dv_vs_pred": _gof.dv_vs_pred,
+                "cwres_vs_time": _gof.cwres_vs_time,
+                "cwres_vs_pred": _gof.cwres_vs_pred,
+                "abs_iwres_vs_ipred": _gof.abs_iwres_vs_ipred,
+            }.get(plot_type)
+            if _render_fn is None:
+                return False
+
+            _render_fn(diag_df, ax=ax)
+
+            # Overlay the selected subject's points
+            xy_cols = self._GOF_PLOT_COLUMNS[plot_type]
+            if xy_cols is not None and "ID" in diag_df.columns:
+                subject_mask = diag_df["ID"].astype(str) == str(selected_subject)
+                subject_df = diag_df[subject_mask]
+                if not subject_df.empty:
+                    x_col, y_col = xy_cols
+                    x_vals = subject_df[x_col].values
+                    y_vals = (
+                        abs(subject_df[y_col].values)
+                        if plot_type == "abs_iwres_vs_ipred"
+                        else subject_df[y_col].values
+                    )
+                    ax.scatter(
+                        x_vals,
+                        y_vals,
+                        color="#ef4444",
+                        s=60,
+                        zorder=5,
+                        edgecolors="white",
+                        linewidths=0.8,
+                        label=f"ID={selected_subject}",
+                    )
+                    ax.legend(fontsize=8)
+
+            self.mpl_canvas.figure.tight_layout(pad=0.5)
+            self.mpl_canvas.draw()
+            self.stack.setCurrentWidget(self.mpl_canvas_container)
+            return True
+        except Exception:
+            return False
 
     def _render_csv_table(self, artifact_path: Path) -> None:
         """Parse *artifact_path* as CSV and populate the table widget."""
@@ -268,6 +369,39 @@ def build_output_preview_panel(
     stack.addWidget(scroll)
     stack.addWidget(table_widget)
 
+    # Interactive matplotlib canvas for image artifacts (P2-A)
+    mpl_canvas_container = None
+    mpl_canvas = None
+    mpl_ax = None
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
+
+        mpl_fig, mpl_ax = plt.subplots(figsize=(8, 6))
+        plt.close(mpl_fig)  # unregister from pyplot to avoid figure leak warnings
+        mpl_fig.patch.set_facecolor("#ffffff")
+        mpl_ax.set_facecolor("#ffffff")
+        mpl_ax.axis("off")
+        mpl_fig.tight_layout(pad=0)
+
+        mpl_canvas = FigureCanvasQTAgg(mpl_fig)
+        mpl_canvas.setObjectName(f"{object_prefix}-preview-mpl-canvas")
+
+        mpl_toolbar = NavigationToolbar2QT(mpl_canvas, None)
+        mpl_toolbar.setObjectName(f"{object_prefix}-preview-mpl-toolbar")
+
+        mpl_canvas_container = qt_widgets.QWidget()
+        mpl_layout = qt_widgets.QVBoxLayout(mpl_canvas_container)
+        mpl_layout.setContentsMargins(0, 0, 0, 0)
+        mpl_layout.setSpacing(0)
+        mpl_layout.addWidget(mpl_toolbar)
+        mpl_layout.addWidget(mpl_canvas)
+        stack.addWidget(mpl_canvas_container)
+    except Exception:
+        pass
+
     return OutputPreviewPanel(
         title_label=title_label,
         metadata_label=metadata_label,
@@ -279,4 +413,7 @@ def build_output_preview_panel(
         qt_core=qt_core,
         qt_gui=qt_gui,
         table_widget=table_widget,
+        mpl_canvas_container=mpl_canvas_container,
+        mpl_canvas=mpl_canvas,
+        mpl_ax=mpl_ax,
     )

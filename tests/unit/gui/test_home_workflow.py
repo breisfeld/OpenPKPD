@@ -114,3 +114,53 @@ def test_home_workflow_refreshes_actions_and_recent_snapshot_buttons(tmp_path: P
         widget.close()
         widget.deleteLater()
         app.processEvents()
+
+
+# ---------------------------------------------------------------------------
+# P3-E: Scenario cloning / branching UI
+# ---------------------------------------------------------------------------
+
+
+def test_home_workflow_has_duplicate_scenario_button() -> None:
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+
+    _, _, qt_widgets = load_qt_modules()
+    app = qt_widgets.QApplication.instance() or qt_widgets.QApplication(
+        ["test", "-platform", "offscreen"]
+    )
+    workspace = Workspace(name="Home")
+    widget = build_home_workflow(workspace)
+    try:
+        btn = widget.findChild(qt_widgets.QPushButton, "home-duplicate-scenario-button")
+        assert btn is not None, "home-duplicate-scenario-button not found"
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()
+
+
+def test_home_workflow_duplicate_scenario_button_calls_callback() -> None:
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+
+    _, _, qt_widgets = load_qt_modules()
+    app = qt_widgets.QApplication.instance() or qt_widgets.QApplication(
+        ["test", "-platform", "offscreen"]
+    )
+    workspace = Workspace(name="Home")
+    widget = build_home_workflow(workspace)
+    duplicated = [0]
+    widget._duplicate_scenario = lambda: duplicated.__setitem__(0, duplicated[0] + 1)  # type: ignore[attr-defined]
+    try:
+        widget.show()
+        app.processEvents()
+        btn = widget.findChild(qt_widgets.QPushButton, "home-duplicate-scenario-button")
+        assert btn is not None
+        btn.click()
+        app.processEvents()
+        assert duplicated[0] == 1, "Duplicate callback not triggered"
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()

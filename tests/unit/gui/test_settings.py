@@ -209,13 +209,18 @@ def test_navigation_state_keys_removed_when_unset() -> None:
 
 
 def test_last_file_dialog_directory_round_trip() -> None:
+    from pathlib import Path
+
     store = _mock_store()
     prefs = GuiPreferences(last_file_dialog_dir="/tmp/openpkpd/dialogs")
 
     save_gui_preferences(prefs, settings_store=store)
 
     loaded = load_gui_preferences(settings_store=store)
-    assert loaded.last_file_dialog_dir == "/tmp/openpkpd/dialogs"
+    # normalize_directory_path calls Path.resolve() which expands symlinks
+    # (e.g. /tmp → /private/tmp on macOS). Compare against the resolved form.
+    expected = str(Path("/tmp/openpkpd/dialogs").resolve())
+    assert loaded.last_file_dialog_dir == expected
 
 
 def test_table_column_widths_round_trip() -> None:

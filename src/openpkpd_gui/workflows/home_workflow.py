@@ -95,6 +95,11 @@ def build_home_workflow(project: Workspace):
     new_project_button.setObjectName("home-new-project-button")
     open_project_button = qt_widgets.QPushButton("Open Project Snapshot…")
     open_project_button.setObjectName("home-open-project-button")
+    duplicate_scenario_button = qt_widgets.QPushButton("Duplicate Scenario…")
+    duplicate_scenario_button.setObjectName("home-duplicate-scenario-button")
+    duplicate_scenario_button.setToolTip(
+        "Create a copy of the active scenario to explore a model variant"
+    )
     next_action_button = qt_widgets.QPushButton("Open Overview")
     next_action_button.setObjectName("home-next-action-button")
     next_action_button.setProperty("primaryAction", True)
@@ -105,6 +110,7 @@ def build_home_workflow(project: Workspace):
     for button in (
         new_project_button,
         open_project_button,
+        duplicate_scenario_button,
         next_action_button,
         open_overview_button,
     ):
@@ -182,6 +188,9 @@ def build_home_workflow(project: Workspace):
     new_project_button.clicked.connect(lambda: getattr(root, "_create_project", lambda: None)())
     open_project_button.clicked.connect(
         lambda: getattr(root, "_choose_project_snapshot_to_open", lambda: None)()
+    )
+    duplicate_scenario_button.clicked.connect(
+        lambda: getattr(root, "_duplicate_scenario", lambda: None)()
     )
     next_action_button.clicked.connect(lambda: _navigate_to(next_action_target[0]))
     open_overview_button.clicked.connect(lambda: _navigate_to("dashboard"))

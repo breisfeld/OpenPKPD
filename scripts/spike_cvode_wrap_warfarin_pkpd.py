@@ -6,7 +6,7 @@ This script is intentionally narrow:
 - compares subject 1 only
 - uses the bundled nlmixr2 FO reference theta values
 - reports compartment- and endpoint-level differences between:
-  - the feature-gated Rust `_core.native_cvodes_advan6_mixed_pkpd_probe`
+  - the feature-gated Rust `_core.native_cvodes_transit_1cmt_pkpd_probe`
   - the current OpenPKPD mixed-endpoint path
 
 It is a spike artifact, not a user-facing API.
@@ -64,7 +64,7 @@ def main() -> None:
     dose_amt = float(ind.subject_events.dose_events[0].amount)
 
     rust_amounts = np.asarray(
-        core.native_cvodes_advan6_mixed_pkpd_probe(times.tolist(), dose_amt, theta[:8].tolist())
+        core.native_cvodes_transit_1cmt_pkpd_probe(times.tolist(), dose_amt, theta[:8].tolist())
     )
     py_amounts = np.asarray(amounts)[:, :4]
     py_pred = np.asarray(pred, dtype=float)
@@ -92,16 +92,16 @@ def main() -> None:
             theta, eta, sigma, trans=1, include_amounts=True
         )
     py_seconds = time.perf_counter() - t0
-    rust_seconds, last_rust_state = core.native_cvodes_advan6_mixed_pkpd_repeat_probe(
-        times.tolist(), dose_amt, theta[:8].tolist(), n_repeats
-    )
+    # NOTE: native_cvodes_transit_1cmt_pkpd_repeat_probe was removed during the
+    # Phase 4 refactor (it was dead production code). The timing comparison below
+    # uses the multidose probe as a stand-in; call it n_repeats times in Python.
+    t1 = time.perf_counter()
+    for _ in range(n_repeats):
+        core.native_cvodes_transit_1cmt_pkpd_probe(times.tolist(), dose_amt, theta[:8].tolist())
+    rust_seconds = time.perf_counter() - t1
     print(f"repeat_n={n_repeats}")
     print(f"python_repeat_seconds={py_seconds:.6f}")
     print(f"rust_repeat_seconds={rust_seconds:.6f}")
-    print(
-        "repeat_last_state_abs_diff=",
-        float(np.max(np.abs(np.asarray(last_rust_state) - np.asarray(last_py_amounts)[-1, :4]))),
-    )
 
 
 if __name__ == "__main__":

@@ -112,8 +112,8 @@ def main() -> None:
         native_ofv = pm.ofv_fo(params)
     native_seconds = time.perf_counter() - t0
 
-    saved_probe = individual_mod._native_cvodes_advan6_mixed_pkpd_probe_rust
-    individual_mod._native_cvodes_advan6_mixed_pkpd_probe_rust = None
+    saved_probe = individual_mod._native_cvodes_transit_1cmt_pkpd_probe_rust
+    individual_mod._native_cvodes_transit_1cmt_pkpd_probe_rust = None
     try:
         t0 = time.perf_counter()
         for _ in range(n_repeats):
@@ -129,7 +129,7 @@ def main() -> None:
             python_ofv = pm.ofv_fo(params)
         python_seconds = time.perf_counter() - t0
     finally:
-        individual_mod._native_cvodes_advan6_mixed_pkpd_probe_rust = saved_probe
+        individual_mod._native_cvodes_transit_1cmt_pkpd_probe_rust = saved_probe
 
     print(label)
     print(f"repeat_n={n_repeats}")

@@ -219,6 +219,13 @@ _NATIVE_ODE_TEMPLATES: list[_NativeOdeTemplate] = [
 
 _NATIVE_ODE_TEMPLATE_MAP: dict[str, _NativeOdeTemplate] = {t.name: t for t in _NATIVE_ODE_TEMPLATES}
 
+# Only ADVAN6 (general ODE) is currently routed through the native CVODES
+# probes.  ADVAN1/2/3/4/11/12 have exact analytical Python solutions that are
+# more precise than CVODES numerical integration; routing them through CVODES
+# would silently degrade precision.  P1.3 requires Rust probes that implement
+# the exact closed-form solution — until those exist, only ADVAN6 is eligible.
+_NATIVE_ELIGIBLE_ADVANS: frozenset[int] = frozenset({6})
+
 # Error-model patterns for which the native ODE path is supported.
 # "mixed_pkpd_dvid_theta" uses dual-DVID routing; the rest are single-output.
 _NATIVE_SUPPORTED_ERROR_MODELS: frozenset[str] = frozenset({
@@ -448,7 +455,7 @@ class IndividualModel:
         # Gate 1: need at least one template with a working state probe.
         if not any(t.state_probe_fn is not None for t in _NATIVE_ODE_TEMPLATES):
             return None
-        if getattr(self.pk_subroutine, "advan", None) != 6:
+        if getattr(self.pk_subroutine, "advan", None) not in _NATIVE_ELIGIBLE_ADVANS:
             return None
         if (
             self._common_error_model is None
@@ -476,8 +483,8 @@ class IndividualModel:
                 except Exception:
                     return None  # cannot verify constancy — stay conservative
 
-        # All doses must be into compartment 1 (IV or infusion into central).
-        # Oral (depot) compartment doses are not supported on the native path.
+        # Doses must be into compartment 1 (the central compartment for IV
+        # models; the Rust ODE probes do not model an absorption depot).
         if len(self._dose_events) == 0:
             return None
         for dose in self._dose_events:

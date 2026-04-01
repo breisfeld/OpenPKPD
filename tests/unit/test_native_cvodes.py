@@ -3214,3 +3214,24 @@ class TestPFIMInfusionSensitivityPath:
         # accurate — the tolerance here just ensures gross errors are caught.
         np.testing.assert_allclose(G_native, G_fd, rtol=2e-2, atol=1e-5,
                                    err_msg="Infusion native G deviates from FD reference")
+
+
+
+# ===========================================================================
+# Section 17 — reserved for P1.3 (Analytic-ADVAN Rust probes)
+#
+# ADVAN1/2/3/4/11/12 already have exact closed-form Python solutions that are
+# more precise than CVODES numerical integration.  Routing them through the
+# existing ODE probes silently degrades precision (CVODES rtol ~1e-8 vs
+# machine-epsilon for the analytical formula).
+#
+# P1.3 requires Rust probes that implement the exact closed-form solution.
+# Tests will be added here once those probes exist.
+# ===========================================================================
+
+
+
+
+# TestAnalyticAdvanGateActivation, TestAnalyticAdvanEndToEndIpred,
+# and TestAnalyticAdvanSensitivityDispatch will be added here in P1.3
+# once Rust probes with exact closed-form solutions are implemented.

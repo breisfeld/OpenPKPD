@@ -43,6 +43,8 @@ import numpy as np
 from scipy.optimize import differential_evolution, minimize
 
 
+
+
 @dataclass
 class DesignResult:
     """
@@ -82,6 +84,58 @@ class DesignResult:
             f"  Expected SE(θ):  {np.round(self.se_theta, 4).tolist()}",
         ]
         return "\n".join(lines)
+
+
+def _pk_callable_jacobian(
+    pk_callable: Any,
+    theta: list,
+    eta: list,
+    required: Any,
+    base_covariates: dict,
+    perturb: str,
+    eps: float = 1e-5,
+) -> np.ndarray:
+    """
+    Central finite-difference Jacobian of pk_callable outputs.
+
+    Differentiates w.r.t. either ``theta`` or ``eta`` (controlled by
+    ``perturb='theta'`` / ``perturb='eta'``).  The pk_callable is called
+    at nominal + step and nominal - step for each parameter dimension;
+    no ODE integration is involved.
+
+    Args:
+        pk_callable:      Callable ``(theta, eta, t, covariates) -> dict``.
+        theta:            Nominal theta list.
+        eta:              Nominal eta list.
+        required:         Ordered sequence of pk_callable output keys to extract.
+        base_covariates:  Covariate dict forwarded to pk_callable.
+        perturb:          ``'theta'`` or ``'eta'`` — which vector to differentiate.
+        eps:              Central-difference step size.
+
+    Returns:
+        Jacobian array of shape ``(len(required), len(perturbed_params))``.
+    """
+    params = theta if perturb == "theta" else eta
+    n_params = len(params)
+    n_req = len(required)
+    J = np.zeros((n_req, n_params))
+    for j in range(n_params):
+        p_plus = list(params)
+        p_minus = list(params)
+        p_plus[j] += eps
+        p_minus[j] -= eps
+        try:
+            if perturb == "theta":
+                pp = pk_callable(p_plus, eta, t=0.0, covariates=base_covariates)
+                pm = pk_callable(p_minus, eta, t=0.0, covariates=base_covariates)
+            else:
+                pp = pk_callable(theta, p_plus, t=0.0, covariates=base_covariates)
+                pm = pk_callable(theta, p_minus, t=0.0, covariates=base_covariates)
+        except Exception:
+            continue
+        for k, name in enumerate(required):
+            J[k, j] = (float(pp.get(name, 0.0)) - float(pm.get(name, 0.0))) / (2.0 * eps)
+    return J
 
 
 class PFIMEngine:
@@ -171,12 +225,25 @@ class PFIMEngine:
         if n_times == 0:
             return np.zeros((n_theta, n_theta))
 
-        # Jacobian of predictions w.r.t. theta: shape (n_times, n_theta)
-        G = self._numerical_gradient_prediction(sampling_times, theta)
-
-        # Jacobian of predictions w.r.t. eta at eta=0: shape (n_times, n_eta)
         n_eta = omega_mat.shape[0]
-        Z = self._numerical_gradient_eta(sampling_times, theta, n_eta)
+
+        # Try the native CVODES forward-sensitivity path first.
+        # This computes G and Z together in a single ODE solve + cheap pk_callable FDs,
+        # replacing 2×(n_theta + n_eta) full ODE solves with finite differences.
+        native_GZ = None
+        try:
+            sid0 = next(iter(self.population_model.subject_ids()))
+            indiv0 = self.population_model.individual_model(sid0)
+            native_GZ = self._compute_G_and_Z_native(sampling_times, theta, indiv0, n_eta)
+        except Exception:
+            native_GZ = None
+
+        if native_GZ is not None:
+            G, Z = native_GZ
+        else:
+            # Fall back to central finite-difference loops
+            G = self._numerical_gradient_prediction(sampling_times, theta)
+            Z = self._numerical_gradient_eta(sampling_times, theta, n_eta)
 
         # Marginal covariance V_i = Z * OMEGA * Z^T + sigma_diag * I
         V = Z @ omega_mat @ Z.T + sigma_diag * np.eye(n_times)
@@ -335,6 +402,157 @@ class PFIMEngine:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _compute_G_and_Z_native(
+        self,
+        times: np.ndarray,
+        theta: np.ndarray,
+        indiv: Any,
+        n_eta: int,
+        eps: float = 1e-5,
+    ) -> tuple[np.ndarray, np.ndarray] | None:
+        """
+        Compute (G, Z) using a single CVODES forward-sensitivity integration.
+
+        This replaces 2×(n_theta + n_eta) ODE solves (finite-difference loops)
+        with **one** ODE solve that simultaneously tracks dA/d(ODE_param_j) for
+        all template parameters, followed by cheap finite-difference evaluations
+        of only the pk_callable (no ODE integration).
+
+        The chain rule applied is::
+
+            G[t, j] = Σ_k  (dF/d(ODE_param_k)) · (d(ODE_param_k)/d(pop_theta_j))
+            Z[t, k] = Σ_m  (dF/d(ODE_param_m)) · (d(ODE_param_m)/d(eta_k))
+
+        where F = A_out / V is the predicted concentration from the matched
+        template's output compartment divided by its volume parameter.
+
+        Template matching follows the same rules as
+        ``IndividualModel.native_advan6_prediction_eta_jacobian``: the template's
+        ``n_states`` must equal the contract's ``n_compartments``, the template
+        must have a sensitivity probe, it must not be a mixed PK/PD model, and
+        every required parameter name must appear in the pk_callable output.
+
+        Args:
+            times:  Design sampling times (need not be sorted).
+            theta:  Population THETA vector.
+            indiv:  First-subject IndividualModel instance.
+            n_eta:  Number of random effects.
+            eps:    Step size for pk_callable finite differences.
+
+        Returns:
+            (G, Z) tuple with shapes (n_times, n_theta) and (n_times, n_eta),
+            or ``None`` if the native path is unavailable for this model.
+        """
+        contract = getattr(indiv, "_native_ode_contract", None)
+        if contract is None:
+            return None
+        if contract.get("is_pkpd", False):
+            return None
+        # Infusion models need piecewise integration not yet wired here.
+        if contract.get("has_infusion", False):
+            return None
+
+        pk_callable = getattr(indiv, "pk_callable", None)
+        if pk_callable is None:
+            return None
+
+        n_times = len(times)
+        n_theta = len(theta)
+        theta_list = list(float(t) for t in theta)
+        eta_zero = [0.0] * n_eta
+        base_covariates = getattr(indiv, "_base_covariates", {})
+
+        # ── Step 1: evaluate pk_callable at nominal (theta, eta=0) ───────────
+        try:
+            pk_params_0 = pk_callable(theta_list, eta_zero, t=0.0, covariates=base_covariates)
+        except Exception:
+            return None
+
+        # ── Step 2: template matching ─────────────────────────────────────────
+        n_cmt = contract.get("n_compartments", -1)
+        template = self._match_native_template(pk_params_0, n_cmt)
+        if template is None:
+            return None
+
+        required = template.required_names
+        n_ode_params = len(required)
+        n_states = template.n_states
+        out_idx = template.output_cmt_idx
+        vol_name = template.vol_param_name
+        v_idx = list(required).index(vol_name)
+        V = float(pk_params_0[vol_name])
+        ode_theta = [float(pk_params_0[name]) for name in required]
+
+        from openpkpd.model.individual import _apply_alag
+        dose_times = _apply_alag(
+            contract["dose_times"], contract["dose_compartments"], pk_params_0
+        )
+
+        # ── Step 3: run sensitivity probe (one ODE solve) ─────────────────────
+        # Probe requires sorted observation times.
+        order = np.argsort(times, kind="stable")
+        sorted_times = times[order]
+        inverse_order = np.empty_like(order)
+        inverse_order[order] = np.arange(n_times)
+
+        try:
+            states_raw, sens_raw = template.sens_probe_fn(
+                sorted_times.tolist(),
+                dose_times,
+                contract["dose_amts"],
+                ode_theta,
+            )
+        except Exception:
+            return None
+
+        states = np.array(states_raw, dtype=float)                         # (n_times, n_states)
+        # sens[t, j, i] = dA_i / d(ODE_param_j)
+        sens = np.array(sens_raw, dtype=float).reshape(n_times, n_ode_params, n_states)
+
+        # ── Step 4: output-function Jacobian dF/d(ODE_param_j) ───────────────
+        # F = A_out / V  →  dF/d(ODE_param_j) = sens[:,j,out_idx]/V  for j ≠ vol
+        #                                       = sens[:,v_idx,out_idx]/V − A_out/V²  for j == vol
+        A_out = states[:, out_idx]                      # (n_times,)
+        dF_dODE = sens[:, :, out_idx] / V              # (n_times, n_ode_params)
+        dF_dODE[:, v_idx] -= A_out / (V * V)           # quotient rule for volume parameter
+
+        # ── Steps 5 & 6: FD of pk_callable w.r.t. pop theta and eta ─────────
+        # d(ODE_param_k)/d(pop_theta_j) and d(ODE_param_k)/d(eta_k) — cheap, no ODE.
+        J_pk_theta = _pk_callable_jacobian(
+            pk_callable, theta_list, eta_zero, required, base_covariates, "theta", eps
+        )
+        G = dF_dODE @ J_pk_theta   # (n_times, n_theta)
+
+        J_pk_eta = _pk_callable_jacobian(
+            pk_callable, theta_list, eta_zero, required, base_covariates, "eta", eps
+        )
+        Z = dF_dODE @ J_pk_eta     # (n_times, n_eta)
+
+        # Restore original time ordering
+        return G[inverse_order], Z[inverse_order]
+
+    def _match_native_template(self, pk_params_0: dict, n_cmt: int) -> Any:
+        """
+        Return the first native ODE template that matches this model, or None.
+
+        Matching criteria (identical to IndividualModel.native_advan6_prediction_eta_jacobian):
+          - Template has a sensitivity probe (``sens_probe_fn`` is not None).
+          - Template is not a mixed PK/PD model (``is_pkpd=False``).
+          - Template compartment count equals ``n_cmt``.
+          - All of the template's ``required_names`` appear in ``pk_params_0``.
+        """
+        from openpkpd.model.individual import _NATIVE_ODE_TEMPLATES  # local import avoids circular ref
+
+        for tmpl in _NATIVE_ODE_TEMPLATES:
+            if tmpl.sens_probe_fn is None or tmpl.is_pkpd:
+                continue
+            if tmpl.n_states != n_cmt:
+                continue
+            if any(name not in pk_params_0 for name in tmpl.required_names):
+                continue
+            return tmpl
+        return None
 
     def _numerical_gradient_prediction(
         self,

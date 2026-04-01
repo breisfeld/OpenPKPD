@@ -1255,6 +1255,160 @@ class TestFOCENativeGiPath:
                                    err_msg="_compute_G_i result deviates from FD reference")
 
 
+def _build_infusion_individual(rate: float = 5.0):
+    """
+    Like _build_native_individual but with a constant-rate infusion dose.
+
+    Uses the 2cmt_iv template (ADVAN6, n_compartments=2).
+    CL=5, V1=10, Q=2, V2=20; dose 100 mg at rate `rate` mg/h.
+    Infusion duration = 100/rate hours.
+    """
+    from openpkpd.model.individual import IndividualModel
+
+    infusion_dur = 100.0 / rate
+    obs = [0.5, 2.0, infusion_dur, infusion_dur + 1.0,
+           infusion_dur + 4.0, infusion_dur + 12.0, infusion_dur + 24.0]
+
+    se = MagicMock()
+    se.obs_times = np.array(obs)
+    se.obs_dv = np.full(len(obs), np.nan)
+    se.obs_mdv = np.zeros(len(obs), dtype=int)
+    se.obs_cmt = np.ones(len(obs), dtype=int)
+    se.observation_mask.return_value = np.ones(len(obs), dtype=bool)
+    se.covariate_df = None
+    se.covariate_at.return_value = {}
+    se.covariate_change_times.return_value = []
+
+    dose_event = MagicMock()
+    dose_event.time = 0.0
+    dose_event.amount = 100.0
+    dose_event.rate = rate     # > 0 → constant-rate infusion
+    dose_event.compartment = 1
+    se.dose_events = [dose_event]
+
+    def pk_callable(theta, eta, t=0.0, covariates=None):
+        th = list(theta)
+        return {
+            "CL": float(th[0]) * np.exp(eta[0] if len(eta) > 0 else 0.0),
+            "V1": float(th[1]) * np.exp(eta[1] if len(eta) > 1 else 0.0),
+            "Q":  float(th[2]),
+            "V2": float(th[3]),
+        }
+
+    def error_callable(theta, eta, eps, f, ipred, y, t, a=None, covariates=None, sigma=None):
+        return {"Y": f * (1 + eps[0]), "IPRED": f}
+    error_callable._source = "Y = F * (1 + EPS[0])"
+
+    pk_sub = MagicMock()
+    pk_sub.advan = 6
+    pk_sub.n_compartments = 2
+
+    indiv = IndividualModel(
+        subject_events=se,
+        pk_subroutine=pk_sub,
+        pk_callable=pk_callable,
+        error_callable=error_callable,
+        n_eps=1,
+    )
+    return indiv, pk_callable, obs
+
+
+class TestFOCENativeGiPathInfusion:
+    """
+    native_advan6_prediction_eta_jacobian dispatches to infusion_sens_probe_fn
+    when has_infusion=True (P3 gap fix).
+
+    Before the fix both native methods silently returned None for infusion
+    models, causing _compute_G_i to fall through to the n_eta FD path.
+    """
+
+    _skip = _require_with_indiv(_2cmt_iv_sens, _2cmt_iv_inf_sens)
+
+    _THETA = np.array([5.0, 10.0, 2.0, 20.0])  # CL, V1, Q, V2
+
+    def test_infusion_contract_has_infusion_flag(self):
+        indiv, _, _ = _build_infusion_individual()
+        assert indiv._native_ode_contract is not None
+        assert indiv._native_ode_contract.get("has_infusion") is True
+
+    def test_native_gi_returns_matrix_for_infusion(self):
+        """native_advan6_prediction_eta_jacobian must not return None for infusion."""
+        indiv, _, obs = _build_infusion_individual()
+        obs_mask = np.ones(len(obs), dtype=bool)
+        G = indiv.native_advan6_prediction_eta_jacobian(
+            self._THETA, np.zeros(2), obs_mask, n_eta=2
+        )
+        assert G is not None, (
+            "native_advan6_prediction_eta_jacobian returned None for infusion model — "
+            "infusion_sens_probe_fn branch is not wired"
+        )
+        assert G.shape == (len(obs), 2)
+
+    def test_native_gi_infusion_matches_fd(self):
+        """G matrix from native infusion path agrees with finite-difference reference."""
+        indiv, pk_callable, obs = _build_infusion_individual()
+        obs_mask = np.ones(len(obs), dtype=bool)
+        theta = self._THETA
+        eps = 1e-4
+
+        G = indiv.native_advan6_prediction_eta_jacobian(theta, np.zeros(2), obs_mask, n_eta=2, eps=eps)
+        assert G is not None
+
+        # Reference: FD on the analytical state probe (via _try_native_pk_backend)
+        def ipred_at_eta(eta_vec):
+            pk_params = pk_callable(theta, eta_vec)
+            sol = indiv._try_native_pk_backend(pk_params, np.array(obs))
+            return sol.ipred if sol is not None else None
+
+        G_fd = np.zeros((len(obs), 2))
+        eta0 = np.zeros(2)
+        for k in range(2):
+            ep = eta0.copy(); ep[k] += eps
+            em = eta0.copy(); em[k] -= eps
+            ip = ipred_at_eta(ep); im = ipred_at_eta(em)
+            assert ip is not None and im is not None
+            G_fd[:, k] = (ip - im) / (2 * eps)
+
+        np.testing.assert_allclose(G, G_fd, rtol=5e-3, atol=1e-8,
+                                   err_msg="Infusion native G_i deviates from FD reference")
+
+    def test_native_hessian_returns_matrix_for_infusion(self):
+        """_native_gauss_newton_hessian must not return None for infusion model."""
+        indiv, _, _ = _build_infusion_individual()
+        H = indiv._native_gauss_newton_hessian(
+            self._THETA, np.zeros(2), 0.04 * np.eye(2), np.array([[0.01]])
+        )
+        assert H is not None, (
+            "_native_gauss_newton_hessian returned None for infusion model — "
+            "infusion_sens_probe_fn branch is not wired in _native_gauss_newton_hessian"
+        )
+        assert H.shape == (2, 2)
+        # Hessian must be positive semi-definite
+        eigvals = np.linalg.eigvalsh(H)
+        assert np.all(eigvals >= -1e-10), f"Hessian has negative eigenvalue: {eigvals}"
+
+    def test_eta_objective_hessian_uses_native_for_infusion(self):
+        """eta_objective_hessian must activate the native path for infusion models."""
+        indiv, _, _ = _build_infusion_individual()
+        # Spy: detect whether _native_gauss_newton_hessian is called and returns non-None
+        original = indiv._native_gauss_newton_hessian
+        called_with_result = []
+
+        def spy(theta, eta, omega, sigma, eps=1e-5):
+            result = original(theta, eta, omega, sigma, eps)
+            called_with_result.append(result)
+            return result
+
+        indiv._native_gauss_newton_hessian = spy
+        H = indiv.eta_objective_hessian(
+            self._THETA, np.zeros(2), 0.04 * np.eye(2), np.array([[0.01]])
+        )
+        assert called_with_result and called_with_result[0] is not None, (
+            "eta_objective_hessian did not use the native path for an infusion model"
+        )
+        assert H.shape == (2, 2)
+
+
 # ===========================================================================
 # Section 8 — Sensitivity probe performance (transit_1cmt_pkpd)
 # ===========================================================================

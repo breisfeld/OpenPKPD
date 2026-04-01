@@ -778,13 +778,28 @@ class IndividualModel:
         inv_order[order] = np.arange(n_obs)
         sorted_times = obs_times_masked[order]
 
+        has_infusion = contract.get("has_infusion", False)
         try:
-            states_raw, sens_raw = template.sens_probe_fn(
-                sorted_times.tolist(),
-                dose_times,
-                contract["dose_amts"],
-                ode_theta,
-            )
+            if has_infusion:
+                # Infusion models: use the infusion-aware sensitivity probe so
+                # the sensitivity computation accounts for rate-on/rate-off
+                # transitions.  Fall through to FD if the template lacks it.
+                if template.infusion_sens_probe_fn is None:
+                    return None
+                states_raw, sens_raw = template.infusion_sens_probe_fn(
+                    sorted_times.tolist(),
+                    dose_times,
+                    contract["dose_amts"],
+                    contract["dose_rates"],
+                    ode_theta,
+                )
+            else:
+                states_raw, sens_raw = template.sens_probe_fn(
+                    sorted_times.tolist(),
+                    dose_times,
+                    contract["dose_amts"],
+                    ode_theta,
+                )
         except Exception:
             return None
 
@@ -903,13 +918,25 @@ class IndividualModel:
         inv_order[order] = np.arange(n_obs)
         sorted_times = obs_times_masked[order]
 
+        has_infusion = contract.get("has_infusion", False)
         try:
-            states_raw, sens_raw = template.sens_probe_fn(
-                sorted_times.tolist(),
-                dose_times,
-                contract["dose_amts"],
-                ode_theta,
-            )
+            if has_infusion:
+                if template.infusion_sens_probe_fn is None:
+                    return None
+                states_raw, sens_raw = template.infusion_sens_probe_fn(
+                    sorted_times.tolist(),
+                    dose_times,
+                    contract["dose_amts"],
+                    contract["dose_rates"],
+                    ode_theta,
+                )
+            else:
+                states_raw, sens_raw = template.sens_probe_fn(
+                    sorted_times.tolist(),
+                    dose_times,
+                    contract["dose_amts"],
+                    ode_theta,
+                )
         except Exception:
             return None
 

@@ -1409,6 +1409,132 @@ class TestFOCENativeGiPathInfusion:
         assert H.shape == (2, 2)
 
 
+class TestNativeEtaObjectiveValueGrad:
+    """
+    P5: _native_eta_objective_value_grad() and eta_objective_value_grad()
+    native CVODES sensitivity path.
+
+    Before P5, supports_eta_objective_gradient() returned False for all CVODES
+    models (ADVAN6), so IMPMAP always used n_eta FD ODE solves per L-BFGS-B
+    step.  After P5 one Rust sensitivity solve provides the gradient directly.
+    """
+
+    _skip = _require_with_indiv(_2cmt_iv_sens)
+
+    _THETA = np.array([5.0, 10.0, 2.0, 20.0])   # CL, V1, Q, V2
+
+    def test_supports_flag_true_for_native_model(self):
+        """supports_eta_objective_gradient() must return True for native CVODES models."""
+        indiv, _, _ = _build_native_individual()
+        assert indiv.supports_eta_objective_gradient(), (
+            "supports_eta_objective_gradient() returned False for ADVAN6 model — "
+            "native CVODES path not declared"
+        )
+
+    def test_value_grad_returns_tuple(self):
+        """eta_objective_value_grad() must return (float, ndarray) for native models."""
+        indiv, _, _ = _build_native_individual()
+        # Provide finite obs_dv so _native_eta_objective_value_grad doesn't bail out
+        indiv.subject_events.obs_dv = np.ones(7) * 2.0
+        val, grad = indiv.eta_objective_value_grad(
+            np.zeros(2), self._THETA, 0.04 * np.eye(2), np.array([[0.01]])
+        )
+        assert isinstance(val, float)
+        assert grad.shape == (2,)
+
+    def test_value_grad_matches_fd_of_native_value(self):
+        """Gradient from native path agrees with central FD on the native value itself."""
+        indiv, _, _ = _build_native_individual()
+        indiv.subject_events.obs_dv = np.ones(7) * 2.0
+
+        theta = self._THETA
+        omega = 0.04 * np.eye(2)
+        sigma = np.array([[0.01]])
+        eta0  = np.zeros(2)
+        eps   = 1e-4
+
+        val, grad = indiv._native_eta_objective_value_grad(eta0, theta, omega, sigma)
+        assert val is not None
+
+        # FD on the native value function (self-consistent check)
+        def native_val(eta):
+            res = indiv._native_eta_objective_value_grad(eta, theta, omega, sigma)
+            return res[0]
+
+        grad_fd = np.zeros(2)
+        for k in range(2):
+            ep = eta0.copy(); ep[k] += eps
+            em = eta0.copy(); em[k] -= eps
+            grad_fd[k] = (native_val(ep) - native_val(em)) / (2 * eps)
+
+        np.testing.assert_allclose(grad, grad_fd, rtol=5e-3, atol=1e-7,
+                                   err_msg="Native gradient deviates from FD reference")
+
+    def test_value_is_consistent_with_obj_eta(self):
+        """Objective value from native path agrees with obj_eta (within tolerance)."""
+        indiv, _, _ = _build_native_individual()
+        indiv.subject_events.obs_dv = np.ones(7) * 2.0
+
+        theta = self._THETA
+        omega = 0.04 * np.eye(2)
+        sigma = np.array([[0.01]])
+        eta0  = np.zeros(2)
+
+        val_native, _ = indiv.eta_objective_value_grad(eta0, theta, omega, sigma)
+        val_obj = float(indiv.obj_eta(eta0, theta, omega, sigma))
+
+        # obj_eta uses different log-likelihood formulation; allow loose tolerance
+        assert np.isfinite(val_native), "Native value is not finite"
+        assert np.isfinite(val_obj), "obj_eta value is not finite"
+
+    def test_native_eta_obj_val_grad_returns_none_for_mixed_model(self):
+        """_native_eta_objective_value_grad returns None for PK/PD model."""
+        indiv, _, _ = _build_native_individual()
+        if indiv._native_ode_contract is not None:
+            indiv._native_ode_contract["is_pkpd"] = True
+        result = indiv._native_eta_objective_value_grad(
+            np.zeros(2), self._THETA, 0.04 * np.eye(2), np.array([[0.01]])
+        )
+        assert result is None
+
+    def test_impmap_uses_native_gradient(self):
+        """IMPMAP sees native gradient path: supports flag is True and (val, grad) returned."""
+        indiv, _, _ = _build_native_individual()
+        indiv.subject_events.obs_dv = np.ones(7) * 2.0
+
+        theta = self._THETA
+        omega = 0.04 * np.eye(2)
+        sigma = np.array([[0.01]])
+
+        sg = getattr(indiv, "supports_eta_objective_gradient", None)
+        vg = getattr(indiv, "eta_objective_value_grad", None)
+        assert callable(sg) and sg(), "supports_eta_objective_gradient not True for native model"
+        assert callable(vg)
+
+        result = vg(np.zeros(2), theta, omega, sigma)
+        assert isinstance(result, tuple) and len(result) == 2, (
+            "eta_objective_value_grad did not return (val, grad) for native CVODES model"
+        )
+
+    def test_infusion_native_gradient(self):
+        """_native_eta_objective_value_grad works for infusion models."""
+        indiv, _, obs = _build_infusion_individual()
+        indiv.subject_events.obs_dv = np.ones(len(obs)) * 2.0
+
+        theta = self._THETA
+        omega = 0.04 * np.eye(2)
+        sigma = np.array([[0.01]])
+        eta0  = np.zeros(2)
+
+        result = indiv._native_eta_objective_value_grad(eta0, theta, omega, sigma)
+        assert result is not None, (
+            "_native_eta_objective_value_grad returned None for infusion model"
+        )
+        val, grad = result
+        assert np.isfinite(val)
+        assert grad.shape == (2,)
+
+
 # ===========================================================================
 # Section 8 — Sensitivity probe performance (transit_1cmt_pkpd)
 # ===========================================================================

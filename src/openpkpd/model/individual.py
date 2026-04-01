@@ -23,7 +23,7 @@ import numpy as np
 from openpkpd.data.blq import blq_log_likelihood, is_blq
 from openpkpd.data.event_processor import SubjectEvents
 from openpkpd.math.autodiff import jacobian
-from openpkpd.math.matrix import numerical_hessian
+from openpkpd.math.matrix import numerical_gradient, numerical_hessian
 from openpkpd._native import import_core_symbol
 from openpkpd.model.residuals import log_likelihood_normal
 from openpkpd.pk.base import PKSolution, PKSubroutine
@@ -1000,6 +1000,196 @@ class IndividualModel:
             omega_inv = np.linalg.pinv(omega)
         return data_hess + 2.0 * omega_inv
 
+    def _native_eta_objective_value_grad(
+        self,
+        eta: np.ndarray,
+        theta: np.ndarray,
+        omega: np.ndarray,
+        sigma: np.ndarray,
+        eps: float = 1e-5,
+    ) -> tuple[float, np.ndarray] | None:
+        """Individual MAP objective value + gradient via CVODES sensitivities.
+
+        Returns (obj_value, grad_eta) where obj = data_obj + eta_penalty, or
+        None when the native path is unavailable.  One Rust sensitivity solve
+        replaces the n_eta finite-difference ODE calls that L-BFGS-B would
+        otherwise require.
+
+        Gradient formula (chain rule through error model):
+            grad_data = G_i^T @ v,   v_j = ∂data_obj/∂F_j
+        For any error model with ∂var_j/∂F_j = D_j:
+            v_j = -2 r_j / var_j  +  D_j * (1/var_j - r_j²/var_j²)
+        where r_j = y_j - F_j.
+        """
+        contract = self._native_ode_contract
+        if contract is None:
+            return None
+        if contract.get("is_pkpd", False):
+            return None
+
+        cem = self._common_error_model
+        if cem is None:
+            return None
+
+        if self.pk_callable is None:
+            return None
+
+        obs_mask = self._obs_mask
+        n_eta = len(eta)
+        n_obs = int(obs_mask.sum())
+
+        # Observed DV for masked (non-MDV) rows
+        all_dv = np.asarray(self.subject_events.obs_dv, dtype=float)
+        obs_dv = all_dv[obs_mask]
+        if np.any(np.isnan(obs_dv)):
+            return None  # missing DV in non-MDV row; can't compute likelihood
+
+        # ── Penalty term ──────────────────────────────────────────────────────
+        eta_arr = np.asarray(eta, dtype=float)
+        omega_inv, block_size = self._eta_penalty_structure(omega, n_eta)
+        eta_penalty = self._eta_penalty_value(eta_arr, omega_inv, block_size)
+        if block_size is None:
+            grad_penalty = 2.0 * (omega_inv @ eta_arr)
+        else:
+            eta_blocks = eta_arr.reshape(-1, block_size)
+            grad_penalty = (2.0 * (eta_blocks @ omega_inv.T)).reshape(-1)
+
+        if n_obs == 0:
+            return float(eta_penalty), grad_penalty
+
+        theta_list = [float(t) for t in theta]
+        eta_list = [float(e) for e in eta]
+
+        try:
+            pk_params_0 = self.pk_callable(
+                theta_list, eta_list, t=0.0, covariates=self._base_covariates
+            )
+        except Exception:
+            return None
+
+        n_cmt = contract.get("n_compartments", -1)
+        contract_advan = contract.get("advan", 6)
+        template: _NativeOdeTemplate | None = None
+        for tmpl in _NATIVE_ODE_TEMPLATES:
+            if tmpl.sens_probe_fn is None or tmpl.is_pkpd:
+                continue
+            if tmpl.n_states != n_cmt:
+                continue
+            if tmpl.eligible_advans and contract_advan not in tmpl.eligible_advans:
+                continue
+            if any(name not in pk_params_0 for name in tmpl.required_names):
+                continue
+            template = tmpl
+            break
+
+        if template is None:
+            return None
+
+        required = template.required_names
+        ode_theta = [float(pk_params_0[name]) for name in required]
+        n_ode_params = len(required)
+        V = float(pk_params_0[template.vol_param_name])
+        v_idx = list(required).index(template.vol_param_name)
+        output_cmt = template.output_cmt_idx
+        n_states = template.n_states
+
+        dose_times = _apply_alag(
+            contract["dose_times"], contract["dose_compartments"], pk_params_0
+        )
+
+        all_obs_times = np.asarray(self.subject_events.obs_times, dtype=float)
+        obs_times_masked = all_obs_times[obs_mask]
+        order = np.argsort(obs_times_masked, kind="stable")
+        inv_order = np.empty_like(order)
+        inv_order[order] = np.arange(n_obs)
+        sorted_times = obs_times_masked[order]
+
+        has_infusion = contract.get("has_infusion", False)
+        try:
+            if has_infusion:
+                if template.infusion_sens_probe_fn is None:
+                    return None
+                states_raw, sens_raw = template.infusion_sens_probe_fn(
+                    sorted_times.tolist(),
+                    dose_times,
+                    contract["dose_amts"],
+                    contract["dose_rates"],
+                    ode_theta,
+                )
+            else:
+                states_raw, sens_raw = template.sens_probe_fn(
+                    sorted_times.tolist(),
+                    dose_times,
+                    contract["dose_amts"],
+                    ode_theta,
+                )
+        except Exception:
+            return None
+
+        states = np.array(states_raw, dtype=float)[inv_order]
+        sens   = np.array(sens_raw,   dtype=float).reshape(
+            n_obs, n_ode_params, n_states
+        )[inv_order]
+
+        A_out = states[:, output_cmt]
+        dF_dODE = sens[:, :, output_cmt] / V
+        dF_dODE[:, v_idx] -= A_out / (V * V)
+
+        J_pk_eta = np.zeros((n_ode_params, n_eta))
+        for k in range(n_eta):
+            eta_p = eta_list.copy(); eta_p[k] += eps
+            eta_m = eta_list.copy(); eta_m[k] -= eps
+            try:
+                pp = self.pk_callable(theta_list, eta_p, t=0.0, covariates=self._base_covariates)
+                pm = self.pk_callable(theta_list, eta_m, t=0.0, covariates=self._base_covariates)
+                for j, name in enumerate(required):
+                    J_pk_eta[j, k] = (
+                        float(pp.get(name, 0.0)) - float(pm.get(name, 0.0))
+                    ) / (2.0 * eps)
+            except Exception:
+                pass
+
+        G_i = dF_dODE @ J_pk_eta       # (n_obs, n_eta)
+        ipred = A_out / V               # (n_obs,)
+
+        # ── Residual variance and D_j = ∂var_j/∂F_j ──────────────────────────
+        kind, theta_idx = cem
+        sigma_00 = float(sigma[0, 0]) if sigma.size > 0 else 1.0
+
+        if kind == "proportional":
+            var = np.maximum(sigma_00 * ipred ** 2, 1e-10)
+            D   = 2.0 * sigma_00 * ipred
+        elif kind == "additive":
+            var = np.full(n_obs, max(sigma_00, 1e-10))
+            D   = np.zeros(n_obs)
+        elif kind == "proportional_theta":
+            coeff = float(theta[theta_idx[0]]) ** 2
+            var = np.maximum(coeff * ipred ** 2, 1e-10)
+            D   = 2.0 * coeff * ipred
+        elif kind == "additive_theta":
+            var = np.full(n_obs, max(float(theta[theta_idx[0]]) ** 2, 1e-10))
+            D   = np.zeros(n_obs)
+        elif kind == "combined_theta":
+            prop = float(theta[theta_idx[0]])
+            add  = float(theta[theta_idx[1]])
+            var = np.maximum(prop ** 2 + add ** 2 * ipred ** 2, 1e-10)
+            D   = 2.0 * add ** 2 * ipred
+        elif kind == "combined_eps":
+            s01 = float(sigma[0, 1]) if sigma.size >= 4 else 0.0
+            s11 = float(sigma[1, 1]) if sigma.size >= 4 else sigma_00
+            var = np.maximum(sigma_00 + 2.0 * s01 * ipred + s11 * ipred ** 2, 1e-10)
+            D   = 2.0 * s01 + 2.0 * s11 * ipred
+        else:
+            return None
+
+        # ── Value and gradient ────────────────────────────────────────────────
+        r = obs_dv - ipred
+        data_val = float(np.sum(r ** 2 / var + np.log(var)))
+        v = -2.0 * r / var + D * (1.0 / var - r ** 2 / var ** 2)   # (n_obs,)
+        grad_data = G_i.T @ v                                        # (n_eta,)
+
+        return float(data_val + eta_penalty), grad_data + grad_penalty
+
     @staticmethod
     def _infer_common_error_model(
         error_callable: Callable | None,
@@ -1903,7 +2093,18 @@ class IndividualModel:
     def supports_eta_objective_gradient(self, trans: int = 2) -> bool:
         kernel = self.get_subject_derivative_kernel(trans)
         capabilities = getattr(kernel, "capabilities", None)
-        return bool(kernel is not None and getattr(capabilities, "eta_objective_gradient", False))
+        if kernel is not None and getattr(capabilities, "eta_objective_gradient", False):
+            return True
+        # Native CVODES sensitivity path: available for PK-only models with a
+        # matching template.  The actual probe availability is checked lazily
+        # inside _native_eta_objective_value_grad; returning True here allows
+        # callers (IMPMAP) to attempt the analytical gradient path.
+        contract = self._native_ode_contract
+        return (
+            contract is not None
+            and not contract.get("is_pkpd", False)
+            and self._common_error_model is not None
+        )
 
     def supports_prediction_eta_jacobian(self, trans: int = 2) -> bool:
         kernel = self.get_subject_derivative_kernel(trans)
@@ -1939,21 +2140,47 @@ class IndividualModel:
         sigma: np.ndarray,
         trans: int = 2,
     ) -> tuple[float, np.ndarray]:
+        # ── PATH 1: symbolic / autodiff derivative kernel ─────────────────────
         kernel = self.get_subject_derivative_kernel(trans)
-        if kernel is None:
-            raise NotImplementedError("eta objective derivative kernel is not available")
-        data_value, grad_data = kernel.eta_data_objective_value_grad(
-            theta, np.asarray(eta, dtype=float), sigma
+        if kernel is not None:
+            data_value, grad_data = kernel.eta_data_objective_value_grad(
+                theta, np.asarray(eta, dtype=float), sigma
+            )
+            eta_arr = np.asarray(eta, dtype=float)
+            omega_inv, block_size = self._eta_penalty_structure(omega, len(eta_arr))
+            eta_penalty = self._eta_penalty_value(eta_arr, omega_inv, block_size)
+            if block_size is None:
+                grad_penalty = 2.0 * (omega_inv @ eta_arr)
+            else:
+                eta_blocks = eta_arr.reshape(-1, block_size)
+                grad_penalty = (2.0 * (eta_blocks @ omega_inv.T)).reshape(-1)
+            return data_value + eta_penalty, np.asarray(grad_data, dtype=float) + grad_penalty
+
+        # ── PATH 2: native CVODES sensitivity (single Rust sensitivity solve) ─
+        # Replaces n_eta finite-difference ODE calls with one sensitivity solve.
+        # Returns None silently when model or extension is unsupported.
+        native_result = self._native_eta_objective_value_grad(
+            np.asarray(eta, dtype=float), theta, omega, sigma
         )
+        if native_result is not None:
+            return native_result
+
+        # ── PATH 3: numerical fallback (finite differences on obj_eta) ────────
+        # Reached when supports_eta_objective_gradient() returned True (native
+        # contract present) but the probe failed at runtime (e.g. NaN obs_dv).
+        # This preserves the semantics that if supports=True the method never
+        # raises; callers (FOCE, IMPMAP) get a valid tuple even in edge cases.
         eta_arr = np.asarray(eta, dtype=float)
-        omega_inv, block_size = self._eta_penalty_structure(omega, len(eta_arr))
-        eta_penalty = self._eta_penalty_value(eta_arr, omega_inv, block_size)
-        if block_size is None:
-            grad_penalty = 2.0 * (omega_inv @ eta_arr)
-        else:
-            eta_blocks = eta_arr.reshape(-1, block_size)
-            grad_penalty = (2.0 * (eta_blocks @ omega_inv.T)).reshape(-1)
-        return data_value + eta_penalty, np.asarray(grad_data, dtype=float) + grad_penalty
+        if self._native_ode_contract is not None:
+            val0 = float(self.obj_eta(eta_arr, theta, omega, sigma, trans=trans))
+            grad_fd = numerical_gradient(
+                lambda e: float(self.obj_eta(e, theta, omega, sigma, trans=trans)),
+                eta_arr,
+                eps=1e-4,
+            )
+            return val0, grad_fd
+
+        raise NotImplementedError("eta objective derivative kernel is not available")
 
     def supports_symbolic_obj_eta(self, trans: int = 2) -> bool:
         return self.supports_eta_objective_gradient(trans)

@@ -1609,6 +1609,316 @@ fn native_cvodes_4cmt_oral_sensitivity_probe_multidose(
     sens_probe_multidose_core::<5, 9, _>(&obs_times, &dose_times, &dose_amts, p, rhs_4cmt_oral, sens_rhs_4cmt_oral)
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// Analytical closed-form probes — exact superposition, no ODE integration.
+//
+// ADVAN1 (1-cmt IV)    theta = [CL, V]          states = [A1]
+// ADVAN2 (1-cmt oral)  theta = [KA, CL, V]      states = [A1_depot, A2_central]
+// ADVAN3 (2-cmt IV)    theta = [CL, V1, Q, V2]  states = [A1_central, A2_periph]
+// ADVAN4 (2-cmt oral)  theta = [KA,CL,V2,Q,V3]  states = [A1,A2_central,A3]
+//
+// Bolus pre-dose convention: observation at dose time is excluded (dt > 0).
+// Infusion convention: observation at infusion start is included (dt >= 0).
+// ══════════════════════════════════════════════════════════════════════════════
+
+/// KA ≈ K tolerance (use L'Hôpital limit form for Bateman equation).
+#[cfg(feature = "native-cvodes")]
+const ANALYTIC_KA_K_TOL: f64 = 1e-6;
+
+/// λ1 ≈ λ2 tolerance (degenerate eigenvalue limit form).
+#[cfg(feature = "native-cvodes")]
+const ANALYTIC_EIG_TOL: f64 = 1e-10;
+
+/// 2-compartment eigenvalues from micro-rate constants (k10, k12, k21).
+/// Returns (lam1_slow, lam2_fast) where lam1 ≤ lam2.
+#[cfg(feature = "native-cvodes")]
+#[inline]
+fn eigenvalues_2cmt(k10: f64, k12: f64, k21: f64) -> (f64, f64) {
+    let s = k10 + k12 + k21;
+    let d = (s * s - 4.0 * k10 * k21).max(0.0).sqrt();
+    ((s - d) / 2.0, (s + d) / 2.0)
+}
+
+/// Stable (1 − exp(−λ·t)) / λ with the λ→0 limit.
+#[cfg(feature = "native-cvodes")]
+#[inline]
+fn one_minus_exp_over_lam(lam: f64, dt: f64) -> f64 {
+    if lam.abs() < 1e-14 { dt } else { (1.0 - (-lam * dt).exp()) / lam }
+}
+
+/// Stable (exp(−a·t) − exp(−b·t)) / (b − a) with the a→b limit.
+#[cfg(feature = "native-cvodes")]
+#[inline]
+fn analytic_decay_diff(a: f64, b: f64, dt: f64) -> f64 {
+    if (b - a).abs() < ANALYTIC_EIG_TOL {
+        dt * (-a * dt).exp()
+    } else {
+        ((-a * dt).exp() - (-b * dt).exp()) / (b - a)
+    }
+}
+
+/// Propagate 2-cmt system from (a1_0, a2_0) over time dt using eigendecomp.
+#[cfg(feature = "native-cvodes")]
+#[inline]
+fn analytic_propagate_2cmt(
+    a1_0: f64, a2_0: f64,
+    lam1: f64, lam2: f64, k12: f64, k21: f64,
+    dt: f64,
+) -> (f64, f64) {
+    let dl = lam2 - lam1;
+    if dl < ANALYTIC_EIG_TOL {
+        let e = (-lam1 * dt).exp();
+        return ((a1_0 + a2_0 * k21 * dt) * e, a2_0 * e);
+    }
+    let e1 = (-lam1 * dt).exp();
+    let e2 = (-lam2 * dt).exp();
+    let new_a1 = (a1_0 * (k21 - lam1) + a2_0 * k21) / dl * e1
+               + (a1_0 * (lam2 - k21) - a2_0 * k21) / dl * e2;
+    let new_a2 = (a1_0 * k12 + a2_0 * (lam2 - k21)) / dl * e1
+               + (-a1_0 * k12 + a2_0 * (k21 - lam1)) / dl * e2;
+    (new_a1, new_a2)
+}
+
+/// 2-cmt biexponential contribution for a single IV bolus dose.
+#[cfg(feature = "native-cvodes")]
+#[inline]
+fn analytic_biexp_bolus(
+    dose: f64, k12: f64, k21: f64, lam1: f64, lam2: f64, dt: f64,
+) -> (f64, f64) {
+    let dl = lam2 - lam1;
+    if dl < ANALYTIC_EIG_TOL {
+        let e = (-lam1 * dt).exp();
+        return (dose * e * (1.0 - lam1 * dt + k21 * dt), dose * k12 * dt * e);
+    }
+    let e1 = (-lam1 * dt).exp();
+    let e2 = (-lam2 * dt).exp();
+    let a1 = dose * ((k21 - lam1) / dl * e1 + (lam2 - k21) / dl * e2);
+    let a2 = dose * k12 / dl * (e1 - e2);
+    (a1, a2)
+}
+
+/// 2-cmt amounts during constant-rate IV infusion (analytical, no ODE).
+#[cfg(feature = "native-cvodes")]
+#[inline]
+fn analytic_biexp_infusion(
+    rate: f64, k12: f64, k21: f64, lam1: f64, lam2: f64, dt: f64,
+) -> (f64, f64) {
+    let dl = lam2 - lam1;
+    if dl < ANALYTIC_EIG_TOL {
+        return (rate * one_minus_exp_over_lam(lam1, dt), 0.0);
+    }
+    let f1 = one_minus_exp_over_lam(lam1, dt);
+    let f2 = one_minus_exp_over_lam(lam2, dt);
+    let a1 = rate * ((k21 - lam1) / dl * f1 + (lam2 - k21) / dl * f2);
+    let a2 = rate * k12 / dl * (f1 - f2);
+    (a1, a2)
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// ADVAN1: 1-compartment IV bolus/infusion  (CL, V)
+// ──────────────────────────────────────────────────────────────────────────────
+
+#[cfg(feature = "native-cvodes")]
+#[pyfunction]
+fn analytic_1cmt_iv_probe_multidose(
+    obs_times: Vec<f64>, dose_times: Vec<f64>, dose_amts: Vec<f64>, theta: Vec<f64>,
+) -> PyResult<Vec<Vec<f64>>> {
+    validate_multidose_inputs(&obs_times, &dose_times, &dose_amts, 2, &theta, "CL, V")?;
+    let k = theta[0] / theta[1]; // k = CL/V
+    let n_obs = obs_times.len();
+    let mut out = vec![vec![0.0f64; 1]; n_obs];
+    for (i, &t_obs) in obs_times.iter().enumerate() {
+        let mut a1 = 0.0f64;
+        for j in 0..dose_times.len() {
+            let dt = t_obs - dose_times[j];
+            if dt > 0.0 { a1 += dose_amts[j] * (-k * dt).exp(); }
+        }
+        out[i][0] = a1;
+    }
+    Ok(out)
+}
+
+#[cfg(feature = "native-cvodes")]
+#[pyfunction]
+fn analytic_1cmt_iv_infusion_probe_multidose(
+    obs_times: Vec<f64>, dose_times: Vec<f64>, dose_amts: Vec<f64>,
+    dose_rates: Vec<f64>, theta: Vec<f64>,
+) -> PyResult<Vec<Vec<f64>>> {
+    validate_infusion_multidose_inputs(
+        &obs_times, &dose_times, &dose_amts, &dose_rates, 2, &theta, "CL, V")?;
+    let k = theta[0] / theta[1];
+    let n_obs = obs_times.len();
+    let mut out = vec![vec![0.0f64; 1]; n_obs];
+    for (i, &t_obs) in obs_times.iter().enumerate() {
+        let mut a1 = 0.0f64;
+        for j in 0..dose_times.len() {
+            let td = dose_times[j]; let amt = dose_amts[j]; let rate = dose_rates[j];
+            let dt = t_obs - td;
+            if rate == 0.0 {
+                if dt > 0.0 { a1 += amt * (-k * dt).exp(); }
+            } else {
+                let dur = amt / rate;
+                if dt >= 0.0 && dt <= dur {
+                    a1 += rate / k * (1.0 - (-k * dt).exp());
+                } else if dt > dur {
+                    a1 += rate / k * (1.0 - (-k * dur).exp()) * (-k * (dt - dur)).exp();
+                }
+            }
+        }
+        out[i][0] = a1;
+    }
+    Ok(out)
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// ADVAN2: 1-compartment oral  (KA, CL, V)
+// ──────────────────────────────────────────────────────────────────────────────
+
+#[cfg(feature = "native-cvodes")]
+#[pyfunction]
+fn analytic_1cmt_oral_probe_multidose(
+    obs_times: Vec<f64>, dose_times: Vec<f64>, dose_amts: Vec<f64>, theta: Vec<f64>,
+) -> PyResult<Vec<Vec<f64>>> {
+    validate_multidose_inputs(&obs_times, &dose_times, &dose_amts, 3, &theta, "KA, CL, V")?;
+    let ka = theta[0]; let k = theta[1] / theta[2]; // k = CL/V
+    let limit_form = (ka - k).abs() < ANALYTIC_KA_K_TOL;
+    let bolus_scale = if limit_form { 0.0 } else { ka / (ka - k) };
+    let n_obs = obs_times.len();
+    let mut out = vec![vec![0.0f64; 2]; n_obs];
+    for (i, &t_obs) in obs_times.iter().enumerate() {
+        let mut a1 = 0.0f64; // depot
+        let mut a2 = 0.0f64; // central
+        for j in 0..dose_times.len() {
+            let dt = t_obs - dose_times[j];
+            if dt <= 0.0 { continue; }
+            let dose = dose_amts[j];
+            a1 += dose * (-ka * dt).exp();
+            if limit_form {
+                a2 += dose * ka * dt * (-k * dt).exp();
+            } else {
+                a2 += dose * bolus_scale * ((-k * dt).exp() - (-ka * dt).exp());
+            }
+        }
+        out[i][0] = a1; out[i][1] = a2;
+    }
+    Ok(out)
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// ADVAN3: 2-compartment IV  (CL, V1, Q, V2)
+// ──────────────────────────────────────────────────────────────────────────────
+
+#[cfg(feature = "native-cvodes")]
+#[pyfunction]
+fn analytic_2cmt_iv_probe_multidose(
+    obs_times: Vec<f64>, dose_times: Vec<f64>, dose_amts: Vec<f64>, theta: Vec<f64>,
+) -> PyResult<Vec<Vec<f64>>> {
+    validate_multidose_inputs(&obs_times, &dose_times, &dose_amts, 4, &theta, "CL, V1, Q, V2")?;
+    let k10 = theta[0] / theta[1]; let k12 = theta[2] / theta[1]; let k21 = theta[2] / theta[3];
+    let (lam1, lam2) = eigenvalues_2cmt(k10, k12, k21);
+    let n_obs = obs_times.len();
+    let mut out = vec![vec![0.0f64; 2]; n_obs];
+    for (i, &t_obs) in obs_times.iter().enumerate() {
+        let mut a1 = 0.0f64; let mut a2 = 0.0f64;
+        for j in 0..dose_times.len() {
+            let dt = t_obs - dose_times[j];
+            if dt <= 0.0 { continue; }
+            let (da1, da2) = analytic_biexp_bolus(dose_amts[j], k12, k21, lam1, lam2, dt);
+            a1 += da1; a2 += da2;
+        }
+        out[i][0] = a1; out[i][1] = a2;
+    }
+    Ok(out)
+}
+
+#[cfg(feature = "native-cvodes")]
+#[pyfunction]
+fn analytic_2cmt_iv_infusion_probe_multidose(
+    obs_times: Vec<f64>, dose_times: Vec<f64>, dose_amts: Vec<f64>,
+    dose_rates: Vec<f64>, theta: Vec<f64>,
+) -> PyResult<Vec<Vec<f64>>> {
+    validate_infusion_multidose_inputs(
+        &obs_times, &dose_times, &dose_amts, &dose_rates, 4, &theta, "CL, V1, Q, V2")?;
+    let k10 = theta[0] / theta[1]; let k12 = theta[2] / theta[1]; let k21 = theta[2] / theta[3];
+    let (lam1, lam2) = eigenvalues_2cmt(k10, k12, k21);
+    let n_obs = obs_times.len();
+    let mut out = vec![vec![0.0f64; 2]; n_obs];
+    for (i, &t_obs) in obs_times.iter().enumerate() {
+        let mut a1 = 0.0f64; let mut a2 = 0.0f64;
+        for j in 0..dose_times.len() {
+            let td = dose_times[j]; let amt = dose_amts[j]; let rate = dose_rates[j];
+            let dt = t_obs - td;
+            if rate == 0.0 {
+                if dt <= 0.0 { continue; }
+                let (da1, da2) = analytic_biexp_bolus(amt, k12, k21, lam1, lam2, dt);
+                a1 += da1; a2 += da2;
+            } else {
+                let dur = amt / rate;
+                if dt < 0.0 { continue; }
+                if dt <= dur {
+                    let (da1, da2) = analytic_biexp_infusion(rate, k12, k21, lam1, lam2, dt);
+                    a1 += da1; a2 += da2;
+                } else {
+                    let (a1e, a2e) = analytic_biexp_infusion(rate, k12, k21, lam1, lam2, dur);
+                    let (da1, da2) = analytic_propagate_2cmt(a1e, a2e, lam1, lam2, k12, k21, dt - dur);
+                    a1 += da1; a2 += da2;
+                }
+            }
+        }
+        out[i][0] = a1; out[i][1] = a2;
+    }
+    Ok(out)
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// ADVAN4: 2-compartment oral  (KA, CL, V2, Q, V3)
+// ──────────────────────────────────────────────────────────────────────────────
+
+#[cfg(feature = "native-cvodes")]
+#[pyfunction]
+fn analytic_2cmt_oral_probe_multidose(
+    obs_times: Vec<f64>, dose_times: Vec<f64>, dose_amts: Vec<f64>, theta: Vec<f64>,
+) -> PyResult<Vec<Vec<f64>>> {
+    validate_multidose_inputs(
+        &obs_times, &dose_times, &dose_amts, 5, &theta, "KA, CL, V2, Q, V3")?;
+    let ka = theta[0]; let k10 = theta[1] / theta[2];
+    let k12 = theta[3] / theta[2]; let k21 = theta[3] / theta[4];
+    let (lam1, lam2) = eigenvalues_2cmt(k10, k12, k21);
+    let dl = lam2 - lam1;
+    let n_obs = obs_times.len();
+    let mut out = vec![vec![0.0f64; 3]; n_obs];
+    for (i, &t_obs) in obs_times.iter().enumerate() {
+        let mut a1 = 0.0f64; // depot
+        let mut a2 = 0.0f64; // central
+        let mut a3 = 0.0f64; // peripheral
+        for j in 0..dose_times.len() {
+            let dt = t_obs - dose_times[j];
+            if dt <= 0.0 { continue; }
+            let dose = dose_amts[j];
+            a1 += dose * (-ka * dt).exp();
+            if dl < ANALYTIC_EIG_TOL {
+                // Degenerate disposition eigenvalues: collapse to ADVAN2-like
+                let denom = ka - k10;
+                if denom.abs() < ANALYTIC_KA_K_TOL {
+                    a2 += dose * ka * dt * (-k10 * dt).exp();
+                } else {
+                    a2 += dose * ka / denom * ((-k10 * dt).exp() - (-ka * dt).exp());
+                }
+                // a3 remains 0 in this degenerate limit
+            } else {
+                let h1 = analytic_decay_diff(lam1, ka, dt);
+                let h2 = analytic_decay_diff(lam2, ka, dt);
+                let c1 = (k21 - lam1) / dl;
+                let c2 = (lam2 - k21) / dl;
+                a2 += dose * ka * (c1 * h1 + c2 * h2);
+                a3 += dose * ka * k12 / dl * (h1 - h2);
+            }
+        }
+        out[i][0] = a1; out[i][1] = a2; out[i][2] = a3;
+    }
+    Ok(out)
+}
+
 // ── module registration ───────────────────────────────────────────────────────
 
 #[pymodule]
@@ -1655,6 +1965,19 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(native_cvodes_4cmt_oral_probe_multidose, m)?)?;
     #[cfg(feature = "native-cvodes")]
     m.add_function(wrap_pyfunction!(native_cvodes_4cmt_oral_sensitivity_probe_multidose, m)?)?;
+    // ── analytical closed-form probes (ADVAN1/2/3/4) ──────────────────────────
+    #[cfg(feature = "native-cvodes")]
+    m.add_function(wrap_pyfunction!(analytic_1cmt_iv_probe_multidose, m)?)?;
+    #[cfg(feature = "native-cvodes")]
+    m.add_function(wrap_pyfunction!(analytic_1cmt_iv_infusion_probe_multidose, m)?)?;
+    #[cfg(feature = "native-cvodes")]
+    m.add_function(wrap_pyfunction!(analytic_1cmt_oral_probe_multidose, m)?)?;
+    #[cfg(feature = "native-cvodes")]
+    m.add_function(wrap_pyfunction!(analytic_2cmt_iv_probe_multidose, m)?)?;
+    #[cfg(feature = "native-cvodes")]
+    m.add_function(wrap_pyfunction!(analytic_2cmt_iv_infusion_probe_multidose, m)?)?;
+    #[cfg(feature = "native-cvodes")]
+    m.add_function(wrap_pyfunction!(analytic_2cmt_oral_probe_multidose, m)?)?;
     // ── infusion-aware IV probes ──────────────────────────────────────────────
     #[cfg(feature = "native-cvodes")]
     m.add_function(wrap_pyfunction!(native_cvodes_1cmt_iv_infusion_probe_multidose, m)?)?;

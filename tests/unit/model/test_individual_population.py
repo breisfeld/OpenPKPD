@@ -1861,6 +1861,18 @@ class _FakeADVAN2(PKSubroutine):
         return dict(raw_params)
 
 
+class _FakeADVAN7(PKSubroutine):
+    """Minimal PKSubroutine for a truly non-eligible ADVAN (7 is not in _NATIVE_ELIGIBLE_ADVANS)."""
+    advan = 7
+    n_compartments = 2
+
+    def solve(self, *args, **kwargs):
+        raise AssertionError("should not be called")
+
+    def apply_trans(self, raw_params, trans):
+        return dict(raw_params)
+
+
 def _build_mixed_pkpd_model(
     *,
     dose_events=None,
@@ -1937,11 +1949,13 @@ class TestNativeAdvan6DetectionGates:
         assert model._native_ode_contract is None
 
     def test_gate_wrong_advan_number_returns_none(self, monkeypatch) -> None:
+        # ADVAN7 is not in _NATIVE_ELIGIBLE_ADVANS; contract must be None.
+        # (ADVAN2 is now eligible via the P1.3 analytical probes.)
         monkeypatch.setattr(
             "openpkpd.model.individual._native_cvodes_transit_1cmt_pkpd_probe_rust",
             lambda *a, **kw: [],
         )
-        model = _build_mixed_pkpd_model(pk_subroutine=_FakeADVAN2())
+        model = _build_mixed_pkpd_model(pk_subroutine=_FakeADVAN7())
         assert model._native_ode_contract is None
 
     def test_gate_wrong_error_model_returns_none(self, monkeypatch) -> None:

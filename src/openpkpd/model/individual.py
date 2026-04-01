@@ -96,6 +96,13 @@ _native_3cmt_iv_inf_probe      = _try_import("native_cvodes_3cmt_iv_infusion_pro
 _native_3cmt_iv_inf_sens_probe = _try_import("native_cvodes_3cmt_iv_infusion_sensitivity_probe_multidose")
 _native_4cmt_iv_inf_probe      = _try_import("native_cvodes_4cmt_iv_infusion_probe_multidose")
 _native_4cmt_iv_inf_sens_probe = _try_import("native_cvodes_4cmt_iv_infusion_sensitivity_probe_multidose")
+# Analytical closed-form probes (ADVAN1/2/3/4 — exact superposition, no ODE integration)
+_analytic_1cmt_iv_probe        = _try_import("analytic_1cmt_iv_probe_multidose")
+_analytic_1cmt_iv_inf_probe    = _try_import("analytic_1cmt_iv_infusion_probe_multidose")
+_analytic_1cmt_oral_probe      = _try_import("analytic_1cmt_oral_probe_multidose")
+_analytic_2cmt_iv_probe        = _try_import("analytic_2cmt_iv_probe_multidose")
+_analytic_2cmt_iv_inf_probe    = _try_import("analytic_2cmt_iv_infusion_probe_multidose")
+_analytic_2cmt_oral_probe      = _try_import("analytic_2cmt_oral_probe_multidose")
 
 
 class _NativeOdeTemplate:
@@ -112,6 +119,7 @@ class _NativeOdeTemplate:
         "name", "required_names", "n_states", "output_cmt_idx",
         "vol_param_name", "is_pkpd", "state_probe_fn", "sens_probe_fn",
         "infusion_state_probe_fn", "infusion_sens_probe_fn",
+        "eligible_advans",
     )
 
     def __init__(
@@ -126,6 +134,7 @@ class _NativeOdeTemplate:
         is_pkpd: bool = False,
         infusion_state_probe_fn: Any = None,
         infusion_sens_probe_fn: Any = None,
+        eligible_advans: frozenset[int] = frozenset(),
     ) -> None:
         self.name = name
         self.required_names = required_names
@@ -137,12 +146,56 @@ class _NativeOdeTemplate:
         self.sens_probe_fn = sens_probe_fn
         self.infusion_state_probe_fn = infusion_state_probe_fn
         self.infusion_sens_probe_fn = infusion_sens_probe_fn
+        self.eligible_advans = eligible_advans
 
 
 # Templates ordered most-specific first (most required_names → least).
 # Matching stops at the first template for which ALL required names are
-# present in the subject's pk_params dict.
+# present in the subject's pk_params dict AND the contract ADVAN is in
+# the template's eligible_advans set (or eligible_advans is empty = unrestricted).
+#
+# Analytical templates come first and carry eligible_advans restrictions so
+# they only match ADVAN1/2/3/4.  The CVODES templates that follow are
+# unrestricted and serve ADVAN6 (general ODE) models with the same parameter sets.
 _NATIVE_ODE_TEMPLATES: list[_NativeOdeTemplate] = [
+    # ── Analytical closed-form probes (P1.3) — ADVAN1/2/3/4 only ──────────────
+    _NativeOdeTemplate(
+        name="analytic_2cmt_oral",  # ADVAN4
+        required_names=("KA", "CL", "V2", "Q", "V3"),
+        n_states=3, output_cmt_idx=1, vol_param_name="V2",
+        state_probe_fn=_analytic_2cmt_oral_probe,
+        sens_probe_fn=_native_2cmt_oral_sens_probe,  # CVODES sens remains accurate
+        eligible_advans=frozenset({4}),
+    ),
+    _NativeOdeTemplate(
+        name="analytic_2cmt_iv",  # ADVAN3
+        required_names=("CL", "V1", "Q", "V2"),
+        n_states=2, output_cmt_idx=0, vol_param_name="V1",
+        state_probe_fn=_analytic_2cmt_iv_probe,
+        sens_probe_fn=_native_2cmt_iv_sens_probe,
+        infusion_state_probe_fn=_analytic_2cmt_iv_inf_probe,
+        infusion_sens_probe_fn=_native_2cmt_iv_inf_sens_probe,
+        eligible_advans=frozenset({3}),
+    ),
+    _NativeOdeTemplate(
+        name="analytic_1cmt_oral",  # ADVAN2
+        required_names=("KA", "CL", "V"),
+        n_states=2, output_cmt_idx=1, vol_param_name="V",
+        state_probe_fn=_analytic_1cmt_oral_probe,
+        sens_probe_fn=_native_1cmt_oral_sens_probe,
+        eligible_advans=frozenset({2}),
+    ),
+    _NativeOdeTemplate(
+        name="analytic_1cmt_iv",  # ADVAN1
+        required_names=("CL", "V"),
+        n_states=1, output_cmt_idx=0, vol_param_name="V",
+        state_probe_fn=_analytic_1cmt_iv_probe,
+        sens_probe_fn=_native_1cmt_iv_sens_probe,
+        infusion_state_probe_fn=_analytic_1cmt_iv_inf_probe,
+        infusion_sens_probe_fn=_native_1cmt_iv_inf_sens_probe,
+        eligible_advans=frozenset({1}),
+    ),
+    # ── CVODES ODE probes — ADVAN6 (general ODE) and unrestricted ─────────────
     _NativeOdeTemplate(
         name="transit_1cmt_pkpd",
         required_names=("KTR", "KA", "CL", "V", "EMAX", "EC50", "KOUT", "E0"),
@@ -219,12 +272,13 @@ _NATIVE_ODE_TEMPLATES: list[_NativeOdeTemplate] = [
 
 _NATIVE_ODE_TEMPLATE_MAP: dict[str, _NativeOdeTemplate] = {t.name: t for t in _NATIVE_ODE_TEMPLATES}
 
-# Only ADVAN6 (general ODE) is currently routed through the native CVODES
-# probes.  ADVAN1/2/3/4/11/12 have exact analytical Python solutions that are
-# more precise than CVODES numerical integration; routing them through CVODES
-# would silently degrade precision.  P1.3 requires Rust probes that implement
-# the exact closed-form solution — until those exist, only ADVAN6 is eligible.
-_NATIVE_ELIGIBLE_ADVANS: frozenset[int] = frozenset({6})
+# ADVAN6 (general ODE) uses CVODES probes.
+# ADVAN1/2/3/4 are routed through exact analytical Rust probes (P1.3):
+#   ADVAN1 → analytic_1cmt_iv, ADVAN2 → analytic_1cmt_oral,
+#   ADVAN3 → analytic_2cmt_iv, ADVAN4 → analytic_2cmt_oral.
+# The eligible_advans field on each template restricts matching so ADVAN6
+# models are never accidentally dispatched to an analytical probe.
+_NATIVE_ELIGIBLE_ADVANS: frozenset[int] = frozenset({1, 2, 3, 4, 6})
 
 # Error-model patterns for which the native ODE path is supported.
 # "mixed_pkpd_dvid_theta" uses dual-DVID routing; the rest are single-output.
@@ -520,6 +574,7 @@ class IndividualModel:
             "obs_times_list": obs_times.tolist(),
             "n_compartments": int(getattr(self.pk_subroutine, "n_compartments", 4)),
             "is_pkpd": self._common_error_model[0] == "mixed_pkpd_dvid_theta",
+            "advan": int(getattr(self.pk_subroutine, "advan", 6)),
         }
 
     def _try_native_ode_probe(
@@ -542,11 +597,15 @@ class IndividualModel:
         # parameters from incorrectly matching a simpler template whose
         # required_names happen to be a subset of the model's pk_params.
         n_cmt = contract.get("n_compartments", -1)
+        contract_advan = contract.get("advan", 6)
         template: _NativeOdeTemplate | None = None
         for tmpl in _NATIVE_ODE_TEMPLATES:
             if tmpl.state_probe_fn is None:
                 continue
             if tmpl.n_states != n_cmt:
+                continue
+            # If the template is restricted to specific ADVAN codes, enforce it.
+            if tmpl.eligible_advans and contract_advan not in tmpl.eligible_advans:
                 continue
             if any(name not in pk_params for name in tmpl.required_names):
                 continue
@@ -672,10 +731,12 @@ class IndividualModel:
             return None
 
         n_cmt = contract.get("n_compartments", -1)
+        contract_advan = contract.get("advan", 6)
         # Resolve template — pick the first one that:
         #   (a) has a sens probe, (b) is not mixed PK/PD,
-        #   (c) state count matches the model's compartment count, and
-        #   (d) all required param names are present in pk_callable output.
+        #   (c) state count matches the model's compartment count,
+        #   (d) all required param names are present in pk_callable output, and
+        #   (e) the contract ADVAN is in the template's eligible_advans (if restricted).
         # Checking (c) prevents a model with extra params (e.g. 8-param PKPD)
         # from incorrectly matching a simpler template (e.g. 1cmt_oral).
         template: _NativeOdeTemplate | None = None
@@ -683,6 +744,8 @@ class IndividualModel:
             if tmpl.sens_probe_fn is None or tmpl.is_pkpd:
                 continue
             if tmpl.n_states != n_cmt:
+                continue
+            if tmpl.eligible_advans and contract_advan not in tmpl.eligible_advans:
                 continue
             if any(name not in pk_params_0 for name in tmpl.required_names):
                 continue
@@ -801,13 +864,17 @@ class IndividualModel:
             return None
 
         n_cmt = contract.get("n_compartments", -1)
+        contract_advan = contract.get("advan", 6)
         # Resolve template — same criteria as native_advan6_prediction_eta_jacobian:
-        # n_states must match n_compartments to prevent greedy mis-matching.
+        # n_states must match n_compartments to prevent greedy mis-matching;
+        # eligible_advans restricts analytical templates to their specific ADVANs.
         template: _NativeOdeTemplate | None = None
         for tmpl in _NATIVE_ODE_TEMPLATES:
             if tmpl.sens_probe_fn is None or tmpl.is_pkpd:
                 continue
             if tmpl.n_states != n_cmt:
+                continue
+            if tmpl.eligible_advans and contract_advan not in tmpl.eligible_advans:
                 continue
             if any(name not in pk_params_0 for name in tmpl.required_names):
                 continue

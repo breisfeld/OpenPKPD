@@ -3218,20 +3218,426 @@ class TestPFIMInfusionSensitivityPath:
 
 
 # ===========================================================================
-# Section 17 — reserved for P1.3 (Analytic-ADVAN Rust probes)
+# Section 17 — P1.3: Analytic-ADVAN Rust probes
 #
-# ADVAN1/2/3/4/11/12 already have exact closed-form Python solutions that are
-# more precise than CVODES numerical integration.  Routing them through the
-# existing ODE probes silently degrades precision (CVODES rtol ~1e-8 vs
-# machine-epsilon for the analytical formula).
-#
-# P1.3 requires Rust probes that implement the exact closed-form solution.
-# Tests will be added here once those probes exist.
+# ADVAN1/2/3/4 are now routed through exact closed-form Rust probes (P1.3).
+# These tests verify:
+#   (a) Gate activation — IndividualModel builds a non-None contract for each
+#       eligible ADVAN and stores the correct 'advan' key.
+#   (b) Numerical accuracy — analytic_* probes match Python ADVAN solvers
+#       to machine precision (rtol ≤ 1e-12, atol ≤ 1e-14).
+#   (c) Sensitivity dispatch — native_advan6_prediction_eta_jacobian returns
+#       a G matrix consistent with finite differences for ADVAN3 models.
 # ===========================================================================
 
+# ── analytical probe symbols ──────────────────────────────────────────────────
+_A_1cmt_iv       = _try_import("analytic_1cmt_iv_probe_multidose")
+_A_1cmt_iv_inf   = _try_import("analytic_1cmt_iv_infusion_probe_multidose")
+_A_1cmt_oral     = _try_import("analytic_1cmt_oral_probe_multidose")
+_A_2cmt_iv       = _try_import("analytic_2cmt_iv_probe_multidose")
+_A_2cmt_iv_inf   = _try_import("analytic_2cmt_iv_infusion_probe_multidose")
+_A_2cmt_oral     = _try_import("analytic_2cmt_oral_probe_multidose")
+
+# ── typical parameter sets ────────────────────────────────────────────────────
+_A17_OBS      = [0.5, 1.0, 2.0, 4.0, 8.0, 12.0, 24.0, 48.0]
+_A17_DOSE1    = ([0.0], [100.0])
+_A17_DOSE2    = ([0.0, 25.0], [100.0, 80.0])
+_A17_1CMT_CL, _A17_1CMT_V = 0.044, 31.8   # theophylline-like
+_A17_2CMT     = {"CL": 3.876825, "V1": 9.760346, "V2": 30.81783, "Q": 8.773851}
+
+_A17_ATOL = 1e-14
+_A17_RTOL = 1e-12
 
 
+def _a17_dose_events(dose_times, dose_amts, cmt=1, rate=0.0):
+    from openpkpd.data.event_processor import DoseEvent
+    return [DoseEvent(time=t, amount=a, compartment=cmt, rate=rate)
+            for t, a in zip(dose_times, dose_amts)]
 
-# TestAnalyticAdvanGateActivation, TestAnalyticAdvanEndToEndIpred,
-# and TestAnalyticAdvanSensitivityDispatch will be added here in P1.3
-# once Rust probes with exact closed-form solutions are implemented.
+
+def _build_analytic_indiv(advan: int, n_cmt: int, pk_callable_fn, n_eps: int = 1,
+                           obs_times=None, dose_time=0.0, dose_amt=100.0, dose_rate=0.0):
+    """Build IndividualModel for an analytical ADVAN (1/2/3/4)."""
+    from openpkpd.model.individual import IndividualModel
+
+    obs = obs_times if obs_times is not None else _A17_OBS
+    se = MagicMock()
+    se.obs_times = np.array(obs)
+    se.obs_dv = np.full(len(obs), np.nan)
+    se.obs_mdv = np.zeros(len(obs), dtype=int)
+    se.obs_cmt = np.ones(len(obs), dtype=int)
+    se.observation_mask.return_value = np.ones(len(obs), dtype=bool)
+    se.covariate_df = None
+    se.covariate_at.return_value = {}
+    se.covariate_change_times.return_value = []
+
+    dose_event = MagicMock()
+    dose_event.time = dose_time
+    dose_event.amount = dose_amt
+    dose_event.rate = dose_rate
+    dose_event.compartment = 1
+    se.dose_events = [dose_event]
+
+    pk_sub = MagicMock()
+    pk_sub.advan = advan
+    pk_sub.n_compartments = n_cmt
+
+    def error_callable(theta, eta, eps, f, ipred, y, t, a=None, covariates=None, sigma=None):
+        return {"Y": f * (1 + eps[0]), "IPRED": f}
+    error_callable._source = "Y = F * (1 + EPS[0])"
+
+    return IndividualModel(
+        subject_events=se,
+        pk_subroutine=pk_sub,
+        pk_callable=pk_callable_fn,
+        error_callable=error_callable,
+        n_eps=n_eps,
+    )
+
+
+# ---------------------------------------------------------------------------
+# 17A — Gate Activation
+# ---------------------------------------------------------------------------
+
+class TestAnalyticAdvanGateActivation:
+    """_build_native_ode_contract must build a non-None contract for ADVAN1-4."""
+
+    _skip = _require_with_indiv(_A_1cmt_iv, _A_2cmt_iv)
+
+    def _pk_1cmt(self):
+        def pk(theta, eta, t=0.0, covariates=None):
+            return {"CL": _A17_1CMT_CL, "V": _A17_1CMT_V}
+        return pk
+
+    def _pk_2cmt(self):
+        def pk(theta, eta, t=0.0, covariates=None):
+            p = _A17_2CMT
+            return {"CL": p["CL"], "V1": p["V1"], "Q": p["Q"], "V2": p["V2"]}
+        return pk
+
+    def _pk_1cmt_oral(self):
+        def pk(theta, eta, t=0.0, covariates=None):
+            return {"KA": 1.5, "CL": _A17_1CMT_CL, "V": _A17_1CMT_V}
+        return pk
+
+    def _pk_2cmt_oral(self):
+        def pk(theta, eta, t=0.0, covariates=None):
+            p = _A17_2CMT
+            return {"KA": 1.5, "CL": p["CL"], "V2": p["V1"], "Q": p["Q"], "V3": p["V2"]}
+        return pk
+
+    def test_advan1_gate_activates(self):
+        indiv = _build_analytic_indiv(1, 1, self._pk_1cmt())
+        assert indiv._native_ode_contract is not None, "ADVAN1 must activate native path"
+        assert indiv._native_ode_contract["advan"] == 1
+
+    def test_advan2_gate_activates(self):
+        indiv = _build_analytic_indiv(2, 2, self._pk_1cmt_oral())
+        assert indiv._native_ode_contract is not None, "ADVAN2 must activate native path"
+        assert indiv._native_ode_contract["advan"] == 2
+
+    def test_advan3_gate_activates(self):
+        indiv = _build_analytic_indiv(3, 2, self._pk_2cmt())
+        assert indiv._native_ode_contract is not None, "ADVAN3 must activate native path"
+        assert indiv._native_ode_contract["advan"] == 3
+
+    def test_advan4_gate_activates(self):
+        indiv = _build_analytic_indiv(4, 3, self._pk_2cmt_oral())
+        assert indiv._native_ode_contract is not None, "ADVAN4 must activate native path"
+        assert indiv._native_ode_contract["advan"] == 4
+
+    def test_non_eligible_advan_blocked(self):
+        """ADVAN7 is not in _NATIVE_ELIGIBLE_ADVANS; contract must be None."""
+        indiv = _build_analytic_indiv(7, 2, self._pk_2cmt())
+        assert indiv._native_ode_contract is None, "ADVAN7 must not activate native path"
+
+    def test_advan6_still_eligible(self):
+        """ADVAN6 must remain eligible (unchanged behavior)."""
+        indiv = _build_analytic_indiv(6, 2, self._pk_2cmt())
+        assert indiv._native_ode_contract is not None, "ADVAN6 must still activate native path"
+
+
+# ---------------------------------------------------------------------------
+# 17B — Numerical Accuracy vs Python ADVAN Solvers
+# ---------------------------------------------------------------------------
+
+class TestAnalyticProbe1CmtIvVsADVAN1:
+    """analytic_1cmt_iv_probe vs ADVAN1 exact solution — machine precision."""
+
+    _skip = _require(_A_1cmt_iv)
+
+    _CL, _V = _A17_1CMT_CL, _A17_1CMT_V
+    _THETA = [_A17_1CMT_CL, _A17_1CMT_V]
+
+    def _advan1_ipred(self, obs, dose_events):
+        from openpkpd.pk.analytical.advan1 import ADVAN1
+        return ADVAN1().solve({"K": self._CL / self._V, "V": self._V},
+                              dose_events, np.array(obs)).ipred
+
+    def test_single_dose_matches_advan1(self):
+        dt, da = _A17_DOSE1
+        ref = self._advan1_ipred(_A17_OBS, _a17_dose_events(dt, da))
+        states = np.array(_A_1cmt_iv(_A17_OBS, dt, da, self._THETA))
+        got = states[:, 0] / self._V
+        np.testing.assert_allclose(got, ref, rtol=_A17_RTOL, atol=_A17_ATOL,
+                                   err_msg="ADVAN1 single-dose: analytic Rust vs Python")
+
+    def test_two_dose_matches_advan1(self):
+        dt, da = _A17_DOSE2
+        ref = self._advan1_ipred(_A17_OBS, _a17_dose_events(dt, da))
+        states = np.array(_A_1cmt_iv(_A17_OBS, dt, da, self._THETA))
+        got = states[:, 0] / self._V
+        np.testing.assert_allclose(got, ref, rtol=_A17_RTOL, atol=_A17_ATOL,
+                                   err_msg="ADVAN1 two-dose: analytic Rust vs Python")
+
+
+class TestAnalyticProbe1CmtOralVsADVAN2:
+    """analytic_1cmt_oral_probe vs ADVAN2 exact solution — machine precision."""
+
+    _skip = _require(_A_1cmt_oral)
+
+    _KA, _CL, _V = 1.5, _A17_1CMT_CL, _A17_1CMT_V
+    _THETA = [1.5, _A17_1CMT_CL, _A17_1CMT_V]
+
+    def _advan2_ipred(self, obs, dose_events, ka=None):
+        from openpkpd.pk.analytical.advan2 import ADVAN2
+        K = self._CL / self._V
+        use_ka = ka if ka is not None else self._KA
+        return ADVAN2().solve({"KA": use_ka, "K": K, "V": self._V},
+                              dose_events, np.array(obs)).ipred
+
+    def test_single_dose_matches_advan2(self):
+        dt, da = _A17_DOSE1
+        ref = self._advan2_ipred(_A17_OBS, _a17_dose_events(dt, da))
+        states = np.array(_A_1cmt_oral(_A17_OBS, dt, da, self._THETA))
+        got = states[:, 1] / self._V
+        np.testing.assert_allclose(got, ref, rtol=_A17_RTOL, atol=_A17_ATOL,
+                                   err_msg="ADVAN2 single-dose: analytic Rust vs Python")
+
+    def test_two_dose_matches_advan2(self):
+        dt, da = _A17_DOSE2
+        ref = self._advan2_ipred(_A17_OBS, _a17_dose_events(dt, da))
+        states = np.array(_A_1cmt_oral(_A17_OBS, dt, da, self._THETA))
+        got = states[:, 1] / self._V
+        np.testing.assert_allclose(got, ref, rtol=_A17_RTOL, atol=_A17_ATOL,
+                                   err_msg="ADVAN2 two-dose: analytic Rust vs Python")
+
+    def test_ka_equals_k_limit_matches_advan2(self):
+        """KA ≈ K: analytic probe must use L'Hôpital form matching ADVAN2."""
+        K = self._CL / self._V
+        ka_lim = K + 5e-7    # within KA_K_TOL = 1e-6
+        theta_lim = [ka_lim, self._CL, self._V]
+        ref = self._advan2_ipred(_A17_OBS, _a17_dose_events(*_A17_DOSE1), ka=ka_lim)
+        states = np.array(_A_1cmt_oral(_A17_OBS, _A17_DOSE1[0], _A17_DOSE1[1], theta_lim))
+        got = states[:, 1] / self._V
+        np.testing.assert_allclose(got, ref, rtol=1e-6, atol=1e-10,
+                                   err_msg="KA≈K limit form mismatch")
+
+
+class TestAnalyticProbe2CmtIvVsADVAN3:
+    """analytic_2cmt_iv_probe vs ADVAN3 exact solution — machine precision."""
+
+    _skip = _require(_A_2cmt_iv)
+
+    _p = _A17_2CMT
+    _THETA = [_p["CL"], _p["V1"], _p["Q"], _p["V2"]]
+    _V1 = _p["V1"]
+
+    def _advan3_ipred(self, obs, dose_events):
+        from openpkpd.pk.analytical.advan3 import ADVAN3
+        return ADVAN3().solve(self._p, dose_events, np.array(obs)).ipred
+
+    def test_single_dose_matches_advan3(self):
+        dt, da = _A17_DOSE1
+        ref = self._advan3_ipred(_A17_OBS, _a17_dose_events(dt, da))
+        states = np.array(_A_2cmt_iv(_A17_OBS, dt, da, self._THETA))
+        got = states[:, 0] / self._V1
+        np.testing.assert_allclose(got, ref, rtol=_A17_RTOL, atol=_A17_ATOL,
+                                   err_msg="ADVAN3 single-dose: analytic Rust vs Python")
+
+    def test_two_dose_matches_advan3(self):
+        dt, da = _A17_DOSE2
+        ref = self._advan3_ipred(_A17_OBS, _a17_dose_events(dt, da))
+        states = np.array(_A_2cmt_iv(_A17_OBS, dt, da, self._THETA))
+        got = states[:, 0] / self._V1
+        np.testing.assert_allclose(got, ref, rtol=_A17_RTOL, atol=_A17_ATOL,
+                                   err_msg="ADVAN3 two-dose: analytic Rust vs Python")
+
+
+class TestAnalyticProbe2CmtOralVsADVAN4:
+    """analytic_2cmt_oral_probe vs ADVAN4 exact solution — machine precision."""
+
+    _skip = _require(_A_2cmt_oral)
+
+    _KA = 1.5
+    _p  = _A17_2CMT
+    # ADVAN4 template: theta=[KA, CL, V2, Q, V3]
+    _THETA = [1.5, _p["CL"], _p["V1"], _p["Q"], _p["V2"]]
+    _V2 = _p["V1"]  # V2 in template = V1 in reference
+
+    def _advan4_ipred(self, obs, dose_events):
+        from openpkpd.pk.analytical.advan4 import ADVAN4
+        p = self._p
+        k10 = p["CL"] / p["V1"]; k12 = p["Q"] / p["V1"]; k21 = p["Q"] / p["V2"]
+        params = {"KA": self._KA, "K": k10, "K12": k12, "K21": k21, "V2": p["V1"]}
+        return ADVAN4().solve(params, dose_events, np.array(obs)).ipred
+
+    def test_single_dose_matches_advan4(self):
+        dt, da = _A17_DOSE1
+        ref = self._advan4_ipred(_A17_OBS, _a17_dose_events(dt, da))
+        states = np.array(_A_2cmt_oral(_A17_OBS, dt, da, self._THETA))
+        got = states[:, 1] / self._V2
+        np.testing.assert_allclose(got, ref, rtol=_A17_RTOL, atol=_A17_ATOL,
+                                   err_msg="ADVAN4 single-dose: analytic Rust vs Python")
+
+    def test_two_dose_matches_advan4(self):
+        dt, da = _A17_DOSE2
+        ref = self._advan4_ipred(_A17_OBS, _a17_dose_events(dt, da))
+        states = np.array(_A_2cmt_oral(_A17_OBS, dt, da, self._THETA))
+        got = states[:, 1] / self._V2
+        np.testing.assert_allclose(got, ref, rtol=_A17_RTOL, atol=_A17_ATOL,
+                                   err_msg="ADVAN4 two-dose: analytic Rust vs Python")
+
+
+# ---------------------------------------------------------------------------
+# 17C — End-to-End IPRED via IndividualModel._try_native_pk_backend
+# ---------------------------------------------------------------------------
+
+class TestAnalyticAdvanEndToEndIpred:
+    """IndividualModel._try_native_pk_backend dispatches to analytic probes for ADVAN1-4."""
+
+    _skip = _require_with_indiv(_A_1cmt_iv, _A_2cmt_iv)
+
+    def _build_and_probe(self, advan, n_cmt, pk_fn):
+        indiv = _build_analytic_indiv(advan, n_cmt, pk_fn)
+        theta_dummy = [1.0]
+        eta_dummy = []
+        pk_params = pk_fn(theta_dummy, eta_dummy)
+        obs = np.array(_A17_OBS)
+        sol = indiv._try_native_pk_backend(pk_params, obs)
+        return sol, pk_params
+
+    def test_advan1_native_ipred_matches_python(self):
+        from openpkpd.pk.analytical.advan1 import ADVAN1
+        from openpkpd.data.event_processor import DoseEvent
+
+        def pk(theta, eta, t=0.0, covariates=None):
+            return {"CL": _A17_1CMT_CL, "V": _A17_1CMT_V}
+
+        sol, pp = self._build_and_probe(1, 1, pk)
+        assert sol is not None, "Native path must activate for ADVAN1"
+        ref = ADVAN1().solve({"K": pp["CL"] / pp["V"], "V": pp["V"]},
+                             [DoseEvent(time=0.0, amount=100.0, compartment=1)],
+                             np.array(_A17_OBS)).ipred
+        np.testing.assert_allclose(sol.ipred, ref, rtol=_A17_RTOL, atol=_A17_ATOL,
+                                   err_msg="ADVAN1 end-to-end IPRED mismatch")
+
+    def test_advan3_native_ipred_matches_python(self):
+        from openpkpd.pk.analytical.advan3 import ADVAN3
+        from openpkpd.data.event_processor import DoseEvent
+
+        p = _A17_2CMT
+        def pk(theta, eta, t=0.0, covariates=None):
+            return {"CL": p["CL"], "V1": p["V1"], "Q": p["Q"], "V2": p["V2"]}
+
+        sol, pp = self._build_and_probe(3, 2, pk)
+        assert sol is not None, "Native path must activate for ADVAN3"
+        ref = ADVAN3().solve(pp, [DoseEvent(time=0.0, amount=100.0, compartment=1)],
+                             np.array(_A17_OBS)).ipred
+        np.testing.assert_allclose(sol.ipred, ref, rtol=_A17_RTOL, atol=_A17_ATOL,
+                                   err_msg="ADVAN3 end-to-end IPRED mismatch")
+
+    def test_advan6_2cmt_still_uses_cvodes_template(self):
+        """ADVAN6 2cmt_iv must match the CVODES template, not the analytic one."""
+        p = _A17_2CMT
+        def pk(theta, eta, t=0.0, covariates=None):
+            return {"CL": p["CL"], "V1": p["V1"], "Q": p["Q"], "V2": p["V2"]}
+
+        indiv = _build_analytic_indiv(6, 2, pk)
+        contract = indiv._native_ode_contract
+        assert contract is not None, "ADVAN6 2cmt must still build a contract"
+        assert contract["advan"] == 6
+        from openpkpd.model.individual import _NATIVE_ODE_TEMPLATES
+        pk_params = pk([1.0], [])
+        template_name = None
+        for tmpl in _NATIVE_ODE_TEMPLATES:
+            if tmpl.state_probe_fn is None:
+                continue
+            if tmpl.n_states != 2:
+                continue
+            if tmpl.eligible_advans and 6 not in tmpl.eligible_advans:
+                continue
+            if any(name not in pk_params for name in tmpl.required_names):
+                continue
+            template_name = tmpl.name
+            break
+        assert template_name == "2cmt_iv", (
+            f"ADVAN6 2cmt should match 'cvodes 2cmt_iv' template, got {template_name!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# 17D — Sensitivity dispatch for ADVAN3
+# ---------------------------------------------------------------------------
+
+class TestAnalyticAdvanSensitivityDispatch:
+    """native_advan6_prediction_eta_jacobian returns accurate G for ADVAN3."""
+
+    _skip = _require_with_indiv(_A_2cmt_iv, _2cmt_iv_sens)
+
+    _p = _A17_2CMT
+    _THETA_POP = np.array([_p["CL"], _p["V1"], _p["Q"], _p["V2"]])
+
+    def _build_advan3_indiv(self):
+        def pk_callable(theta, eta, t=0.0, covariates=None):
+            th = list(theta)
+            return {
+                "CL": float(th[0]) * np.exp(float(eta[0]) if len(eta) > 0 else 0.0),
+                "V1": float(th[1]) * np.exp(float(eta[1]) if len(eta) > 1 else 0.0),
+                "Q":  float(th[2]),
+                "V2": float(th[3]),
+            }
+        return _build_analytic_indiv(3, 2, pk_callable, n_eps=1)
+
+    def test_sensitivity_returns_non_none(self):
+        indiv = self._build_advan3_indiv()
+        obs_mask = np.ones(len(_A17_OBS), dtype=bool)
+        G = indiv.native_advan6_prediction_eta_jacobian(
+            self._THETA_POP, np.zeros(2), obs_mask, n_eta=2
+        )
+        assert G is not None, "ADVAN3 sensitivity path must return a G matrix"
+        assert G.shape == (len(_A17_OBS), 2), f"G shape mismatch: {G.shape}"
+
+    def test_sensitivity_matches_fd(self):
+        """G matrix must agree with finite-difference reference (rtol=5e-3)."""
+        indiv = self._build_advan3_indiv()
+        theta = self._THETA_POP
+        eta_zero = np.zeros(2)
+        eps = 1e-4
+        obs = np.array(_A17_OBS)
+        obs_mask = np.ones(len(obs), dtype=bool)
+
+        G = indiv.native_advan6_prediction_eta_jacobian(theta, eta_zero, obs_mask, n_eta=2, eps=eps)
+        assert G is not None
+
+        def ipred_at_eta(eta):
+            from openpkpd.pk.analytical.advan3 import ADVAN3
+            from openpkpd.data.event_processor import DoseEvent
+            pp = {
+                "CL": float(theta[0]) * np.exp(eta[0]),
+                "V1": float(theta[1]) * np.exp(eta[1]),
+                "Q":  float(theta[2]),
+                "V2": float(theta[3]),
+            }
+            return ADVAN3().solve(pp, [DoseEvent(time=0.0, amount=100.0, compartment=1)],
+                                  obs).ipred
+
+        G_fd = np.zeros((len(obs), 2))
+        for k in range(2):
+            ep = eta_zero.copy(); ep[k] += eps
+            em = eta_zero.copy(); em[k] -= eps
+            G_fd[:, k] = (ipred_at_eta(ep) - ipred_at_eta(em)) / (2 * eps)
+
+        np.testing.assert_allclose(G, G_fd, rtol=5e-3, atol=1e-8,
+                                   err_msg="ADVAN3 sensitivity G deviates from FD reference")
+

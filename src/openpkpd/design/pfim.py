@@ -449,9 +449,7 @@ class PFIMEngine:
             return None
         if contract.get("is_pkpd", False):
             return None
-        # Infusion models need piecewise integration not yet wired here.
-        if contract.get("has_infusion", False):
-            return None
+        has_infusion = contract.get("has_infusion", False)
 
         pk_callable = getattr(indiv, "pk_callable", None)
         if pk_callable is None:
@@ -496,13 +494,29 @@ class PFIMEngine:
         inverse_order = np.empty_like(order)
         inverse_order[order] = np.arange(n_times)
 
+        if has_infusion:
+            # Infusion sensitivity: needs the infusion-aware sens probe.
+            if template.infusion_sens_probe_fn is None:
+                return None
+        elif template.sens_probe_fn is None:
+            return None
+
         try:
-            states_raw, sens_raw = template.sens_probe_fn(
-                sorted_times.tolist(),
-                dose_times,
-                contract["dose_amts"],
-                ode_theta,
-            )
+            if has_infusion:
+                states_raw, sens_raw = template.infusion_sens_probe_fn(
+                    sorted_times.tolist(),
+                    dose_times,
+                    contract["dose_amts"],
+                    contract["dose_rates"],
+                    ode_theta,
+                )
+            else:
+                states_raw, sens_raw = template.sens_probe_fn(
+                    sorted_times.tolist(),
+                    dose_times,
+                    contract["dose_amts"],
+                    ode_theta,
+                )
         except Exception:
             return None
 

@@ -2940,3 +2940,277 @@ class TestAlagSensitivity:
 
         np.testing.assert_allclose(G_native, G_fd, rtol=1e-3, atol=1e-8,
                                    err_msg="G_i with ALAG1 must match FD reference")
+
+
+
+# ===========================================================================
+# Section 15 — Covariate gate relaxation (P1.1)
+#
+# _build_native_ode_contract() must allow time-constant covariates (WT, AGE …)
+# and block only when a covariate changes over the observation window.
+# ===========================================================================
+
+def _build_native_individual_with_cov(cov_df):
+    """Like _build_native_individual but with a custom covariate_df."""
+    from openpkpd.model.individual import IndividualModel
+
+    se = MagicMock()
+    se.obs_times = np.array([0.5, 1.0, 2.0, 4.0, 8.0, 12.0, 24.0])
+    se.obs_dv = np.full(7, np.nan)
+    se.obs_mdv = np.zeros(7, dtype=int)
+    se.obs_cmt = np.ones(7, dtype=int)
+    se.observation_mask.return_value = np.ones(7, dtype=bool)
+    se.covariate_df = cov_df
+    se.covariate_at.return_value = {}
+    se.covariate_change_times.return_value = []
+
+    dose_event = MagicMock()
+    dose_event.time = 0.0
+    dose_event.amount = 100.0
+    dose_event.rate = 0.0
+    dose_event.compartment = 1
+    se.dose_events = [dose_event]
+
+    def pk_callable(theta, eta, t=0.0, covariates=None):
+        th = list(theta)
+        wt = float((covariates or {}).get("WT", 70.0))
+        return {
+            "CL": float(th[0]) * (wt / 70.0) ** 0.75 * np.exp(eta[0] if len(eta) > 0 else 0.0),
+            "V1": float(th[1]) * np.exp(eta[1] if len(eta) > 1 else 0.0),
+            "Q":  float(th[2]),
+            "V2": float(th[3]),
+        }
+
+    def error_callable(theta, eta, eps, f, ipred, y, t, a=None, covariates=None, sigma=None):
+        return {"Y": f * (1 + eps[0]), "IPRED": f}
+    error_callable._source = "Y = F * (1 + EPS[0])"
+
+    pk_sub = MagicMock()
+    pk_sub.advan = 6
+    pk_sub.n_compartments = 2
+
+    return IndividualModel(
+        subject_events=se,
+        pk_subroutine=pk_sub,
+        pk_callable=pk_callable,
+        error_callable=error_callable,
+        n_eps=1,
+    )
+
+
+class TestCovariateGateRelaxation:
+    """
+    Time-constant covariates (e.g. WT, AGE) must not block the native ODE path.
+    Only time-varying covariates (multiple distinct values per subject) should
+    cause _build_native_ode_contract() to return None.
+    """
+
+    _skip = _require_with_indiv(_2cmt_iv_probe, _2cmt_iv_sens)
+
+    def _make_cov_df(self, wt_values):
+        import pandas as pd
+        times = [0.5, 1.0, 2.0, 4.0, 8.0, 12.0, 24.0]
+        return pd.DataFrame({"TIME": times, "WT": wt_values})
+
+    def test_no_cov_df_activates_native_path(self):
+        """Baseline: no covariate_df → native path activates."""
+        indiv, _, _ = _build_native_individual()
+        assert indiv._native_ode_contract is not None
+
+    def test_constant_covariate_activates_native_path(self):
+        """Single-valued WT across all observations → native path must activate."""
+        cov_df = self._make_cov_df([70.0] * 7)
+        indiv = _build_native_individual_with_cov(cov_df)
+        assert indiv._native_ode_contract is not None, (
+            "Time-constant WT should not block native path"
+        )
+
+    def test_constant_covariate_with_nan_activates_native_path(self):
+        """WT constant but with one NaN observation → still activates."""
+        cov_df = self._make_cov_df([70.0, np.nan, 70.0, 70.0, 70.0, 70.0, 70.0])
+        indiv = _build_native_individual_with_cov(cov_df)
+        assert indiv._native_ode_contract is not None
+
+    def test_timevarying_covariate_blocks_native_path(self):
+        """WT changes across observations → native path must be blocked."""
+        cov_df = self._make_cov_df([70.0, 71.0, 72.0, 73.0, 74.0, 75.0, 76.0])
+        indiv = _build_native_individual_with_cov(cov_df)
+        assert indiv._native_ode_contract is None, (
+            "Time-varying WT must block native path"
+        )
+
+    def test_two_constant_covariates_activate_native_path(self):
+        """Multiple constant covariates (WT and AGE) → native path activates."""
+        import pandas as pd
+        times = [0.5, 1.0, 2.0, 4.0, 8.0, 12.0, 24.0]
+        cov_df = pd.DataFrame({"TIME": times, "WT": [70.0] * 7, "AGE": [45.0] * 7})
+        indiv = _build_native_individual_with_cov(cov_df)
+        assert indiv._native_ode_contract is not None
+
+    def test_mixed_constant_and_varying_blocks_native_path(self):
+        """One constant covariate + one time-varying → blocked (conservative)."""
+        import pandas as pd
+        times = [0.5, 1.0, 2.0, 4.0, 8.0, 12.0, 24.0]
+        cov_df = pd.DataFrame({
+            "TIME": times,
+            "WT":   [70.0] * 7,                               # constant
+            "DOSE": [100.0, 100.0, 200.0, 200.0, 200.0, 200.0, 200.0],  # time-varying
+        })
+        indiv = _build_native_individual_with_cov(cov_df)
+        assert indiv._native_ode_contract is None
+
+
+# ===========================================================================
+# Section 16 — PFIM infusion sensitivity path (P2)
+#
+# _compute_G_and_Z_native must dispatch to infusion_sens_probe_fn when the
+# contract's has_infusion flag is True.  G must match a direct FD reference
+# computed from the infusion bolus probe.
+# ===========================================================================
+
+def _build_native_infusion_individual(rate: float = 10.0):
+    """
+    Build a minimal IndividualModel backed by the 2cmt_iv infusion template.
+
+    dose.rate > 0 → has_infusion=True in the contract.
+    The infusion duration is amt/rate = 100/10 = 10 h.
+    """
+    from openpkpd.model.individual import IndividualModel
+
+    se = MagicMock()
+    se.obs_times = np.array([1.0, 4.0, 8.0, 12.0, 24.0])
+    se.obs_dv = np.full(5, np.nan)
+    se.obs_mdv = np.zeros(5, dtype=int)
+    se.obs_cmt = np.ones(5, dtype=int)
+    se.observation_mask.return_value = np.ones(5, dtype=bool)
+    se.covariate_df = None
+    se.covariate_at.return_value = {}
+    se.covariate_change_times.return_value = []
+
+    dose_event = MagicMock()
+    dose_event.time = 0.0
+    dose_event.amount = 100.0
+    dose_event.rate = float(rate)   # > 0 → constant-rate infusion
+    dose_event.compartment = 1
+    se.dose_events = [dose_event]
+
+    param_names = ("CL", "V1", "Q", "V2")
+
+    def pk_callable(theta, eta, t=0.0, covariates=None):
+        th = list(theta)
+        return {
+            "CL": float(th[0]) * np.exp(eta[0] if len(eta) > 0 else 0.0),
+            "V1": float(th[1]) * np.exp(eta[1] if len(eta) > 1 else 0.0),
+            "Q":  float(th[2]),
+            "V2": float(th[3]),
+        }
+
+    def error_callable(theta, eta, eps, f, ipred, y, t, a=None, covariates=None, sigma=None):
+        return {"Y": f * (1 + eps[0]), "IPRED": f}
+    error_callable._source = "Y = F * (1 + EPS[0])"
+
+    pk_sub = MagicMock()
+    pk_sub.advan = 6
+    pk_sub.n_compartments = 2
+
+    indiv = IndividualModel(
+        subject_events=se,
+        pk_subroutine=pk_sub,
+        pk_callable=pk_callable,
+        error_callable=error_callable,
+        n_eps=1,
+    )
+    return indiv, pk_callable, param_names
+
+
+class TestPFIMInfusionSensitivityPath:
+    """
+    _compute_G_and_Z_native must activate for infusion models (has_infusion=True)
+    by dispatching to the infusion-aware sensitivity probe.  G must match a
+    direct FD reference built from _2cmt_iv_inf_probe + pk_callable.
+    """
+
+    _skip = _require_with_indiv(_2cmt_iv_inf_probe, _2cmt_iv_inf_sens)
+
+    _RATE = 10.0   # mg/h — duration = 100 mg / 10 mg/h = 10 h
+
+    def _make_pfim_engine(self, indiv):
+        from openpkpd.design.pfim import PFIMEngine
+
+        pop_model = MagicMock()
+        pop_model.subject_ids.return_value = [1]
+        pop_model.individual_model.return_value = indiv
+        pop_model.trans = 2
+
+        n_eta = 2
+        omega = 0.04 * np.eye(n_eta)
+        sigma = np.array([[0.01]])
+
+        class Params:
+            theta = np.array(_NATIVE_INDIV_THETA)
+
+        Params.omega = omega
+        Params.sigma = sigma
+
+        return PFIMEngine(population_model=pop_model, init_params=Params())
+
+    def _predict_F_inf(self, pk_callable, param_names, theta, eta, times):
+        """FD-reference prediction using _2cmt_iv_inf_probe (infusion probe)."""
+        pk_params = pk_callable(list(theta), list(eta), t=0.0)
+        ode_theta = [float(pk_params[n]) for n in param_names]
+        V1 = float(pk_params["V1"])
+        dose_times = [0.0]
+        dose_amts  = [100.0]
+        dose_rates = [self._RATE]
+        order = np.argsort(times, kind="stable")
+        inv = np.empty_like(order); inv[order] = np.arange(len(times))
+        raw = _2cmt_iv_inf_probe(
+            np.array(times)[order].tolist(), dose_times, dose_amts, dose_rates, ode_theta
+        )
+        A1 = np.array(raw)[:, 0][inv]
+        return A1 / V1
+
+    def test_contract_has_infusion_flag(self):
+        """_native_ode_contract must set has_infusion=True for rate>0 dose."""
+        indiv, _, _ = _build_native_infusion_individual(rate=self._RATE)
+        contract = indiv._native_ode_contract
+        assert contract is not None
+        assert contract["has_infusion"] is True
+        assert contract["dose_rates"] == [self._RATE]
+
+    def test_native_path_activates_for_infusion(self):
+        """_compute_G_and_Z_native must return a result (not None) for infusion models."""
+        indiv, _, _ = _build_native_infusion_individual(rate=self._RATE)
+        engine = self._make_pfim_engine(indiv)
+        times = np.array([1.0, 4.0, 8.0, 12.0, 24.0])
+        result = engine._compute_G_and_Z_native(times, np.array(_NATIVE_INDIV_THETA), indiv, 2)
+        assert result is not None, "Infusion native path must activate for 2cmt_iv_inf template"
+
+    def test_infusion_G_matches_fd(self):
+        """G from infusion native path matches direct FD from _2cmt_iv_inf_probe."""
+        indiv, pk_callable, param_names = _build_native_infusion_individual(rate=self._RATE)
+        engine = self._make_pfim_engine(indiv)
+        times = np.array([1.0, 4.0, 8.0, 12.0, 24.0])
+        theta = np.array(_NATIVE_INDIV_THETA)
+        eta_zero = np.zeros(2)
+        eps = 1e-5
+
+        result = engine._compute_G_and_Z_native(times, theta, indiv, 2)
+        assert result is not None
+        G_native, _ = result
+
+        n_theta = len(theta)
+        G_fd = np.zeros((len(times), n_theta))
+        for j in range(n_theta):
+            tp = theta.copy(); tp[j] += eps
+            tm = theta.copy(); tm[j] -= eps
+            G_fd[:, j] = (
+                self._predict_F_inf(pk_callable, param_names, tp, eta_zero, times)
+                - self._predict_F_inf(pk_callable, param_names, tm, eta_zero, times)
+            ) / (2.0 * eps)
+
+        # rtol=2e-2: infusion sensitivity vs FD incurs ~1% cancellation error
+        # due to the finite-difference step; analytical sensitivity is more
+        # accurate — the tolerance here just ensures gross errors are caught.
+        np.testing.assert_allclose(G_native, G_fd, rtol=2e-2, atol=1e-5,
+                                   err_msg="Infusion native G deviates from FD reference")

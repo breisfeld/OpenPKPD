@@ -2003,13 +2003,31 @@ class TestNativeAdvan6DetectionGates:
         )
         assert model._native_ode_contract is None
 
-    def test_gate_extra_covariate_column_returns_none(self, monkeypatch) -> None:
+    def test_gate_constant_covariate_column_does_not_block(self, monkeypatch) -> None:
+        """Time-constant covariates (single unique value) must not block the native path.
+
+        The gate was tightened in P1.1: only time-VARYING covariates prevent
+        the native path.  A constant WT across all observations is safe because
+        pk_callable evaluated at baseline returns the same micro-params always.
+        """
         import pandas as pd
         monkeypatch.setattr(
             "openpkpd.model.individual._native_cvodes_transit_1cmt_pkpd_probe_rust",
             lambda *a, **kw: [],
         )
         cov_df = pd.DataFrame({"TIME": _OBS_TIMES, "DVID": [1, 1, 2, 2], "WT": [70, 70, 70, 70]})
+        model = _build_mixed_pkpd_model(covariate_df=cov_df)
+        # Constant WT → contract must be built (not None)
+        assert model._native_ode_contract is not None
+
+    def test_gate_timevarying_covariate_column_returns_none(self, monkeypatch) -> None:
+        """Time-varying covariates (multiple distinct values) must block the native path."""
+        import pandas as pd
+        monkeypatch.setattr(
+            "openpkpd.model.individual._native_cvodes_transit_1cmt_pkpd_probe_rust",
+            lambda *a, **kw: [],
+        )
+        cov_df = pd.DataFrame({"TIME": _OBS_TIMES, "DVID": [1, 1, 2, 2], "WT": [60, 65, 70, 75]})
         model = _build_mixed_pkpd_model(covariate_df=cov_df)
         assert model._native_ode_contract is None
 

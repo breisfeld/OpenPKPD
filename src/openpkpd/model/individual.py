@@ -460,13 +460,21 @@ class IndividualModel:
 
         cov_df = self.subject_events.covariate_df
         if cov_df is not None:
-            unsupported_covs = [
-                str(col).upper()
-                for col in cov_df.columns
-                if str(col).upper() not in {"TIME", "DVID"}
-            ]
-            if unsupported_covs:
-                return None
+            for col in cov_df.columns:
+                col_upper = str(col).upper()
+                if col_upper in {"TIME", "DVID"}:
+                    continue
+                # Allow time-constant covariates: pk_callable evaluated at
+                # baseline returns the same micro-params regardless of when it
+                # is called, so the Rust probe (which uses fixed theta) is
+                # correct for all observation times.
+                # Block only when values change over time (time-varying),
+                # since that would require piecewise ODE parameter updates.
+                try:
+                    if cov_df[col].dropna().nunique() > 1:
+                        return None
+                except Exception:
+                    return None  # cannot verify constancy — stay conservative
 
         # All doses must be into compartment 1 (IV or infusion into central).
         # Oral (depot) compartment doses are not supported on the native path.

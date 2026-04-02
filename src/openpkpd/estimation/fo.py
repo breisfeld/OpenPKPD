@@ -183,18 +183,17 @@ class FOMethod(EstimationMethod):
         C_i = R @ params.omega @ R.T + np.diag(var_obs)
         C_i = repair_pd(C_i)
 
+        residuals = dv - pred_obs
         try:
+            # Cholesky factor gives log-det and solves the quadratic form in one pass.
+            L = np.linalg.cholesky(C_i)
+            logdet_val = 2.0 * float(np.sum(np.log(np.diag(L))))
+            x = np.linalg.solve(L, residuals)
+            quad = float(x @ x)
+        except np.linalg.LinAlgError:
             sign, logdet_val = np.linalg.slogdet(C_i)
             if sign <= 0:
                 logdet_val = 50.0
-        except Exception:
-            logdet_val = 50.0
-
-        residuals = dv - pred_obs
-        try:
-            C_i_inv = np.linalg.solve(C_i, np.eye(n_obs))
-            quad = float(residuals @ C_i_inv @ residuals)
-        except Exception:
             quad = float(np.sum(residuals**2 / var_obs))
 
         ofv_i = n_obs * LOG2PI + logdet_val + quad

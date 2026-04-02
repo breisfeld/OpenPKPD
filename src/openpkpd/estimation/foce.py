@@ -1246,6 +1246,10 @@ class FOCEMethod(EstimationMethod):
                 log_det_ci = float(np.sum(np.log(var_obs)))
 
             eta_penalty = float(eta_i @ omega_inv @ eta_i)
+            # NONMEM FOCEI convention: n_obs*log(2π) from the observation density
+            # minus n_eta*log(2π) from the η prior when interaction=True (the η
+            # density log(2π) terms cancel in the ratio; see Beal & Sheiner 1992).
+            # When interaction=False, log|Ω| replaces the n_eta*log(2π) terms.
             ofv_i = n_obs * LOG2PI + log_det_ci + quad + eta_penalty
             if self.interaction:
                 ofv_i -= n_eta * LOG2PI

@@ -14,7 +14,6 @@ The Hessian is computed numerically by finite differences.
 
 from __future__ import annotations
 
-import math
 from typing import Any
 
 import numpy as np
@@ -22,7 +21,7 @@ import numpy as np
 from openpkpd.estimation.foce import FOCEMethod
 from openpkpd.math.matrix import numerical_hessian, repair_pd
 from openpkpd.model.parameters import ParameterSet
-from openpkpd.utils.constants import Method
+from openpkpd.utils.constants import LOG2PI, Method
 from openpkpd.utils.logging import get_logger
 
 logger = get_logger("estimation.laplacian")
@@ -120,7 +119,7 @@ class LaplacianMethod(FOCEMethod):
             # addition to the per-subject FOCE terms.  Ω changes each outer
             # iteration, so the gradient w.r.t. OMEGA is only correct when
             # log_det_omega is included here.
-            foce_ofv_i = n_obs * LOG2PI_LOCAL + log_det_ci + log_det_omega + quad + eta_penalty
+            foce_ofv_i = n_obs * LOG2PI + log_det_ci + log_det_omega + quad + eta_penalty
 
             def obj_eta(eta: np.ndarray, _indiv=indiv) -> float:
                 return float(
@@ -165,4 +164,4 @@ class LaplacianMethod(FOCEMethod):
             return 1e10
 
 
-LOG2PI_LOCAL = math.log(2 * math.pi)
+

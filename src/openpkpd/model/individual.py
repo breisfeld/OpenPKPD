@@ -607,6 +607,51 @@ class IndividualModel:
             return [user_tmpl, *_NATIVE_ODE_TEMPLATES]
         return _NATIVE_ODE_TEMPLATES
 
+    def _select_template(
+        self,
+        pk_params: dict[str, float],
+        contract: "dict[str, Any]",
+        *,
+        probe_attr: str = "sens_probe_fn",
+        exclude_pkpd: bool = True,
+        check_pcmt: bool = False,
+    ) -> "_NativeOdeTemplate | None":
+        """Return the first template that satisfies all eligibility criteria.
+
+        Args:
+            pk_params:    Output of the PK callable for the current eta/theta.
+            contract:     Native ODE contract dict (contains ``n_compartments``
+                          and ``advan``).
+            probe_attr:   Name of the probe-function slot to require non-None
+                          (``"state_probe_fn"`` or ``"sens_probe_fn"``).
+            exclude_pkpd: When *True*, skip templates where ``is_pkpd`` is
+                          True (used for pure-PK sensitivity probes).
+            check_pcmt:   When *True*, enforce that the ``PCMT`` parameter in
+                          *pk_params* matches the template's output compartment
+                          index (used for the prediction / state probe path).
+
+        Returns:
+            The first matching :class:`_NativeOdeTemplate`, or *None*.
+        """
+        n_cmt = contract.get("n_compartments", -1)
+        contract_advan = contract.get("advan", 6)
+        for tmpl in self._iter_templates(pk_params):
+            if getattr(tmpl, probe_attr) is None:
+                continue
+            if exclude_pkpd and tmpl.is_pkpd:
+                continue
+            if tmpl.n_states != n_cmt:
+                continue
+            if tmpl.eligible_advans and contract_advan not in tmpl.eligible_advans:
+                continue
+            if any(name not in pk_params for name in tmpl.required_names):
+                continue
+            if check_pcmt and tmpl.is_pkpd and "PCMT" in pk_params:
+                if int(pk_params["PCMT"]) != tmpl.output_cmt_idx + 1:
+                    continue
+            return tmpl
+        return None
+
     def _build_native_ode_contract(self) -> dict[str, Any] | None:
         # Gate 1: need either a native Rust template or a user-compiled DES callable.
         from openpkpd.parser.code_compiler import CompiledDESCallable  # noqa: PLC0415
@@ -634,16 +679,17 @@ class IndividualModel:
                 col_upper = str(col).upper()
                 if col_upper in {"TIME", "DVID"}:
                     continue
-                # Allow time-constant covariates: pk_callable evaluated at
-                # baseline returns the same micro-params regardless of when it
-                # is called, so the Rust probe (which uses fixed theta) is
-                # correct for all observation times.
-                # Block only when values change over time (time-varying),
-                # since that would require piecewise ODE parameter updates.
+                # Only check numeric columns for time-constancy.  Non-numeric
+                # (categorical/string) columns are covariate codes that map to
+                # numeric values via the user's $PK callable; they cannot be
+                # time-varying in the continuous sense and should not disable
+                # the native path.
                 try:
+                    if not np.issubdtype(cov_df[col].dtype, np.number):
+                        continue
                     if cov_df[col].dropna().nunique() > 1:
                         return None
-                except Exception as _cov_e:
+                except (TypeError, AttributeError) as _cov_e:
                     logger.warning(
                         "IndividualModel %s failed at covariate-constancy check: %s",
                         getattr(self, "subject_id", "?"), _cov_e,
@@ -709,27 +755,12 @@ class IndividualModel:
         # n_states must equal n_compartments to prevent a model with more
         # parameters from incorrectly matching a simpler template whose
         # required_names happen to be a subset of the model's pk_params.
-        n_cmt = contract.get("n_compartments", -1)
-        contract_advan = contract.get("advan", 6)
-        template: _NativeOdeTemplate | None = None
-        for tmpl in self._iter_templates(pk_params):
-            if tmpl.state_probe_fn is None:
-                continue
-            if tmpl.n_states != n_cmt:
-                continue
-            # If the template is restricted to specific ADVAN codes, enforce it.
-            if tmpl.eligible_advans and contract_advan not in tmpl.eligible_advans:
-                continue
-            if any(name not in pk_params for name in tmpl.required_names):
-                continue
-            # For PK/PD templates: if PCMT is present it must match the
-            # template's PK output compartment (1-indexed).
-            if tmpl.is_pkpd and "PCMT" in pk_params:
-                if int(pk_params["PCMT"]) != tmpl.output_cmt_idx + 1:
-                    continue
-            template = tmpl
-            break
-
+        template = self._select_template(
+            pk_params, contract,
+            probe_attr="state_probe_fn",
+            exclude_pkpd=False,
+            check_pcmt=True,
+        )
         if template is None:
             return None
 
@@ -856,28 +887,7 @@ class IndividualModel:
             )
             return None
 
-        n_cmt = contract.get("n_compartments", -1)
-        contract_advan = contract.get("advan", 6)
-        # Resolve template — pick the first one that:
-        #   (a) has a sens probe, (b) is not mixed PK/PD,
-        #   (c) state count matches the model's compartment count,
-        #   (d) all required param names are present in pk_callable output, and
-        #   (e) the contract ADVAN is in the template's eligible_advans (if restricted).
-        # Checking (c) prevents a model with extra params (e.g. 8-param PKPD)
-        # from incorrectly matching a simpler template (e.g. 1cmt_oral).
-        template: _NativeOdeTemplate | None = None
-        for tmpl in self._iter_templates(pk_params_0):
-            if tmpl.sens_probe_fn is None or tmpl.is_pkpd:
-                continue
-            if tmpl.n_states != n_cmt:
-                continue
-            if tmpl.eligible_advans and contract_advan not in tmpl.eligible_advans:
-                continue
-            if any(name not in pk_params_0 for name in tmpl.required_names):
-                continue
-            template = tmpl
-            break
-
+        template = self._select_template(pk_params_0, contract)
         if template is None:
             return None
 
@@ -1015,24 +1025,7 @@ class IndividualModel:
             )
             return None
 
-        n_cmt = contract.get("n_compartments", -1)
-        contract_advan = contract.get("advan", 6)
-        # Resolve template — same criteria as native_advan6_prediction_eta_jacobian:
-        # n_states must match n_compartments to prevent greedy mis-matching;
-        # eligible_advans restricts analytical templates to their specific ADVANs.
-        template: _NativeOdeTemplate | None = None
-        for tmpl in self._iter_templates(pk_params_0):
-            if tmpl.sens_probe_fn is None or tmpl.is_pkpd:
-                continue
-            if tmpl.n_states != n_cmt:
-                continue
-            if tmpl.eligible_advans and contract_advan not in tmpl.eligible_advans:
-                continue
-            if any(name not in pk_params_0 for name in tmpl.required_names):
-                continue
-            template = tmpl
-            break
-
+        template = self._select_template(pk_params_0, contract)
         if template is None:
             return None
 
@@ -1215,21 +1208,7 @@ class IndividualModel:
             )
             return None
 
-        n_cmt = contract.get("n_compartments", -1)
-        contract_advan = contract.get("advan", 6)
-        template: _NativeOdeTemplate | None = None
-        for tmpl in self._iter_templates(pk_params_0):
-            if tmpl.sens_probe_fn is None or tmpl.is_pkpd:
-                continue
-            if tmpl.n_states != n_cmt:
-                continue
-            if tmpl.eligible_advans and contract_advan not in tmpl.eligible_advans:
-                continue
-            if any(name not in pk_params_0 for name in tmpl.required_names):
-                continue
-            template = tmpl
-            break
-
+        template = self._select_template(pk_params_0, contract)
         if template is None:
             return None
 

@@ -16,6 +16,7 @@ References:
 from __future__ import annotations
 
 import logging
+import warnings
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -118,6 +119,15 @@ class VPCEngine:
         """
         q_lo, q_mid, q_hi = _validate_quantiles(quantiles)
 
+        # Warn if too few replicates for stable 5th/95th percentile bands
+        if n_replicates < 200:
+            warnings.warn(
+                f"VPC: only {n_replicates} replicates — 5th/95th percentile bands have wide "
+                "sampling uncertainty. Consider n_replicates >= 200 for stable PI estimates.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+
         # Generate simulated data (includes REP=0 observed)
         sim_result = self.sim_engine.simulate(n_replicates=n_replicates)
         full_df = sim_result.simulated_df
@@ -132,10 +142,12 @@ class VPCEngine:
         if "MDV" in simulated_df.columns:
             simulated_df = simulated_df[simulated_df["MDV"] == 0].copy()
 
-        # Build time bins from observed data (before any correction so bin
-        # edges are based on the original observation times)
+        # Build time bins from union of observed and simulated times so that
+        # bins span the full time range (including sim-only extrapolation windows)
         obs_times = observed_df["TIME"].values
-        bins = _make_bins(obs_times, n_bins)
+        sim_times = simulated_df["TIME"].values if simulated_df is not None else np.array([])
+        all_times = np.concatenate([obs_times, sim_times])
+        bins = _make_bins(all_times, n_bins)
 
         # Apply prediction-correction if requested (needs bins for median PRED)
         if prediction_corrected:
@@ -509,6 +521,8 @@ def _apply_prediction_correction(
         if stratify_by is not None and stratify_by in df.columns and median_pred_per_stratum_bin:
             group_cols = [stratify_by, "_bin"]
         rows_corrected = []
+        n_dropped = 0
+        n_total = len(df)
         for keys, grp in df.groupby(group_cols, observed=True):
             if isinstance(keys, tuple):
                 strat_val, bin_idx = keys[0], keys[-1]
@@ -520,6 +534,7 @@ def _apply_prediction_correction(
                 bin_idx = keys
                 ref = median_pred_per_bin.get(int(bin_idx), np.nan)
             if not np.isfinite(ref) or ref == 0.0:
+                n_dropped += len(grp)
                 rows_corrected.append(grp)
                 continue
             grp = grp.copy()
@@ -527,6 +542,14 @@ def _apply_prediction_correction(
                 pred_vals = grp[pred_col].replace(0, np.nan)
                 grp["DV"] = grp["DV"] * ref / pred_vals
             rows_corrected.append(grp)
+
+        if n_dropped > 0:
+            pct = 100.0 * n_dropped / n_total
+            msg = f"pcVPC: {n_dropped} rows ({pct:.1f}%) skipped — reference PRED ≈ 0"
+            if pct > 1.0:
+                logger.warning(msg)
+            else:
+                logger.debug(msg)
 
         if not rows_corrected:
             return df.drop(columns=["_bin"])

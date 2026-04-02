@@ -149,20 +149,42 @@ class SandwichCovariance:
         # Compute S matrix (outer product of per-subject gradients)
         logger.debug("Computing S matrix (gradient outer products)...")
         S = np.zeros((n_params, n_params))
+        n_skipped = 0
+        skipped_ids: list[int] = []
         for subj_id in population_model.subject_ids():
             ofv_i = make_indiv_ofv(subj_id)
             try:
                 g_i = numerical_gradient(ofv_i, x_final, eps=self.eps)
                 S += np.outer(g_i, g_i)
-            except Exception:
-                pass
+            except Exception as e:
+                n_skipped += 1
+                skipped_ids.append(subj_id)
+                logger.warning("Sandwich: subject %s failed during S-matrix: %s", subj_id, e)
+
+        if n_skipped > 0:
+            warnings_module.warn(
+                f"Sandwich covariance: {n_skipped} subject(s) failed during S-matrix accumulation "
+                f"(IDs: {skipped_ids}). SE may be underestimated.",
+                CovarianceEstimationWarning,
+                stacklevel=2,
+            )
 
         # Sandwich estimator
         warnings: list[str] = []
+        cov_success = True
         try:
             R_inv = np.linalg.inv(repair_pd(R, epsilon=1e-10))
             cond = float(np.linalg.cond(R))
-            if cond > 1e6:
+            if cond > 1e10:
+                warnings.append(f"Condition number of R matrix is very large: {cond:.2e}")
+                warnings_module.warn(
+                    f"Covariance matrix condition number {cond:.2e} exceeds 1e10. "
+                    "Standard errors may be unreliable.",
+                    CovarianceEstimationWarning,
+                    stacklevel=2,
+                )
+                cov_success = False
+            elif cond > 1e6:
                 warnings.append(f"Condition number of R matrix is large: {cond:.2e}")
         except np.linalg.LinAlgError as exc:
             warnings.append(f"R matrix is singular: {exc}")
@@ -173,6 +195,7 @@ class SandwichCovariance:
             )
             R_inv = np.eye(n_params)
             cond = float("inf")
+            cov_success = False
 
         if self.matrix == "S":
             cov = S
@@ -202,10 +225,11 @@ class SandwichCovariance:
             r_matrix=R,
             s_matrix=S,
             condition_number=cond,
-            converged=len(warnings) == 0,
+            converged=cov_success and len(warnings) == 0,
             warnings=warnings,
             param_names=param_names,
         )
+        result.skipped_subject_ids = skipped_ids  # type: ignore[attr-defined]
         if warnings:
             logger.warning(f"Covariance step warnings: {warnings}")
         logger.info(f"Covariance step completed, condition number={cond:.2e}")

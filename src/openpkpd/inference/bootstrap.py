@@ -426,12 +426,15 @@ class BootstrapEngine:
             raise RuntimeError("All bootstrap replicates failed.  Check model specification.")
 
         n_total = self.n_boot
-        if n_success < max(1, int(0.1 * n_total)):
+        conv_rate = n_success / n_total
+        if conv_rate < 0.80:
             import warnings
             warnings.warn(
-                f"Bootstrap: only {n_success}/{n_total} replicates converged"
-                f" ({100 * n_success / n_total:.0f}%). Results may be unreliable.",
+                f"Bootstrap: only {n_success}/{n_total} replicates converged "
+                f"({100 * conv_rate:.0f}%). Confidence intervals may be unreliable. "
+                "Consider a simpler model or more iterations.",
                 RuntimeWarning,
+                stacklevel=2,
             )
 
         theta_samples = np.array([r.theta_final for r in successful])
@@ -473,6 +476,15 @@ class BootstrapEngine:
         rng = np.random.default_rng(rng_seed)
         original_ids = self.population_model.dataset.subject_ids()
         n_subj = len(original_ids)
+
+        if n_subj < 10:
+            import warnings
+            warnings.warn(
+                f"Bootstrap: only {n_subj} subjects — resampling with replacement "
+                "may produce severely imbalanced datasets. Consider stratified resampling.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
         # Sample IDs with replacement
         sampled_ids = rng.choice(original_ids, size=n_subj, replace=True)

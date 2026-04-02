@@ -349,7 +349,15 @@ def _decorrelate(pde_i: np.ndarray, Y_sim: np.ndarray) -> np.ndarray:
     K_avail = Y_complete.shape[1]
 
     if K_avail < n_i + 2:
-        # Too few replicates to estimate an n_i × n_i covariance: skip
+        import warnings
+
+        warnings.warn(
+            f"NPDE: insufficient replicates for subject with {n_i} observations "
+            f"(need \u2265 {n_i + 2}, have {K_avail}). "
+            "Decorrelation skipped; raw PDE values returned.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
         return pde_i.copy()
 
     # Correlation matrix of predictive distribution (n_i × n_i)

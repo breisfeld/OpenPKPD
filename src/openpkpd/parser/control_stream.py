@@ -8,6 +8,7 @@ accessor methods for downstream components.
 from __future__ import annotations
 
 import os
+import warnings
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
 
@@ -45,7 +46,7 @@ from openpkpd.parser.records.sizes import SizesRecord
 from openpkpd.parser.records.subroutines import SubroutinesRecord
 from openpkpd.parser.records.table import TableRecord
 from openpkpd.parser.records.theta import ThetaRecord
-from openpkpd.utils.errors import ParseError
+from openpkpd.utils.errors import ParseError, ParseWarning
 
 T = TypeVar("T", bound=BaseRecord)
 
@@ -292,6 +293,12 @@ def _build_record(raw: RawRecord) -> BaseRecord:
         # Patch record_name for UnknownRecord
         if isinstance(rec, UnknownRecord):
             rec.record_name = raw.name
+            warnings.warn(
+                f"Unrecognised record '${raw.name}' — skipped. "
+                "Check spelling or NONMEM version.",
+                ParseWarning,
+                stacklevel=2,
+            )
         return rec
     except Exception as exc:
         raise ParseError(

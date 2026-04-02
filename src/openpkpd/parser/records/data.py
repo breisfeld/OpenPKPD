@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import re
+import warnings
 from typing import Any
+
+from openpkpd.utils.errors import ParseWarning
 
 from .base import BaseRecord
 
@@ -26,6 +30,14 @@ class DataRecord(BaseRecord):
         m = re.match(r"""^["']?([^"'\s]+)["']?\s*(.*)$""", full.strip(), re.DOTALL)
         self.filename: str = m.group(1) if m else ""
         rest = m.group(2) if m else full
+
+        if self.filename and not os.path.exists(self.filename):
+            warnings.warn(
+                f"$DATA file '{self.filename}' does not exist. "
+                "This may be intentional if the path is relative to a run directory.",
+                ParseWarning,
+                stacklevel=2,
+            )
 
         self.ignore_char: str | None = None
         self.ignore_list: list[str] = []

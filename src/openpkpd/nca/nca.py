@@ -13,11 +13,14 @@ References:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -183,6 +186,13 @@ class NCAEngine:
                            regression. Must be >= 3.
         exclude_cmax:      If True, exclude the Cmax observation from the
                            terminal regression (standard practice).
+        lambda_z_criterion: Criterion used to select the terminal regression
+                           window. Options:
+                           'adjr2' (default) — maximise adjusted R².
+                           'aic' — minimise AIC = n·log(RSS/n) + 4.
+                           'bic' — minimise BIC = n·log(RSS/n) + 2·log(n).
+                           Both AIC and BIC are more parsimonious for small
+                           samples. Default 'adjr2' preserves prior behaviour.
     """
 
     def __init__(
@@ -193,13 +203,21 @@ class NCAEngine:
         lambda_z_method: Literal["auto", "manual"] = "auto",
         min_points_lambda: int = 3,
         exclude_cmax: bool = True,
+        lambda_z_criterion: Literal["adjr2", "aic", "bic"] = "adjr2",
     ) -> None:
         if min_points_lambda < 3:
             raise ValueError("min_points_lambda must be >= 3 for reliable regression.")
+        _valid_criteria = {"adjr2", "aic", "bic"}
+        if lambda_z_criterion not in _valid_criteria:
+            raise ValueError(
+                f"lambda_z_criterion {lambda_z_criterion!r} is not recognised. "
+                "Choose 'adjr2', 'aic', or 'bic'."
+            )
         self.auc_method = auc_method
         self.lambda_z_method = lambda_z_method
         self.min_points_lambda = min_points_lambda
         self.exclude_cmax = exclude_cmax
+        self.lambda_z_criterion = lambda_z_criterion
 
     # ------------------------------------------------------------------
     # Public API
@@ -362,7 +380,9 @@ class NCAEngine:
         n_pts = 0
 
         if len(t_term) >= self.min_points_lambda:
-            lambda_z, r_sq, n_pts = self._compute_lambda_z(t_term, c_term)
+            lambda_z, r_sq, n_pts = self._compute_lambda_z(
+                t_term, c_term, criterion=self.lambda_z_criterion
+            )
 
         params.lambda_z = lambda_z
         params.r_squared = r_sq
@@ -814,18 +834,24 @@ class NCAEngine:
         self,
         times: np.ndarray,
         conc: np.ndarray,
+        criterion: str = "adjr2",
     ) -> tuple[float, float, int]:
         """
         Estimate terminal elimination rate constant lambda_z.
 
         Uses log-linear regression (ln(C) = ln(C0) - lambda_z * t) on the
-        terminal phase. Automatically selects the regression window that
-        maximises the adjusted R² while using at least min_points_lambda
-        data points.
+        terminal phase. Automatically selects the regression window by
+        maximising adjusted R² (default) or minimising AIC/BIC, using at
+        least min_points_lambda data points.
+
+        Single numpy-based implementation using suffix cumulative sums
+        (two-pass corrected Sxx/Sxy/Syy) to avoid catastrophic cancellation
+        for all n.
 
         Args:
-            times: Times in the terminal phase (post-Cmax), positive concs only.
-            conc:  Concentrations corresponding to times (all > 0).
+            times:     Times in the terminal phase (post-Cmax), positive concs only.
+            conc:      Concentrations corresponding to times (all > 0).
+            criterion: Selection criterion — 'adjr2' (default), 'aic', or 'bic'.
 
         Returns:
             Tuple (lambda_z, r_squared, n_points).
@@ -836,63 +862,12 @@ class NCAEngine:
         if n < self.min_points_lambda:
             return float("nan"), float("nan"), 0
 
-        if n <= 16:
-            log_conc = np.log(conc)
-            if not (np.all(np.isfinite(times)) and np.all(np.isfinite(log_conc))):
-                return float("nan"), float("nan"), 0
-
-            rev_times = times[::-1]
-            rev_log_conc = log_conc[::-1]
-            suffix_sum_x = np.cumsum(rev_times)
-            suffix_sum_y = np.cumsum(rev_log_conc)
-            suffix_sum_xx = np.cumsum(rev_times * rev_times)
-            suffix_sum_yy = np.cumsum(rev_log_conc * rev_log_conc)
-            suffix_sum_xy = np.cumsum(rev_times * rev_log_conc)
-
-            best_r2_adj = -np.inf
-            best_lambda = float("nan")
-            best_r2 = float("nan")
-            best_n = 0
-            for k in range(self.min_points_lambda, n + 1):
-                idx = k - 1
-                n_points = float(k)
-
-                sum_x = float(suffix_sum_x[idx])
-                sum_y = float(suffix_sum_y[idx])
-                sum_xx = float(suffix_sum_xx[idx])
-                sum_yy = float(suffix_sum_yy[idx])
-                sum_xy = float(suffix_sum_xy[idx])
-
-                sxx = sum_xx - (sum_x * sum_x) / n_points
-                if sxx <= 0.0 or not np.isfinite(sxx):
-                    continue
-                sxy = sum_xy - (sum_x * sum_y) / n_points
-                slope = sxy / sxx
-                if slope >= 0.0 or not np.isfinite(slope):
-                    continue
-                syy = sum_yy - (sum_y * sum_y) / n_points
-                if syy <= 0.0 or not np.isfinite(syy):
-                    continue
-                r2 = (sxy * sxy) / (sxx * syy)
-                if r2 < 0.0:
-                    r2 = 0.0
-                elif r2 > 1.0:
-                    r2 = 1.0
-                r2_adj = 1.0 - (1.0 - r2) * (k - 1) / (k - 2) if k > 2 else r2
-                if r2_adj > best_r2_adj:
-                    best_r2_adj = r2_adj
-                    best_lambda = -slope
-                    best_r2 = r2
-                    best_n = k
-
-            if not np.isfinite(best_lambda) or best_lambda <= 0:
-                return float("nan"), float("nan"), 0
-            return float(best_lambda), float(best_r2), best_n
-
         log_conc = np.log(conc)
         if not (np.all(np.isfinite(times)) and np.all(np.isfinite(log_conc))):
             return float("nan"), float("nan"), 0
 
+        # Build suffix cumulative sums over reversed arrays so that index k-1
+        # corresponds to the window of the last k points.
         rev_times = times[::-1]
         rev_log_conc = log_conc[::-1]
         suffix_sum_x = np.cumsum(rev_times)
@@ -911,9 +886,21 @@ class NCAEngine:
         sum_yy = suffix_sum_yy[v_idx]
         sum_xy = suffix_sum_xy[v_idx]
 
+        # Two-pass corrected: Sxx = sum(xi²) - (sum_x)²/n
         sxx = sum_xx - (sum_x * sum_x) / v_n_points
         sxy = sum_xy - (sum_x * sum_y) / v_n_points
         syy = sum_yy - (sum_y * sum_y) / v_n_points
+
+        # Warn for any window where sxx is near-zero relative to scale of t^2
+        t_scale = np.maximum(np.abs(sum_xx / v_n_points), 1.0)
+        near_zero = np.isfinite(sxx) & (sxx < 1e-15 * t_scale)
+        for ki, sxx_i in zip(k_values[near_zero], sxx[near_zero]):
+            logger.warning(
+                "lambda_z: time points in window of size %d are too closely "
+                "clustered for reliable estimation (sxx=%g); slope set to 0.",
+                int(ki),
+                float(sxx_i),
+            )
 
         valid = np.isfinite(sxx) & np.isfinite(sxy) & np.isfinite(syy) & (sxx > 0.0) & (syy > 0.0)
         v_slope: np.ndarray = np.full_like(sxx, np.nan, dtype=float)
@@ -926,14 +913,40 @@ class NCAEngine:
         v_r2[valid] = (sxy[valid] * sxy[valid]) / (sxx[valid] * syy[valid])
         v_r2[valid] = np.minimum(1.0, np.maximum(0.0, v_r2[valid]))
 
-        v_r2_adj: np.ndarray = np.full_like(sxx, -np.inf, dtype=float)
-        v_r2_adj[valid] = v_r2[valid]
-        adjust_mask = valid & (k_values > 2)
-        v_r2_adj[adjust_mask] = 1.0 - (1.0 - v_r2[adjust_mask]) * (k_values[adjust_mask] - 1) / (
-            k_values[adjust_mask] - 2
-        )
+        # Residual sum of squares: RSS = syy * (1 - r²)
+        v_rss: np.ndarray = np.full_like(sxx, np.nan, dtype=float)
+        v_rss[valid] = syy[valid] * (1.0 - v_r2[valid])
 
-        best_pos = int(np.argmax(v_r2_adj))
+        # Selection criterion — higher is better (adjr2) or lower is better
+        # (aic/bic converted to negative so argmax works uniformly).
+        v_criterion: np.ndarray = np.full_like(sxx, -np.inf, dtype=float)
+
+        if criterion == "adjr2":
+            # adj-R² = 1 − (RSS/(n−2)) / (TSS/(n−1));  for k==2, use r²
+            v_criterion[valid] = v_r2[valid]
+            adjust_mask = valid & (k_values > 2)
+            v_criterion[adjust_mask] = 1.0 - (1.0 - v_r2[adjust_mask]) * (
+                k_values[adjust_mask] - 1
+            ) / (k_values[adjust_mask] - 2)
+        elif criterion == "aic":
+            # AIC = n·log(RSS/n) + 2·2  (2 parameters: slope + intercept)
+            # We store −AIC so that argmax selects the minimum AIC.
+            rss_safe = np.where(valid & (v_rss > 0.0), v_rss, np.nan)
+            aic = v_n_points * np.log(rss_safe / v_n_points) + 4.0
+            v_criterion[valid] = -aic[valid]
+        elif criterion == "bic":
+            # BIC = n·log(RSS/n) + 2·log(n)
+            # We store −BIC so that argmax selects the minimum BIC.
+            rss_safe = np.where(valid & (v_rss > 0.0), v_rss, np.nan)
+            bic = v_n_points * np.log(rss_safe / v_n_points) + 2.0 * np.log(v_n_points)
+            v_criterion[valid] = -bic[valid]
+        else:
+            raise ValueError(
+                f"lambda_z_criterion {criterion!r} is not recognised. "
+                "Choose 'adjr2', 'aic', or 'bic'."
+            )
+
+        best_pos = int(np.argmax(v_criterion))
         best_lambda = float(-v_slope[best_pos])
         best_r2 = float(v_r2[best_pos])
         best_n = int(k_values[best_pos])

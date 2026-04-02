@@ -18,6 +18,7 @@ References:
 from __future__ import annotations
 
 import math
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -44,6 +45,11 @@ def blq_log_likelihood(
           as M2 but conceptually represents full likelihood censoring; the
           distinction between M2 and M3 lies in implementation context
           (M2 sets MDV=1 for non-first BLQ; M3 applies uniformly).
+          Note: M3 assumes observations are conditionally independent given
+          individual parameters (η). Within-subject residual correlation is
+          not modelled. This is the same limitation as NONMEM's M3 method
+          (Beal, 2001). For data with strong within-subject correlation
+          structure, this assumption may produce biased sigma estimates.
     - M4: M3 + normalization for truncated normal (Y >= 0).
           log P(Y < LLOQ | Y >= 0) = log [Phi(z_lloq) - Phi(z_0)] where
           z = (x - mu) / sigma, with re-normalization by 1 - Phi(-mu/sigma).
@@ -242,4 +248,37 @@ def flag_blq_observations(
     dv = pd.to_numeric(df.get(dv_col, pd.Series(np.nan, index=df.index)), errors="coerce")
     blq_mask = (dv < lloq) & lloq.notna() & dv.notna()
     df[blq_flag_col] = blq_mask.astype(int)
+    return df
+
+
+def inject_scalar_lloq(
+    df: pd.DataFrame,
+    lloq_value: float,
+    lloq_col: str = "LLOQ",
+) -> pd.DataFrame:
+    """
+    Inject a scalar LLOQ value as a new column (or overwrite an existing one).
+
+    If ``lloq_col`` already exists with non-uniform values, a ``UserWarning``
+    is raised to alert the caller that per-observation LLOQ data will be lost.
+
+    Args:
+        df:         Input DataFrame.
+        lloq_value: Scalar LLOQ to apply uniformly.
+        lloq_col:   Column name to create/overwrite (default ``"LLOQ"``).
+
+    Returns:
+        A new DataFrame with the LLOQ column set to ``lloq_value``.
+    """
+    if lloq_col in df.columns:
+        existing = df[lloq_col].dropna()
+        if existing.nunique() > 1:
+            warnings.warn(
+                "Scalar LOQ is overwriting a per-observation LLOQ column with non-uniform values. "
+                "Per-observation LLOQ data will be lost.",
+                UserWarning,
+                stacklevel=2,
+            )
+    df = df.copy()
+    df[lloq_col] = lloq_value
     return df

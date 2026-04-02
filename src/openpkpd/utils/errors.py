@@ -129,3 +129,7 @@ class CompilerError(PyNONMEMError):
 
 class OutputError(PyNONMEMError):
     """Raised when writing output files fails."""
+
+
+class ParseWarning(UserWarning):
+    """Emitted when a control stream record contains a suspicious but parseable construct."""

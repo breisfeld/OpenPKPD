@@ -45,10 +45,18 @@ class OmegaRecord(BaseRecord):
             if not remaining:
                 break
 
-            # SAME keyword
+            # SAME keyword (bare, without preceding BLOCK(n))
             m_same = re.match(r"\bSAME\b", remaining, re.IGNORECASE)
             if m_same:
-                self.specs.append(OmegaSpec(block_size=1, values=[], same=True))
+                prior = [s for s in self.specs if not s.same]
+                if prior:
+                    # Within-record SAME: inherit size from the most recent prior spec
+                    block_size = prior[-1].block_size
+                else:
+                    # Standalone-record SAME: cross-record reference (NONMEM IOV pattern).
+                    # We cannot validate cross-record size here; use block_size=1 as placeholder.
+                    block_size = 1
+                self.specs.append(OmegaSpec(block_size=block_size, values=[], same=True))
                 remaining = remaining[m_same.end() :]
                 continue
 
@@ -60,6 +68,18 @@ class OmegaRecord(BaseRecord):
                 # Check for SAME after BLOCK(n)
                 m_same2 = re.match(r"\bSAME\b", remaining, re.IGNORECASE)
                 if m_same2:
+                    prior = [s for s in self.specs if not s.same]
+                    if prior:
+                        # Within-record BLOCK(n) SAME: validate size matches prior spec
+                        if prior[-1].block_size != n:
+                            raise ParseError(
+                                f"$OMEGA BLOCK({n}) SAME: size mismatch with prior block of size "
+                                f"{prior[-1].block_size}"
+                            )
+                    else:
+                        # Standalone-record BLOCK(n) SAME: cross-record reference (valid NONMEM).
+                        # Cannot validate cross-record size here; accept as-is.
+                        pass
                     self.specs.append(OmegaSpec(block_size=n, values=[], same=True))
                     remaining = remaining[m_same2.end() :]
                     continue

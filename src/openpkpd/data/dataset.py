@@ -128,6 +128,17 @@ class NONMEMDataset:
                 columns=[c for c in raw_df.columns if str(c).startswith("_DROP_")], errors="ignore"
             )
             column_map = {str(old): str(new) for old, new in rename.items()}
+
+            # When $INPUT is supplied the CSV is read with header=None, so a
+            # "ID,TIME,AMT,..." header row in the data file is treated as the
+            # first data row.  Detect this by comparing the first row's values
+            # (upper-cased, stripped) to the column names and drop it when they
+            # match — a common NONMEM convention for embedded header rows.
+            if len(raw_df) > 0:
+                first_row_strs = [str(v).strip().upper() for v in raw_df.iloc[0]]
+                col_names_upper = [c.strip().upper() for c in raw_df.columns]
+                if first_row_strs == col_names_upper:
+                    raw_df = raw_df.iloc[1:].reset_index(drop=True)
         else:
             # Normalise header names to uppercase
             rename = {c: c.upper() for c in raw_df.columns}

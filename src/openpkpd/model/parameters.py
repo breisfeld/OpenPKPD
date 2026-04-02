@@ -58,7 +58,7 @@ class OmegaSpec:
     """Specification for an OMEGA block."""
 
     block_size: int  # 1 = scalar; >1 = BLOCK(n)
-    values: list[float]  # Lower-triangle column-major (NONMEM BLOCK convention)
+    values: list[float]  # Lower-triangle row-major (NONMEM BLOCK convention)
     fixed: bool = False
     same: bool = False  # SAME = reuse previous block (IOV)
     label: str | None = None
@@ -72,12 +72,16 @@ class OmegaSpec:
             )
 
     def to_matrix(self) -> np.ndarray:
-        """Expand lower-triangle values to full symmetric matrix."""
+        """Expand lower-triangle values to full symmetric matrix.
+
+        Values are stored in row-major lower-triangle order (NONMEM convention):
+        v11; v21 v22; v31 v32 v33; ...
+        """
         n = self.block_size
         mat = np.zeros((n, n))
         idx = 0
-        for col in range(n):
-            for row in range(col, n):
+        for row in range(n):
+            for col in range(row + 1):
                 mat[row, col] = self.values[idx]
                 mat[col, row] = self.values[idx]
                 idx += 1
@@ -102,12 +106,16 @@ class SigmaSpec:
             )
 
     def to_matrix(self) -> np.ndarray:
-        """Expand lower-triangle values to full symmetric matrix."""
+        """Expand lower-triangle values to full symmetric matrix.
+
+        Values are stored in row-major lower-triangle order (NONMEM convention):
+        v11; v21 v22; v31 v32 v33; ...
+        """
         n = self.block_size
         mat = np.zeros((n, n))
         idx = 0
-        for col in range(n):
-            for row in range(col, n):
+        for row in range(n):
+            for col in range(row + 1):
                 mat[row, col] = self.values[idx]
                 mat[col, row] = self.values[idx]
                 idx += 1

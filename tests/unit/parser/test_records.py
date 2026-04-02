@@ -75,6 +75,44 @@ class TestOmegaRecord:
         assert mat[0, 1] == pytest.approx(0.01)  # symmetric
         assert mat[1, 1] == pytest.approx(0.3)
 
+    def test_block3_to_matrix_row_major(self):
+        """3×3 BLOCK: verify values map to the correct matrix positions (row-major).
+
+        NONMEM input:
+          0.1
+          0.02 0.2
+          0.03 0.04 0.3
+        Row-major order: values = [0.1, 0.02, 0.2, 0.03, 0.04, 0.3]
+        Expected matrix:
+          [[0.1,  0.02, 0.03],
+           [0.02, 0.2,  0.04],
+           [0.03, 0.04, 0.3 ]]
+        """
+        rec = OmegaRecord("BLOCK(3)\n0.1\n0.02 0.2\n0.03 0.04 0.3")
+        mat = rec.specs[0].to_matrix()
+        assert mat.shape == (3, 3)
+        assert mat[0, 0] == pytest.approx(0.1)
+        assert mat[1, 0] == pytest.approx(0.02)
+        assert mat[0, 1] == pytest.approx(0.02)  # symmetric
+        assert mat[1, 1] == pytest.approx(0.2)
+        assert mat[2, 0] == pytest.approx(0.03)
+        assert mat[0, 2] == pytest.approx(0.03)  # symmetric
+        assert mat[2, 1] == pytest.approx(0.04)
+        assert mat[1, 2] == pytest.approx(0.04)  # symmetric
+        assert mat[2, 2] == pytest.approx(0.3)
+
+    def test_block3_roundtrip(self):
+        """Parsing a 3×3 BLOCK and re-serializing must reproduce the original text."""
+        body = "BLOCK(3)\n  0.1\n  0.02 0.2\n  0.03 0.04 0.3"
+        rec = OmegaRecord(body)
+        out = rec.to_string()
+        # The round-tripped record should parse back to the identical matrix
+        rec2 = OmegaRecord(out.replace("$OMEGA", "").strip())
+        mat1 = rec.specs[0].to_matrix()
+        mat2 = rec2.specs[0].to_matrix()
+        import numpy as np
+        assert np.allclose(mat1, mat2)
+
 
 @pytest.mark.unit
 class TestEstimationRecord:

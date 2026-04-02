@@ -102,12 +102,13 @@ def block_diag(*mats: np.ndarray) -> np.ndarray:
 def omega_from_lower_triangle(values: list[float], n: int) -> np.ndarray:
     """
     Reconstruct an n×n symmetric matrix from lower-triangle values
-    (column-major order, as in NONMEM $OMEGA BLOCK specification).
+    (row-major order, as in NONMEM $OMEGA BLOCK specification):
+    v11; v21 v22; v31 v32 v33; ...
     """
     mat = np.zeros((n, n))
     idx = 0
-    for col in range(n):
-        for row in range(col, n):
+    for row in range(n):
+        for col in range(row + 1):
             mat[row, col] = values[idx]
             mat[col, row] = values[idx]
             idx += 1
@@ -115,11 +116,15 @@ def omega_from_lower_triangle(values: list[float], n: int) -> np.ndarray:
 
 
 def lower_triangle_values(mat: np.ndarray) -> list[float]:
-    """Extract lower-triangle values (column-major) from a symmetric matrix."""
+    """Extract lower-triangle values (row-major) from a symmetric matrix.
+
+    Returns values in NONMEM BLOCK convention:
+    v11; v21 v22; v31 v32 v33; ...
+    """
     n = mat.shape[0]
     vals: list[float] = []
-    for col in range(n):
-        for row in range(col, n):
+    for row in range(n):
+        for col in range(row + 1):
             vals.append(float(mat[row, col]))
     return vals
 

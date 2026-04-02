@@ -35,6 +35,9 @@ from typing import Any
 import numpy as np
 
 from openpkpd.estimation.base import EstimationMethod, EstimationResult
+from openpkpd.utils.logging import get_logger
+
+logger = get_logger("estimation.nonparametric")
 
 # ---------------------------------------------------------------------------
 # Extended result dataclass
@@ -219,8 +222,13 @@ class NonparametricMethod(EstimationMethod):
             self.n_support_points if self.n_support_points is not None else len(subject_ids_ordered)
         )
 
-        # If fewer subjects than requested support points, use all EBEs
+        # If fewer subjects than requested support points, truncate and log
         if n_support > len(subject_ids_ordered):
+            logger.info(
+                "Nonparametric: requested %d support points but only %d subjects available; "
+                "truncating to %d.",
+                n_support, len(subject_ids_ordered), len(subject_ids_ordered),
+            )
             n_support = len(subject_ids_ordered)
 
         support_points = support_points_init[:n_support]
@@ -415,10 +423,21 @@ class NonparametricMethod(EstimationMethod):
         else:
             n_workers = self.n_parallel if self.n_parallel > 0 else None
             with ThreadPoolExecutor(max_workers=n_workers) as pool:
-                rows = list(pool.map(_compute_subject_row, subject_ids))
+                futures = {pool.submit(_compute_subject_row, sid): sid for sid in subject_ids}
+                rows = []
+                for future in futures:
+                    sid = futures[future]
+                    try:
+                        rows.append(future.result())
+                    except Exception as e:
+                        logger.warning("Nonparametric: worker failed for subject %s: %s", sid, e)
+                        rows.append(None)
 
         for i, row in enumerate(rows):
-            L_matrix[i, :] = row
+            if row is None:
+                L_matrix[i, :] = 1.0 / K
+            else:
+                L_matrix[i, :] = row
 
         # Guard against all-zero rows
         row_sums = L_matrix.sum(axis=1)

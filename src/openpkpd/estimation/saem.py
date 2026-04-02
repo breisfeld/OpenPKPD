@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import math
 import time
+import warnings as _warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
@@ -60,6 +61,10 @@ from openpkpd.utils.errors import WarningCode, WarningSeverity
 from openpkpd.utils.logging import get_logger
 
 logger = get_logger("estimation.saem")
+
+
+class ConvergenceWarning(UserWarning):
+    """Warning emitted when SAEM phase-1 mixing or phase-2 convergence is suspect."""
 
 
 class SAEMMethod(EstimationMethod):
@@ -101,7 +106,13 @@ class SAEMMethod(EstimationMethod):
         n_parallel: int = 1,
         phi_tol: float = 1e-3,
         iteration_callback=None,
+        alpha: float = 0.7,
     ) -> None:
+        if not (0.5 < alpha <= 1.0):
+            raise ValueError(
+                f"SAEM SA exponent alpha={alpha} must be in (0.5, 1.0]"
+            )
+        self.alpha = alpha
         self.n_iter_phase1 = n_iter_phase1
         self.n_iter_phase2 = n_iter_phase2
         self.n_chains = n_chains
@@ -134,6 +145,26 @@ class SAEMMethod(EstimationMethod):
         denom = np.abs(window_old) + 1e-8
         rel_change = float(np.max(np.abs(window_new - window_old) / denom))
         return rel_change < phi_tol, rel_change
+
+    def _check_phase1_mixing(self, ph1_param_history: list[np.ndarray]) -> None:
+        """
+        Emit a ConvergenceWarning if Phase 1 appears not to have mixed.
+
+        Uses the same window-comparison logic as _check_phase2_convergence,
+        applied to the last n_burn/4 iterations of Phase 1 history.
+        """
+        n_burn = self.n_iter_phase1
+        window = max(1, n_burn // 4)
+        _converged, rel_change = self._check_phase2_convergence(
+            ph1_param_history, self.phi_tol, window
+        )
+        if not math.isnan(rel_change) and rel_change >= self.phi_tol:
+            _warnings.warn(
+                "SAEM Phase 1 may not have mixed: parameter running mean was still changing "
+                f"by {rel_change:.2%} at Phase 1 end. Consider increasing n_burn.",
+                ConvergenceWarning,
+                stacklevel=3,
+            )
 
     @staticmethod
     def _n_free_theta(params: ParameterSet) -> int:
@@ -178,9 +209,22 @@ class SAEMMethod(EstimationMethod):
         """
         new_chains = chains.copy()
         n_accepted = 0
+        # Pre-compute Cholesky factor for the MH proposal covariance (scale^2 * omega).
+        # This samples from MVN(0, scale^2 * omega) which respects correlations.
+        try:
+            L_chol = np.linalg.cholesky(scale**2 * omega)
+            _use_chol = True
+        except np.linalg.LinAlgError:
+            # Near-singular omega: fall back to diagonal proposal
+            _use_chol = False
+            _diag_std = np.sqrt(np.maximum(np.diag(omega), 0.0)) * scale
+
         for c in range(n_chains):
             eta_current = new_chains[c]
-            eta_prop = eta_current + scale * rng.standard_normal(n_eta)
+            if _use_chol:
+                eta_prop = eta_current + L_chol @ rng.standard_normal(n_eta)
+            else:
+                eta_prop = eta_current + _diag_std * rng.standard_normal(n_eta)
             try:
                 obj_current = indiv.obj_eta(eta_current, theta, omega, sigma, trans=trans)
                 obj_prop = indiv.obj_eta(eta_prop, theta, omega, sigma, trans=trans)
@@ -283,11 +327,31 @@ class SAEMMethod(EstimationMethod):
         ph2_param_history: list[np.ndarray] = []
         ph2_theta_history: list[np.ndarray] = []
         ph2_sigma_history: list[np.ndarray] = []
+        # Phase-1 parameter history for mixing diagnostic
+        ph1_param_history: list[np.ndarray] = []
         converged = False
+
+        # Per-subject MH acceptance rate warning tracking (emit at most once per phase)
+        _warned_low: set[int] = set()
+        _warned_high: set[int] = set()
+
+        prev_is_phase1 = True
 
         for k in range(K_total):
             is_phase1 = k < self.n_iter_phase1
-            gamma = 1.0 if is_phase1 else (k - self.n_iter_phase1 + 1) ** (-0.7)
+
+            # Detect Phase 1 → Phase 2 transition and check Phase 1 mixing
+            if prev_is_phase1 and not is_phase1:
+                _warned_low = set()
+                _warned_high = set()
+                self._check_phase1_mixing(ph1_param_history)
+
+            prev_is_phase1 = is_phase1
+
+            # Phase 2 step counter: resets at Phase 2 onset (step 1 on first Phase 2 iter).
+            # At k == n_iter_phase1 (first Phase 2 step): counter = 1 → gamma = 1^(-alpha) = 1.0
+            # At k == n_iter_phase1 + 9 (10th Phase 2 step): counter = 10 → gamma = 10^(-alpha)
+            gamma = 1.0 if is_phase1 else (k - self.n_iter_phase1 + 1) ** (-self.alpha)
 
             # E-step: multi-chain MH sampling per subject (Rao-Blackwellisation)
             # ss_omega_sum: accumulates Σ_i (1/C Σ_c η_{i,c} η_{i,c}^T)
@@ -324,10 +388,29 @@ class SAEMMethod(EstimationMethod):
             for sid, new_chains, ss_omega_i, n_accepted in results:
                 eta_chains[sid] = new_chains
                 ss_omega_sum += ss_omega_i
+                accept_rate = n_accepted / n_chains
                 if adapt_scale:
-                    accept_rate = n_accepted / n_chains
                     mh_scales[sid] *= 1.2 if accept_rate > self.mh_accept_target else 0.8
                     mh_scales[sid] = float(np.clip(mh_scales[sid], 0.05, 5.0))
+                # MH acceptance rate extreme warnings (at most once per subject per phase)
+                if accept_rate < 0.05:
+                    if sid not in _warned_low:
+                        _warned_low.add(sid)
+                        logger.warning(
+                            "SAEM: subject %s MH acceptance rate %.1f%% is very low — "
+                            "chain may be stuck. "
+                            "Consider reducing mh_scale or increasing n_chains.",
+                            sid, accept_rate * 100,
+                        )
+                elif accept_rate > 0.95:
+                    if sid not in _warned_high:
+                        _warned_high.add(sid)
+                        logger.warning(
+                            "SAEM: subject %s MH acceptance rate %.1f%% is very high — "
+                            "proposals are too small. "
+                            "Consider increasing mh_scale.",
+                            sid, accept_rate * 100,
+                        )
 
             # M-step: update omega (closed form), theta (numerical), sigma (numerical)
             # OMEGA M-step: Ω = (1/N) Σ_i ss_omega_i  (RB-averaged over chains)
@@ -510,6 +593,11 @@ class SAEMMethod(EstimationMethod):
             if k % self.print_interval == 0:
                 phase = "P1" if is_phase1 else "P2"
                 logger.info(f"  SAEM iter {k:4d} [{phase}]  OFV={ofv:.4f}  γ={gamma:.4f}")
+
+            # Track Phase-1 parameter history for mixing diagnostic
+            if is_phase1:
+                phi1 = np.concatenate([theta, np.diag(omega)])
+                ph1_param_history.append(phi1)
 
             # Phase-2 convergence criterion: parameter stability over a window
             if not is_phase1:

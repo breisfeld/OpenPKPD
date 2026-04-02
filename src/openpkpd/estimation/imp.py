@@ -78,7 +78,7 @@ class IMPMethod(EstimationMethod):
         self._subj_seeds: dict[int, int] = {}
         self._last_ess_by_subject: dict[int, float] = {}
         self._warm_start_diagnostics: dict[str, Any] = {}
-        self._proposal_cache: dict[tuple[int, bytes], tuple[np.ndarray, np.ndarray]] = {}
+        self._proposal_cache: dict[tuple[int, bytes, bytes], tuple[np.ndarray, np.ndarray]] = {}
         self._proposal_warm_start: dict[int, np.ndarray] = {}
         self._proposal_cache_lock = threading.Lock()
         # Populated during estimate(): list of (subj_id, ess) for low-ESS subjects
@@ -336,7 +336,19 @@ class IMPMethod(EstimationMethod):
         """
         indiv = population_model.individual_model(subj_id)
         n_eta = params.n_eta()
-        cache_key = (subj_id, self._proposal_cache_key(params))
+        # Include a hash of the subject's observation vector so that if data
+        # changes between calls (e.g. simulation study), a stale proposal is
+        # not reused.
+        _obs_data = getattr(indiv, "observations", None) or getattr(indiv, "y", None)
+        if _obs_data is not None:
+            try:
+                obs_array = np.asarray(_obs_data, dtype=float)
+                obs_hash = obs_array.tobytes()
+            except Exception:
+                obs_hash = b""
+        else:
+            obs_hash = b""
+        cache_key = (subj_id, self._proposal_cache_key(params), obs_hash)
         with self._proposal_cache_lock:
             cached_proposal = self._proposal_cache.get(cache_key)
             eta0 = np.asarray(
@@ -402,6 +414,11 @@ class IMPMethod(EstimationMethod):
                     method="L-BFGS-B",
                     options={"maxiter": 100, "ftol": 1e-8},
                 )
+            if not getattr(map_result, 'success', True):
+                logger.warning(
+                    "IMPMAP: MAP did not converge for subject %s: %s",
+                    subj_id, getattr(map_result, 'message', 'no message')
+                )
             eta_map = np.asarray(map_result.x, dtype=float)
 
             eta_hessian = getattr(indiv, "eta_objective_hessian", None)
@@ -422,6 +439,17 @@ class IMPMethod(EstimationMethod):
             try:
                 V_prop = 2.0 * np.linalg.inv(H)
                 V_prop = repair_pd(V_prop, epsilon=1e-8)
+                # Verify the repaired matrix is actually PD before using it as a
+                # proposal covariance; fall back to diagonal if not.
+                try:
+                    np.linalg.cholesky(V_prop)
+                except np.linalg.LinAlgError:
+                    logger.warning(
+                        "IMP: repaired proposal covariance for subject %s is still not PD; "
+                        "falling back to diagonal",
+                        subj_id,
+                    )
+                    V_prop = np.diag(np.diag(V_prop))
             except Exception:
                 V_prop = params.omega.copy()
 
@@ -486,6 +514,18 @@ class IMPMethod(EstimationMethod):
             # Thread-safe append — Python list.append is GIL-protected
             self._low_ess_subjects.append((subj_id, ess))
 
+        # IMP degenerate collapse check: high ESS with near-zero log-weight range
+        # indicates all proposals are equally likely (proposal matches prior, not posterior).
+        n_samples = self.isample
+        log_w_range = float(np.max(log_weights) - np.min(log_weights))
+        if log_w_range < 0.1 and ess > 0.9 * n_samples:
+            logger.warning(
+                "IMP: subject %s importance weights may have collapsed — "
+                "log-weight range=%.4f, ESS=%.1f/%.0f. "
+                "Proposal may not match the posterior.",
+                subj_id, log_w_range, ess, n_samples,
+            )
+
         return float(log_marg)
 
     @staticmethod
@@ -549,6 +589,11 @@ class IMPMethod(EstimationMethod):
             else:
                 res = minimize(
                     obj, np.zeros(params.n_eta()), method="L-BFGS-B", options={"maxiter": 100}
+                )
+            if not getattr(res, 'success', True):
+                logger.warning(
+                    "IMPMAP: MAP did not converge for subject %s: %s",
+                    sid, getattr(res, 'message', 'no message')
                 )
             eta_hat[sid] = res.x
         return eta_hat

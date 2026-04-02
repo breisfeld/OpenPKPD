@@ -57,7 +57,10 @@ fn rhs_transit_1cmt_pkpd(
     let a3 = y[2];
     let a4 = y[3];
     let conc = a3 / theta.v;
-    let pd = 1.0 - theta.emax * conc / (theta.ec50 + conc);
+    // Clamp emax to [0, 1] so pd ∈ [0, 1]; emax > 1 produces negative production
+    // which is unphysical and can destabilise the ODE solver.
+    let emax_clamped = theta.emax.clamp(0.0, 1.0);
+    let pd = 1.0 - emax_clamped * conc / (theta.ec50 + conc);
 
     *dy = [
         -theta.ktr * a1,
@@ -236,11 +239,12 @@ fn neg2ll_obs_loop(
     let mask = obs_mask.as_array();
     let lloq = lloq.as_array();
 
-    let n = mask.len()
-        .min(dv.len())
-        .min(pred.len())
-        .min(var.len())
-        .min(lloq.len());
+    let n = dv.len();
+    if pred.len() != n || var.len() != n || mask.len() != n || lloq.len() != n {
+        // Mismatched array lengths: return a large penalty value rather than
+        // silently computing on a truncated slice, which would hide caller bugs.
+        return 1e30_f64;
+    }
 
     let mut ll = 0.0_f64;
     let mut seen_blq_m6 = false;

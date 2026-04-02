@@ -87,11 +87,20 @@ class LikelihoodMixin:
             lloq_arr = _build_lloq_array(active_lloq, n)
             blq_code = _BLQ_METHOD_CODE.get(active_method, 0)
             dv_arr = np.asarray(dv, dtype=np.float64)
+            pred_arr = np.asarray(pred, dtype=np.float64)
+            var_arr = np.asarray(var, dtype=np.float64)
+            mask_arr = np.asarray(obs_mask, dtype=bool)
+            if not (len(pred_arr) == len(var_arr) == len(mask_arr) == len(lloq_arr) == n):
+                raise ValueError(
+                    f"neg2ll_obs_loop: array length mismatch — "
+                    f"dv={n}, pred={len(pred_arr)}, var={len(var_arr)}, "
+                    f"mask={len(mask_arr)}, lloq={len(lloq_arr)}"
+                )
             return _neg2ll_obs_loop_rust(
                 dv_arr[:n] if len(dv_arr) > n else dv_arr,
-                np.asarray(pred, dtype=np.float64),
-                np.asarray(var, dtype=np.float64),
-                np.asarray(obs_mask, dtype=bool),
+                pred_arr,
+                var_arr,
+                mask_arr,
                 lloq_arr,
                 blq_code,
             )

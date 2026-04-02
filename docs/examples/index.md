@@ -48,6 +48,8 @@ of displaying them interactively.
 | `28_indometh_nca.py` | NCA on the public Indometh WinNonlin-backed dataset |
 | `29_optimal_design.py` | PFIM-backed sampling-time optimization |
 | `30_four_compartment_advan5.py` | Four-compartment ADVAN5 example with ADVAN11 consistency check |
+| `33_tmdd_model.py` | Full TMDD / QSSA / Michaelis-Menten approximation comparison |
+| `34_multidose_ss_nca.py` | Multi-dose steady-state NCA (AUCtau, Ctrough, accumulation ratio) |
 
 ## Estimation methods
 
@@ -83,4 +85,6 @@ of displaying them interactively.
 09_focei_control_stream_extensions
 10_optimal_design
 16_dde_model
+20_saem_estimation
+22_pbpk_model
 ```

@@ -10,4 +10,7 @@ control_stream
 parameters
 estimation
 plots
+pbpk
+population_pd
+dde
 ```

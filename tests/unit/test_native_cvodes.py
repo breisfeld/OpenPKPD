@@ -3921,3 +3921,232 @@ class TestAnalyticAdvanSensitivityDispatch:
         np.testing.assert_allclose(G, G_fd, rtol=5e-3, atol=1e-8,
                                    err_msg="ADVAN3 sensitivity G deviates from FD reference")
 
+
+# ===========================================================================
+# Section 18 — P1.4: User-defined ODE RHS via CompiledDESCallable
+# ===========================================================================
+#
+# Tests that IndividualModel correctly activates the native path for arbitrary
+# ADVAN6 models whose DES callable is a CompiledDESCallable compiled with
+# Numba.  The user-compiled ODE template is built lazily on first probe call.
+#
+# Model: 1-cmt IV bolus  DADT(1) = -K*A(1)
+#   Analytical solution: C(t) = (D/V)*exp(-K*t)
+# ===========================================================================
+
+try:
+    from openpkpd.pk.ode.jit import NUMBA_AVAILABLE as _P14_NUMBA_AVAILABLE
+except ImportError:
+    _P14_NUMBA_AVAILABLE = False
+
+_p14_skip = pytest.mark.skipif(
+    not _P14_NUMBA_AVAILABLE, reason="numba not installed — user ODE probe requires it"
+)
+
+_P14_DES_CODE = "DADT(1) = -K * A(1)"
+_P14_THETA    = [0.10, 20.0]    # K=0.10 h⁻¹, V=20 L
+_P14_OBS      = np.array([0.5, 1.0, 2.0, 4.0, 8.0, 12.0, 24.0])
+_P14_DOSE_AMT = 100.0
+
+
+def _build_user_ode_individual():
+    """Build IndividualModel with ADVAN6 + CompiledDESCallable (1-cmt IV)."""
+    from openpkpd.data.event_processor import DoseEvent, SubjectEvents
+    from openpkpd.model.individual import IndividualModel
+    from openpkpd.parser.code_compiler import NMTRANCompiler
+    from openpkpd.pk.ode.advan6 import ADVAN6
+
+    compiler = NMTRANCompiler()
+    des_fn = compiler.compile_des(_P14_DES_CODE, n_compartments=1)
+    pk_fn  = compiler.compile_pk("K = THETA(1)*EXP(ETA(1))\nV = THETA(2)*EXP(ETA(2))")
+    err_fn = compiler.compile_error("Y = F*(1+EPS(1))")
+
+    se = SubjectEvents(
+        subject_id=1,
+        dose_events=[DoseEvent(time=0.0, amount=_P14_DOSE_AMT)],
+        obs_times=_P14_OBS.copy(),
+        obs_dv=np.full(len(_P14_OBS), np.nan),
+        obs_cmt=np.ones(len(_P14_OBS), dtype=int),
+        obs_mdv=np.zeros(len(_P14_OBS), dtype=int),
+    )
+    indiv = IndividualModel(
+        subject_events=se,
+        pk_subroutine=ADVAN6(n_compartments=1, jit="numpy", rtol=1e-8, atol=1e-10),
+        pk_callable=pk_fn,
+        error_callable=err_fn,
+        des_callable=des_fn,
+        n_eps=1,
+    )
+    return indiv, des_fn
+
+
+@_p14_skip
+class TestUserOdeGateActivation:
+    """_build_native_ode_contract activates for ADVAN6 + CompiledDESCallable."""
+
+    def test_contract_not_none(self):
+        indiv, _ = _build_user_ode_individual()
+        assert indiv._native_ode_contract is not None, (
+            "_build_native_ode_contract should return non-None for ADVAN6 + CompiledDESCallable"
+        )
+
+    def test_user_template_builds(self):
+        """_try_build_user_ode_template returns a _NativeOdeTemplate with probe fns."""
+        from openpkpd.model.individual import _NativeOdeTemplate
+        indiv, _ = _build_user_ode_individual()
+        theta = _P14_THETA
+        pk_params = {"K": theta[0], "V": theta[1]}
+        tmpl = indiv._try_build_user_ode_template(pk_params)
+        assert tmpl is not None, "_try_build_user_ode_template returned None"
+        assert isinstance(tmpl, _NativeOdeTemplate)
+        assert tmpl.state_probe_fn is not None
+        assert tmpl.sens_probe_fn is not None
+        assert tmpl.infusion_state_probe_fn is not None
+        assert tmpl.infusion_sens_probe_fn is not None
+        assert tmpl.eligible_advans == frozenset({6})
+        assert tmpl.vol_param_name == "V"
+
+    def test_template_cached_on_second_call(self):
+        """Repeated calls with same param_keys return the same cached template."""
+        indiv, _ = _build_user_ode_individual()
+        pk_params = {"K": _P14_THETA[0], "V": _P14_THETA[1]}
+        tmpl1 = indiv._try_build_user_ode_template(pk_params)
+        tmpl2 = indiv._try_build_user_ode_template(pk_params)
+        assert tmpl1 is tmpl2, "Template should be cached and identical on second call"
+
+
+@_p14_skip
+class TestUserOdeProbeAccuracy:
+    """User ODE state probe matches analytical 1-cmt solution and ADVAN6 reference."""
+
+    def _analytical_ipred(self, theta, obs_times, dose_amt=_P14_DOSE_AMT):
+        K, V = theta[0], theta[1]
+        return (dose_amt / V) * np.exp(-K * obs_times)
+
+    def test_state_probe_vs_analytical(self):
+        """state_probe_fn concentrations match analytical 1-cmt IV solution."""
+        indiv, _ = _build_user_ode_individual()
+        theta = _P14_THETA
+        pk_params = {"K": theta[0], "V": theta[1]}
+        tmpl = indiv._try_build_user_ode_template(pk_params)
+        assert tmpl is not None
+
+        probe_fn = tmpl.state_probe_fn
+        states_raw = probe_fn(
+            _P14_OBS.tolist(), [0.0], [_P14_DOSE_AMT], [theta[0], theta[1]]
+        )
+        amounts = np.array(states_raw)       # shape (n_obs, 1)
+        assert amounts.shape == (len(_P14_OBS), 1)
+        ipred = amounts[:, 0] / theta[1]     # A(1) / V
+        expected = self._analytical_ipred(theta, _P14_OBS)
+        np.testing.assert_allclose(ipred, expected, rtol=1e-4, atol=1e-8,
+                                   err_msg="User ODE probe deviates from analytical solution")
+
+    def test_try_native_pk_backend_dispatches_to_user_ode(self):
+        """_try_native_pk_backend returns a PKSolution for user-compiled ADVAN6."""
+        indiv, _ = _build_user_ode_individual()
+        theta = _P14_THETA
+        pk_params = {"K": theta[0], "V": theta[1]}
+        sol = indiv._try_native_pk_backend(pk_params, _P14_OBS)
+        assert sol is not None, "_try_native_pk_backend should dispatch to user ODE template"
+        expected = self._analytical_ipred(theta, _P14_OBS)
+        np.testing.assert_allclose(sol.ipred, expected, rtol=1e-4, atol=1e-8)
+
+
+@_p14_skip
+class TestUserOdeSensitivityAccuracy:
+    """User ODE sensitivity probe output shape and FD agreement."""
+
+    def test_sens_probe_shape(self):
+        """sens_probe_fn returns (states, sens) with correct shapes."""
+        indiv, _ = _build_user_ode_individual()
+        theta = _P14_THETA
+        pk_params = {"K": theta[0], "V": theta[1]}
+        tmpl = indiv._try_build_user_ode_template(pk_params)
+        assert tmpl is not None
+
+        ode_theta = [pk_params[k] for k in sorted(pk_params.keys())]
+        n_params = len(ode_theta)
+        states_raw, sens_raw = tmpl.sens_probe_fn(
+            _P14_OBS.tolist(), [0.0], [_P14_DOSE_AMT], ode_theta
+        )
+        states = np.array(states_raw)
+        sens   = np.array(sens_raw).reshape(len(_P14_OBS), n_params, 1)
+        assert states.shape == (len(_P14_OBS), 1)
+        assert sens.shape   == (len(_P14_OBS), n_params, 1)
+
+    def test_sens_probe_vs_fd(self):
+        """sens_probe_fn matches central FD on state_probe_fn (rtol=1e-3)."""
+        indiv, _ = _build_user_ode_individual()
+        theta = _P14_THETA
+        pk_params = {"K": theta[0], "V": theta[1]}
+        tmpl = indiv._try_build_user_ode_template(pk_params)
+        assert tmpl is not None
+
+        ode_theta = [pk_params[k] for k in sorted(pk_params.keys())]  # [K, V]
+        n_params = len(ode_theta)
+        eps = 1e-5
+        states_raw, sens_raw = tmpl.sens_probe_fn(
+            _P14_OBS.tolist(), [0.0], [_P14_DOSE_AMT], ode_theta
+        )
+        sens = np.array(sens_raw).reshape(len(_P14_OBS), n_params, 1)
+
+        for j in range(n_params):
+            tp = list(ode_theta); tp[j] += eps
+            tm = list(ode_theta); tm[j] -= eps
+            sp = np.array(tmpl.state_probe_fn(_P14_OBS.tolist(), [0.0], [_P14_DOSE_AMT], tp))
+            sm = np.array(tmpl.state_probe_fn(_P14_OBS.tolist(), [0.0], [_P14_DOSE_AMT], tm))
+            sens_fd = (sp - sm) / (2.0 * eps)
+            np.testing.assert_allclose(
+                sens[:, j, :], sens_fd, rtol=1e-3, atol=1e-8,
+                err_msg=f"Sensitivity mismatch for param index {j}",
+            )
+
+
+@_p14_skip
+class TestUserOdeGiPath:
+    """native_advan6_prediction_eta_jacobian uses user ODE template for ADVAN6."""
+
+    def test_G_i_not_none(self):
+        """native_advan6_prediction_eta_jacobian returns non-None for user-compiled ODE."""
+        indiv, _ = _build_user_ode_individual()
+        theta = np.array(_P14_THETA)
+        eta   = np.zeros(2)
+        obs_mask = np.ones(len(_P14_OBS), dtype=bool)
+        G = indiv.native_advan6_prediction_eta_jacobian(theta, eta, obs_mask, n_eta=2)
+        assert G is not None, "G_i should be available for user-compiled ADVAN6 ODE"
+        assert G.shape == (len(_P14_OBS), 2)
+
+    def test_G_i_matches_fd(self):
+        """G_i from user ODE template matches central FD reference (rtol=1e-2)."""
+        indiv, _ = _build_user_ode_individual()
+        theta = np.array(_P14_THETA)
+        eta   = np.zeros(2)
+        obs_mask = np.ones(len(_P14_OBS), dtype=bool)
+        G = indiv.native_advan6_prediction_eta_jacobian(theta, eta, obs_mask, n_eta=2)
+        assert G is not None
+
+        eps = 1e-4
+
+        def ipred_at_eta(eta_):
+            from openpkpd.pk.ode.advan6 import ADVAN6
+            from openpkpd.parser.code_compiler import NMTRANCompiler
+            from openpkpd.data.event_processor import DoseEvent
+            compiler = NMTRANCompiler()
+            des = compiler.compile_des(_P14_DES_CODE, n_compartments=1)
+            K = float(theta[0]) * np.exp(eta_[0])
+            V = float(theta[1]) * np.exp(eta_[1])
+            advan = ADVAN6(n_compartments=1, jit="numpy", rtol=1e-8, atol=1e-10)
+            sol = advan.solve({"K": K, "V": V}, [DoseEvent(time=0.0, amount=_P14_DOSE_AMT)],
+                              _P14_OBS, des_callable=des)
+            return sol.ipred
+
+        G_fd = np.zeros((len(_P14_OBS), 2))
+        for k in range(2):
+            ep = eta.copy(); ep[k] += eps
+            em = eta.copy(); em[k] -= eps
+            G_fd[:, k] = (ipred_at_eta(ep) - ipred_at_eta(em)) / (2.0 * eps)
+
+        np.testing.assert_allclose(G, G_fd, rtol=1e-2, atol=1e-8,
+                                   err_msg="User ODE G_i deviates from FD reference")
+

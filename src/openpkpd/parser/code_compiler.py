@@ -706,6 +706,174 @@ class CompiledDESCallable:
         except Exception:
             return False
 
+    def as_multidose_probe(
+        self,
+        param_keys: tuple[str, ...],
+        n_states: int,
+        rtol: float = 1e-6,
+        atol: float = 1e-8,
+        fd_eps: float = 1e-5,
+    ) -> "tuple[Any, Any, Any, Any] | None":
+        """Build multi-dose probe callables backed by the Numba @njit RHS.
+
+        Returns ``(state_probe_fn, sens_probe_fn, infusion_state_probe_fn,
+        infusion_sens_probe_fn)`` or ``None`` if Numba compilation fails.
+
+        Probe signatures::
+
+            state_probe_fn(obs_times, dose_times, dose_amts, theta)
+                -> list[list[float]]  # shape (n_obs, n_states)
+            infusion_state_probe_fn(obs_times, dose_times, dose_amts, dose_rates, theta)
+                -> list[list[float]]
+            sens_probe_fn(obs_times, dose_times, dose_amts, theta)
+                -> (states, sens)     # sens shape (n_obs, n_params, n_states)
+            infusion_sens_probe_fn(obs_times, dose_times, dose_amts, dose_rates, theta)
+                -> (states, sens)
+        """
+        if not self.try_compile_numba(param_keys):
+            return None
+
+        import numpy as _np  # noqa: PLC0415
+
+        _des_fn = self._numba_fn
+        _n = n_states
+        _rtol = rtol
+        _atol = atol
+        _eps = fd_eps
+        _n_params = len(param_keys)
+
+        def _integrate(obs_times, dose_times, dose_amts, dose_rates_in, theta):
+            """Piecewise multi-dose ODE integration."""
+            from openpkpd.pk.ode.jit import numpy_rk45_solve  # noqa: PLC0415
+
+            params = _np.array(theta, dtype=_np.float64)
+            obs_arr = _np.asarray(obs_times, dtype=float)
+            n_obs = len(obs_arr)
+            result = _np.zeros((n_obs, _n), dtype=float)
+            if n_obs == 0:
+                return result
+
+            sort_idx = _np.argsort(obs_arr, kind="stable")
+            obs_sorted = obs_arr[sort_idx]
+            t_max = float(obs_sorted[-1])
+
+            d_times = [float(t) for t in dose_times]
+            d_amts = [float(a) for a in dose_amts]
+            d_rates = [float(r) for r in (dose_rates_in or [0.0] * len(d_times))]
+
+            bp_set = {0.0}
+            for t_d, a_d, r_d in zip(d_times, d_amts, d_rates):
+                if t_d <= t_max + 1e-12:
+                    bp_set.add(t_d)
+                    if r_d > 0.0 and a_d > 0.0:
+                        et = t_d + a_d / r_d
+                        if et <= t_max + 1e-12:
+                            bp_set.add(et)
+            bp_set.add(t_max)
+            breakpoints = sorted(bp_set)
+
+            y = _np.zeros(_n, dtype=float)
+            active_inf: dict = {}
+            obs_ptr = 0
+
+            def make_rhs(inf):
+                def rhs(t, yy):
+                    dydt = _des_fn(t, yy, params)
+                    for cmt, (rate, et) in inf.items():
+                        if t <= et + 1e-14 and 0 <= cmt < _n:
+                            dydt[cmt] += rate
+                    return dydt
+                return rhs
+
+            for t_d, a_d, r_d in zip(d_times, d_amts, d_rates):
+                if abs(t_d) < 1e-14:
+                    if r_d == 0.0:
+                        y[0] += a_d
+                    else:
+                        active_inf[0] = (r_d, a_d / r_d)
+
+            while obs_ptr < n_obs and obs_sorted[obs_ptr] < 1e-14:
+                result[sort_idx[obs_ptr]] = y.copy()
+                obs_ptr += 1
+
+            prev_t = 0.0
+            for bp in breakpoints:
+                if bp <= prev_t + 1e-14:
+                    continue
+
+                seg_t: list[float] = []
+                seg_i: list[int] = []
+                ptr = obs_ptr
+                while ptr < n_obs and obs_sorted[ptr] <= bp + 1e-12:
+                    if obs_sorted[ptr] > prev_t + 1e-14:
+                        seg_t.append(float(obs_sorted[ptr]))
+                        seg_i.append(int(sort_idx[ptr]))
+                    ptr += 1
+                obs_ptr = ptr
+
+                t_eval = _np.array(sorted(set(seg_t))) if seg_t else _np.array([bp])
+                tf = float(t_eval[-1])
+                seg_states = numpy_rk45_solve(
+                    make_rhs(dict(active_inf)), prev_t, tf, y.copy(), t_eval, _rtol, _atol,
+                )
+                for t_o, orig_i in zip(seg_t, seg_i):
+                    idx = min(int(_np.searchsorted(t_eval, t_o)), len(seg_states) - 1)
+                    result[orig_i] = seg_states[idx]
+                y = seg_states[-1]
+
+                if tf < bp - 1e-14:
+                    extra = numpy_rk45_solve(
+                        make_rhs(dict(active_inf)), tf, bp, y.copy(), _np.array([bp]), _rtol, _atol,
+                    )
+                    y = extra[-1]
+
+                prev_t = bp
+                for t_d, a_d, r_d in zip(d_times, d_amts, d_rates):
+                    if abs(t_d - bp) < 1e-12:
+                        if r_d == 0.0:
+                            y[0] += a_d
+                        else:
+                            active_inf[0] = (r_d, bp + a_d / r_d)
+                active_inf = {c: v for c, v in active_inf.items() if v[1] > bp + 1e-12}
+
+            return result
+
+        def state_probe_fn(obs_times, dose_times, dose_amts, theta):
+            return _integrate(obs_times, dose_times, dose_amts, None, theta).tolist()
+
+        def infusion_state_probe_fn(obs_times, dose_times, dose_amts, dose_rates, theta):
+            return _integrate(obs_times, dose_times, dose_amts, dose_rates, theta).tolist()
+
+        def sens_probe_fn(obs_times, dose_times, dose_amts, theta):
+            theta_arr = list(theta)
+            states = _integrate(obs_times, dose_times, dose_amts, None, theta_arr)
+            n_obs = len(obs_times)
+            sens = _np.zeros((n_obs, _n_params, _n), dtype=float)
+            for j in range(_n_params):
+                tp = list(theta_arr); tp[j] += _eps
+                tm = list(theta_arr); tm[j] -= _eps
+                sens[:, j, :] = (
+                    _integrate(obs_times, dose_times, dose_amts, None, tp)
+                    - _integrate(obs_times, dose_times, dose_amts, None, tm)
+                ) / (2.0 * _eps)
+            return states.tolist(), sens.tolist()
+
+        def infusion_sens_probe_fn(obs_times, dose_times, dose_amts, dose_rates, theta):
+            theta_arr = list(theta)
+            states = _integrate(obs_times, dose_times, dose_amts, dose_rates, theta_arr)
+            n_obs = len(obs_times)
+            sens = _np.zeros((n_obs, _n_params, _n), dtype=float)
+            for j in range(_n_params):
+                tp = list(theta_arr); tp[j] += _eps
+                tm = list(theta_arr); tm[j] -= _eps
+                sens[:, j, :] = (
+                    _integrate(obs_times, dose_times, dose_amts, dose_rates, tp)
+                    - _integrate(obs_times, dose_times, dose_amts, dose_rates, tm)
+                ) / (2.0 * _eps)
+            return states.tolist(), sens.tolist()
+
+        return state_probe_fn, sens_probe_fn, infusion_state_probe_fn, infusion_sens_probe_fn
+
     def _compile(self) -> None:
         import math as _math
 

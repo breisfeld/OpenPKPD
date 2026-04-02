@@ -453,6 +453,7 @@ class IndividualModel:
             tuple(1.0 if i == j else 0.0 for i in range(self.n_eps)) for j in range(self.n_eps)
         )
         self._common_error_model = self._infer_common_error_model(error_callable, self.n_eps)
+        self._user_ode_template: tuple[tuple[str, ...], _NativeOdeTemplate | None] | None = None
         self._native_ode_contract = self._build_native_ode_contract()
 
     def __getstate__(self) -> dict[str, Any]:
@@ -464,6 +465,9 @@ class IndividualModel:
         state["_eta_penalty_cache_key"] = None
         state["_eta_penalty_precision"] = None
         state["_eta_penalty_block_size"] = None
+        # User ODE template contains Python closures that can't be pickled;
+        # _try_build_user_ode_template will lazily rebuild it in the worker.
+        state["_user_ode_template"] = None
         return state
 
     def __setstate__(self, state: dict[str, Any]) -> None:
@@ -472,6 +476,8 @@ class IndividualModel:
             self._pk_param_transformers = {}
         if "_derivative_kernel_cache" not in self.__dict__:
             self._derivative_kernel_cache = {}
+        if "_user_ode_template" not in self.__dict__:
+            self._user_ode_template = None
 
     @staticmethod
     def _infer_error_requires_amounts(error_callable: Callable | None) -> bool:
@@ -505,9 +511,86 @@ class IndividualModel:
                 return None
         return np.asarray(dvid_values, dtype=float)
 
+    def _try_build_user_ode_template(
+        self, pk_params: dict[str, float]
+    ) -> "_NativeOdeTemplate | None":
+        """Build (and cache) a native ODE template from the user's $DES callable.
+
+        Only activates for ADVAN6 models whose ``des_callable`` is a
+        :class:`~openpkpd.parser.code_compiler.CompiledDESCallable`.  Returns
+        ``None`` if Numba is unavailable, if the DES cannot be compiled, or if
+        no volume parameter (``V``, ``V1``, ``V2``, ``V3``) is present in the
+        ``$PK`` block output.  The result is cached keyed on the sorted set of
+        ``pk_params`` keys so that recompilation is avoided on repeated calls.
+        """
+        from openpkpd.parser.code_compiler import CompiledDESCallable  # noqa: PLC0415
+        from openpkpd.pk.ode.advan6 import ADVAN6  # noqa: PLC0415
+
+        if not isinstance(self.pk_subroutine, ADVAN6):
+            return None
+        if not isinstance(self.des_callable, CompiledDESCallable):
+            return None
+
+        param_keys = tuple(sorted(pk_params.keys()))
+        if self._user_ode_template is not None:
+            cached_keys, cached_tmpl = self._user_ode_template
+            if cached_keys == param_keys:
+                return cached_tmpl
+
+        vol_name = next((v for v in ("V", "V1", "V2", "V3") if v in pk_params), None)
+        if vol_name is None:
+            self._user_ode_template = (param_keys, None)
+            return None
+
+        n_states = int(self.pk_subroutine.n_compartments)
+        rtol = float(getattr(self.pk_subroutine, "rtol", 1e-6))
+        atol = float(getattr(self.pk_subroutine, "atol", 1e-8))
+        output_cmt_idx = int(getattr(self.pk_subroutine, "output_compartment", 1)) - 1
+
+        result = self.des_callable.as_multidose_probe(param_keys, n_states, rtol, atol)
+        if result is None:
+            self._user_ode_template = (param_keys, None)
+            return None
+
+        state_probe, sens_probe, inf_state_probe, inf_sens_probe = result
+        tmpl = _NativeOdeTemplate(
+            name="user_ode",
+            required_names=param_keys,
+            n_states=n_states,
+            output_cmt_idx=output_cmt_idx,
+            vol_param_name=vol_name,
+            state_probe_fn=state_probe,
+            sens_probe_fn=sens_probe,
+            infusion_state_probe_fn=inf_state_probe,
+            infusion_sens_probe_fn=inf_sens_probe,
+            eligible_advans=frozenset({6}),
+        )
+        self._user_ode_template = (param_keys, tmpl)
+        return tmpl
+
+    def _iter_templates(
+        self, pk_params: dict[str, float]
+    ) -> "list[_NativeOdeTemplate]":
+        """Return the ordered list of templates to try for probe dispatch.
+
+        Prepends the user-compiled ODE template (when available) so it takes
+        precedence over the built-in Rust templates for ADVAN6 models.
+        """
+        user_tmpl = self._try_build_user_ode_template(pk_params)
+        if user_tmpl is not None:
+            return [user_tmpl, *_NATIVE_ODE_TEMPLATES]
+        return _NATIVE_ODE_TEMPLATES
+
     def _build_native_ode_contract(self) -> dict[str, Any] | None:
-        # Gate 1: need at least one template with a working state probe.
-        if not any(t.state_probe_fn is not None for t in _NATIVE_ODE_TEMPLATES):
+        # Gate 1: need either a native Rust template or a user-compiled DES callable.
+        from openpkpd.parser.code_compiler import CompiledDESCallable  # noqa: PLC0415
+        from openpkpd.pk.ode.advan6 import ADVAN6  # noqa: PLC0415
+
+        _has_native_tmpl = any(t.state_probe_fn is not None for t in _NATIVE_ODE_TEMPLATES)
+        _has_user_des = isinstance(self.pk_subroutine, ADVAN6) and isinstance(
+            self.des_callable, CompiledDESCallable
+        )
+        if not _has_native_tmpl and not _has_user_des:
             return None
         if getattr(self.pk_subroutine, "advan", None) not in _NATIVE_ELIGIBLE_ADVANS:
             return None
@@ -599,7 +682,7 @@ class IndividualModel:
         n_cmt = contract.get("n_compartments", -1)
         contract_advan = contract.get("advan", 6)
         template: _NativeOdeTemplate | None = None
-        for tmpl in _NATIVE_ODE_TEMPLATES:
+        for tmpl in self._iter_templates(pk_params):
             if tmpl.state_probe_fn is None:
                 continue
             if tmpl.n_states != n_cmt:
@@ -740,7 +823,7 @@ class IndividualModel:
         # Checking (c) prevents a model with extra params (e.g. 8-param PKPD)
         # from incorrectly matching a simpler template (e.g. 1cmt_oral).
         template: _NativeOdeTemplate | None = None
-        for tmpl in _NATIVE_ODE_TEMPLATES:
+        for tmpl in self._iter_templates(pk_params_0):
             if tmpl.sens_probe_fn is None or tmpl.is_pkpd:
                 continue
             if tmpl.n_states != n_cmt:
@@ -884,7 +967,7 @@ class IndividualModel:
         # n_states must match n_compartments to prevent greedy mis-matching;
         # eligible_advans restricts analytical templates to their specific ADVANs.
         template: _NativeOdeTemplate | None = None
-        for tmpl in _NATIVE_ODE_TEMPLATES:
+        for tmpl in self._iter_templates(pk_params_0):
             if tmpl.sens_probe_fn is None or tmpl.is_pkpd:
                 continue
             if tmpl.n_states != n_cmt:
@@ -1070,7 +1153,7 @@ class IndividualModel:
         n_cmt = contract.get("n_compartments", -1)
         contract_advan = contract.get("advan", 6)
         template: _NativeOdeTemplate | None = None
-        for tmpl in _NATIVE_ODE_TEMPLATES:
+        for tmpl in self._iter_templates(pk_params_0):
             if tmpl.sens_probe_fn is None or tmpl.is_pkpd:
                 continue
             if tmpl.n_states != n_cmt:

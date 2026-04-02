@@ -813,3 +813,115 @@ def test_advanced_workflow_generates_design_on_demand(tmp_path: Path) -> None:
         widget.deleteLater()
         app.processEvents()
         job_runner.shutdown(wait=True)
+
+
+# ---------------------------------------------------------------------------
+# P3-F: VPC stratification combo and pcVPC checkbox
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_advanced_workflow_has_stratify_combo() -> None:
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+
+    _, _, qt_widgets = load_qt_modules()
+    app = qt_widgets.QApplication.instance() or qt_widgets.QApplication(
+        ["test", "-platform", "offscreen"]
+    )
+    project = Workspace(name="Stratify combo test")
+    widget = build_advanced_workflow(project)
+    try:
+        widget.show()
+        app.processEvents()
+        combo = widget.findChild(qt_widgets.QComboBox, "advanced-vpc-stratify-combo")
+        assert combo is not None, "advanced-vpc-stratify-combo not found"
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()
+
+
+@pytest.mark.unit
+def test_advanced_workflow_stratify_combo_has_none_default() -> None:
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+
+    _, _, qt_widgets = load_qt_modules()
+    app = qt_widgets.QApplication.instance() or qt_widgets.QApplication(
+        ["test", "-platform", "offscreen"]
+    )
+    project = Workspace(name="Stratify default test")
+    widget = build_advanced_workflow(project)
+    try:
+        widget.show()
+        app.processEvents()
+        combo = widget.findChild(qt_widgets.QComboBox, "advanced-vpc-stratify-combo")
+        assert combo is not None
+        assert combo.currentData() is None
+        assert combo.currentText() == "None"
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()
+
+
+@pytest.mark.unit
+def test_advanced_workflow_stratify_combo_populated_from_dataset() -> None:
+    """Stratify combo shows dataset columns (excluding mandatory NONMEM columns) after refresh."""
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+
+    from openpkpd_gui.domain.dataset_asset import DatasetAsset
+
+    _, _, qt_widgets = load_qt_modules()
+    app = qt_widgets.QApplication.instance() or qt_widgets.QApplication(
+        ["test", "-platform", "offscreen"]
+    )
+    project = Workspace(name="Stratify columns test")
+    project.active_dataset = DatasetAsset(
+        display_name="theo.csv",
+        columns=["ID", "TIME", "AMT", "DV", "EVID", "MDV", "DOSE", "SEX"],
+    )
+    widget = build_advanced_workflow(project)
+    try:
+        widget.show()
+        app.processEvents()
+        combo = widget.findChild(qt_widgets.QComboBox, "advanced-vpc-stratify-combo")
+        assert combo is not None
+        items = [combo.itemData(i) for i in range(combo.count())]
+        assert None in items          # "None" placeholder
+        assert "DOSE" in items
+        assert "SEX" in items
+        # Mandatory NONMEM columns must be excluded
+        assert "ID" not in items
+        assert "TIME" not in items
+        assert "DV" not in items
+        assert "MDV" not in items
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()
+
+
+@pytest.mark.unit
+def test_advanced_workflow_has_pc_checkbox() -> None:
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+
+    _, _, qt_widgets = load_qt_modules()
+    app = qt_widgets.QApplication.instance() or qt_widgets.QApplication(
+        ["test", "-platform", "offscreen"]
+    )
+    project = Workspace(name="pcVPC checkbox test")
+    widget = build_advanced_workflow(project)
+    try:
+        widget.show()
+        app.processEvents()
+        checkbox = widget.findChild(qt_widgets.QCheckBox, "advanced-vpc-pc-checkbox")
+        assert checkbox is not None, "advanced-vpc-pc-checkbox not found"
+        assert checkbox.isChecked() is False
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()

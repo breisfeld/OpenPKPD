@@ -496,9 +496,22 @@ def build_advanced_workflow(
     seed_spin.setRange(1, 999999)
     seed_spin.setValue(42)
     controls.addWidget(seed_spin)
-    pc_checkbox = qt_widgets.QCheckBox("Prediction-corrected")
+    pc_checkbox = qt_widgets.QCheckBox("pcVPC")
     pc_checkbox.setObjectName("advanced-vpc-pc-checkbox")
+    pc_checkbox.setToolTip(
+        "Prediction-corrected VPC: normalise DV and predictions by median PRED within each bin."
+    )
     controls.addWidget(pc_checkbox)
+    controls.addWidget(qt_widgets.QLabel("Stratify by:"))
+    stratify_combo = qt_widgets.QComboBox()
+    stratify_combo.setObjectName("advanced-vpc-stratify-combo")
+    stratify_combo.setToolTip(
+        "Optional covariate column to stratify the VPC (e.g. DOSE, SEX). "
+        "Produces one VPC panel per stratum."
+    )
+    stratify_combo.setMinimumWidth(100)
+    stratify_combo.addItem("None", userData=None)
+    controls.addWidget(stratify_combo)
     controls.addStretch(1)
     vpc_settings_section, _, vpc_settings_layout, _vpc_settings_toggle = build_collapsible_section(
         vpc_tab,
@@ -1220,6 +1233,30 @@ def build_advanced_workflow(
         )
         _render_artifacts(current_artifacts)
 
+    # --- VPC stratification helpers ---
+
+    _STRATIFY_SKIP = frozenset({"ID", "TIME", "AMT", "DV", "EVID", "MDV", "REP"})
+
+    def _stratify_columns() -> list[str]:
+        """Return candidate covariate columns from the active dataset."""
+        dataset_asset = project.active_dataset
+        if dataset_asset is None:
+            return []
+        return [col for col in dataset_asset.columns if col not in _STRATIFY_SKIP]
+
+    def _refresh_stratify_combo() -> None:
+        """Repopulate the stratify-by combo from the active dataset columns."""
+        current = stratify_combo.currentData()
+        stratify_combo.blockSignals(True)
+        stratify_combo.clear()
+        stratify_combo.addItem("None", userData=None)
+        for col in _stratify_columns():
+            stratify_combo.addItem(col, userData=col)
+        # Restore previous selection if still available
+        idx = stratify_combo.findData(current)
+        stratify_combo.setCurrentIndex(max(0, idx))
+        stratify_combo.blockSignals(False)
+
     def _refresh() -> None:
         nonlocal \
             all_advanced_artifacts, \
@@ -1232,6 +1269,7 @@ def build_advanced_workflow(
         current_design_artifacts = design_artifacts(project)
         all_advanced_artifacts = advanced_artifacts(project)
         current_fit_context_available = fit_service.latest_fit_context(project) is not None
+        _refresh_stratify_combo()
         overview_label.setText(format_advanced_overview(project))
         status_label.setText(
             format_vpc_generation_status(
@@ -1338,6 +1376,7 @@ def build_advanced_workflow(
             seed=seed_spin.value(),
             prediction_corrected=pc_checkbox.isChecked(),
             n_parallel=preferences[0].n_parallel if preferences else 0,
+            stratify_by=stratify_combo.currentData() or None,
         )
         try:
             job = vpc_service.create_job(

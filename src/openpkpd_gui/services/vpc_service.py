@@ -30,6 +30,7 @@ class VPCConfig:
     seed: int = 42
     prediction_corrected: bool = False
     n_parallel: int = 0
+    stratify_by: str | None = None
 
 
 @dataclass(slots=True)
@@ -83,6 +84,7 @@ class VPCService:
                 n_replicates=config.n_replicates,
                 n_bins=config.n_bins,
                 prediction_corrected=config.prediction_corrected,
+                stratify_by=config.stratify_by or None,
             )
             ctx.emit("Writing VPC artifacts", progress=0.8)
             artifacts, warnings = self._write_artifacts(
@@ -98,7 +100,8 @@ class VPCService:
                 dataset_path=target_dataset_path,
             )
             kind = "pcVPC" if config.prediction_corrected else "VPC"
-            summary = f"{title} • {kind} • {config.n_replicates} sims • {config.n_bins} bins • seed={config.seed}"
+            strat = f" • stratify={config.stratify_by}" if config.stratify_by else ""
+            summary = f"{title} • {kind} • {config.n_replicates} sims • {config.n_bins} bins • seed={config.seed}{strat}"
             return VPCRunResult(
                 summary_text=summary,
                 artifacts=artifacts,

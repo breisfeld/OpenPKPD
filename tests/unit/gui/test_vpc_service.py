@@ -218,3 +218,148 @@ def test_apply_job_outcome_logs_plot_generation_warnings(tmp_path: Path, monkeyp
     assert any("Could not generate VPC plot" in line for line in run.log_lines)
     assert any("Could not generate simulation panel plot" in line for line in run.log_lines)
     assert any("Could not generate prediction interval plot" in line for line in run.log_lines)
+
+
+# ---------------------------------------------------------------------------
+# P3-F: VPCConfig.stratify_by and pcVPC
+# ---------------------------------------------------------------------------
+
+
+def test_vpc_config_defaults() -> None:
+    config = VPCConfig()
+    assert config.stratify_by is None
+    assert config.prediction_corrected is False
+
+
+def test_vpc_config_stratify_by_field() -> None:
+    config = VPCConfig(stratify_by="DOSE")
+    assert config.stratify_by == "DOSE"
+
+
+def test_vpc_config_stratify_by_none_is_falsy() -> None:
+    config = VPCConfig(stratify_by=None)
+    assert not config.stratify_by
+
+
+@pytest.mark.unit
+def test_create_job_passes_stratify_by_to_vpc_engine(tmp_path: Path, monkeypatch) -> None:
+    """VPCEngine.compute receives stratify_by from VPCConfig."""
+    workspace = Workspace(name="Stratify demo", root_path=str(tmp_path), workspace_id="s-demo")
+    fit_service = FitService()
+    vpc_service = VPCService()
+    _cache_fit_context(fit_service, workspace, monkeypatch, fit_run_id="fit-run-s")
+
+    captured: dict[str, object] = {}
+
+    class _FakeSimulationEngine:
+        def __init__(self, *_a, **_k):
+            pass
+
+    class _FakeVPCEngine:
+        def __init__(self, *_a, **_k):
+            pass
+
+        def compute(self, **kwargs):
+            captured.update(kwargs)
+
+            class _R:
+                observed_df = pd.DataFrame({"ID": [1], "TIME": [1.0], "DV": [2.0], "REP": [0]})
+                simulated_df = pd.DataFrame({"ID": [1], "TIME": [1.0], "DV": [2.1], "REP": [1]})
+                obs_percentiles = pd.DataFrame({"bin_mid": [1.0], "p5": [1.0], "p50": [2.0], "p95": [3.0]})
+                sim_percentiles = pd.DataFrame({"bin_mid": [1.0], "p5_lo": [0.5], "p5_mid": [1.0], "p5_hi": [1.5], "p50_lo": [1.5], "p50_mid": [2.0], "p50_hi": [2.5], "p95_lo": [2.5], "p95_mid": [3.0], "p95_hi": [3.5]})
+
+            return _R()
+
+    monkeypatch.setattr("openpkpd_gui.services.vpc_service.SimulationEngine", _FakeSimulationEngine)
+    monkeypatch.setattr("openpkpd_gui.services.vpc_service.VPCEngine", _FakeVPCEngine)
+    for fn in ("vpc_plot", "simulation_panel", "prediction_interval_plot"):
+        monkeypatch.setattr(
+            f"openpkpd_gui.services.vpc_service.{fn}",
+            lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("backend unavailable")),
+        )
+
+    runner = JobRunner()
+    try:
+        outcome = runner.submit(
+            vpc_service.create_job(
+                workspace,
+                fit_service=fit_service,
+                config=VPCConfig(n_replicates=10, n_bins=3, seed=1, stratify_by="DOSE"),
+                run_id="vpc-s",
+            )
+        ).result(timeout=5)
+    finally:
+        runner.shutdown()
+
+    assert captured.get("stratify_by") == "DOSE"
+    assert outcome.value is not None
+    assert "stratify=DOSE" in outcome.value.summary_text
+
+
+@pytest.mark.unit
+def test_create_job_passes_none_stratify_when_not_set(tmp_path: Path, monkeypatch) -> None:
+    workspace = Workspace(name="No stratify", root_path=str(tmp_path), workspace_id="ns-demo")
+    fit_service = FitService()
+    vpc_service = VPCService()
+    _cache_fit_context(fit_service, workspace, monkeypatch, fit_run_id="fit-run-ns")
+
+    captured: dict[str, object] = {}
+
+    class _FakeSimulationEngine:
+        def __init__(self, *_a, **_k):
+            pass
+
+    class _FakeVPCEngine:
+        def __init__(self, *_a, **_k):
+            pass
+
+        def compute(self, **kwargs):
+            captured.update(kwargs)
+
+            class _R:
+                observed_df = pd.DataFrame({"ID": [1], "TIME": [1.0], "DV": [2.0], "REP": [0]})
+                simulated_df = pd.DataFrame({"ID": [1], "TIME": [1.0], "DV": [2.1], "REP": [1]})
+                obs_percentiles = pd.DataFrame({"bin_mid": [1.0], "p5": [1.0], "p50": [2.0], "p95": [3.0]})
+                sim_percentiles = pd.DataFrame({"bin_mid": [1.0], "p5_lo": [0.5], "p5_mid": [1.0], "p5_hi": [1.5], "p50_lo": [1.5], "p50_mid": [2.0], "p50_hi": [2.5], "p95_lo": [2.5], "p95_mid": [3.0], "p95_hi": [3.5]})
+
+            return _R()
+
+    monkeypatch.setattr("openpkpd_gui.services.vpc_service.SimulationEngine", _FakeSimulationEngine)
+    monkeypatch.setattr("openpkpd_gui.services.vpc_service.VPCEngine", _FakeVPCEngine)
+    for fn in ("vpc_plot", "simulation_panel", "prediction_interval_plot"):
+        monkeypatch.setattr(
+            f"openpkpd_gui.services.vpc_service.{fn}",
+            lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("backend unavailable")),
+        )
+
+    runner = JobRunner()
+    try:
+        runner.submit(
+            vpc_service.create_job(
+                workspace,
+                fit_service=fit_service,
+                config=VPCConfig(stratify_by=None),
+                run_id="vpc-ns",
+            )
+        ).result(timeout=5)
+    finally:
+        runner.shutdown()
+
+    assert captured.get("stratify_by") is None
+
+
+def test_vpc_summary_text_includes_stratify_when_set() -> None:
+    # The summary text is built inside the job closure; validate the string format here
+    # by inspecting the template logic directly.
+    config = VPCConfig(n_replicates=100, n_bins=5, seed=7, stratify_by="SEX", prediction_corrected=True)
+    kind = "pcVPC" if config.prediction_corrected else "VPC"
+    strat = f" • stratify={config.stratify_by}" if config.stratify_by else ""
+    summary = f"Demo • {kind} • {config.n_replicates} sims • {config.n_bins} bins • seed={config.seed}{strat}"
+    assert "pcVPC" in summary
+    assert "stratify=SEX" in summary
+
+
+def test_vpc_summary_text_omits_stratify_when_none() -> None:
+    config = VPCConfig(n_replicates=200, n_bins=10, seed=42, stratify_by=None)
+    strat = f" • stratify={config.stratify_by}" if config.stratify_by else ""
+    assert strat == ""

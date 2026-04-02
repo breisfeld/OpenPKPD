@@ -2067,10 +2067,10 @@ mod tests {
         // ipred=2.0, sigma=0.3, lloq=1.0 → z = (1-2)/0.3 = -3.333...
         let z = (1.0_f64 - 2.0_f64) / 0.3_f64;
         let result = norm_logcdf(z);
-        // Expected: log Φ(-3.333) ≈ -5.63
+        // Expected: log Φ(-3.333) ≈ -7.754  (Φ(-3.333)≈4.29e-4, log(4.29e-4)≈-7.754)
         assert!(
-            (result - (-5.6341_f64)).abs() < 0.01,
-            "norm_logcdf(-3.333) = {result}, expected ≈ -5.634"
+            (result - (-7.7539_f64)).abs() < 0.01,
+            "norm_logcdf(-3.333) = {result}, expected ≈ -7.754"
         );
     }
 
@@ -2121,10 +2121,10 @@ mod tests {
         let lloq = 1.0_f64;
         let z = (lloq - mu) / sigma; // = -3.333...
         let ll_m3 = norm_logcdf(z);
-        // Should be around -5.634
+        // log Φ(-3.333) ≈ -7.754  (Φ(-3.333)≈4.29e-4, log(4.29e-4)≈-7.754)
         assert!(
-            (ll_m3 - (-5.6341_f64)).abs() < 0.01,
-            "M3 log-likelihood = {ll_m3}, expected ≈ -5.634"
+            (ll_m3 - (-7.7539_f64)).abs() < 0.01,
+            "M3 log-likelihood = {ll_m3}, expected ≈ -7.754"
         );
     }
 

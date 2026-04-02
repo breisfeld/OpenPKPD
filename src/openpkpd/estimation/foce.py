@@ -296,11 +296,12 @@ def _compute_G_i(
 
     # ── Standard forward-difference path ─────────────────────────────────────
     for k in range(n_eta):
+        h_k = 1e-5 * max(abs(float(eta[k])), 1.0)
         eta_p = eta.copy()
-        eta_p[k] += h
+        eta_p[k] += h_k
         try:
             _, _, _, pred_p, _ = indiv.evaluate_observation_model(theta, eta_p, sigma, trans=trans)
-            G[:, k] = (pred_p[obs_mask] - pred0_obs) / h
+            G[:, k] = (pred_p[obs_mask] - pred0_obs) / h_k
         except Exception as _e:
             logger.warning("G_i FD column %d failed: %s; column set to zero", k, _e)
     return G

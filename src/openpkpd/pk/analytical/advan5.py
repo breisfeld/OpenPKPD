@@ -6,7 +6,10 @@ Analytical solution for an arbitrary N-compartment linear system of ODEs:
     dA/dt = M @ A
 
 where M is the N×N rate matrix constructed from user-supplied Kij rate constants.
-The solution uses eigendecomposition: A(t) = P @ diag(exp(-λ·t)) @ P⁻¹ @ A₀.
+The primary solution uses eigendecomposition: A(t) = P @ diag(exp(-λ·t)) @ P⁻¹ @ A₀.
+When the eigenvector matrix P is numerically ill-conditioned (cond > 1e10), the
+solver falls back to a matrix-exponential approach (scipy.linalg.expm) which is
+unconditionally stable — see _eigendecomp_n.
 
 N is inferred automatically from the Kij/Ki0 keys present in pk_params:
 
@@ -30,10 +33,14 @@ any compartment are supported.
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Callable
 
 import numpy as np
+from scipy.linalg import expm as _expm
+
+_log = logging.getLogger(__name__)
 
 from openpkpd.data.event_processor import DoseEvent
 from openpkpd.pk.base import PKSolution, PKSubroutine
@@ -128,28 +135,47 @@ def _build_rate_matrix(
     return M
 
 
+_ILL_COND_THRESHOLD = 1e10
+
+
 def _eigendecomp_n(
     M: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
     """
     Eigendecompose an N×N rate matrix M.
 
     For a stable compartment system, eigenvalues of M are ≤ 0.
-    Returns lam = -eigenvalues.real (positive decay rates), sorted ascending,
-    along with the eigenvector matrix P and its inverse P_inv such that
-    M = P @ diag(-lam) @ P_inv.
+    Returns ``(lam, P, P_inv)`` where:
+      * lam   – positive decay rates (-eigenvalues.real), shape (N,)
+      * P     – right-eigenvector matrix, shape (N, N)
+      * P_inv – inverse of P, or ``None`` if P is ill-conditioned (see below)
 
-    Falls back to np.linalg.pinv if M is degenerate (repeated eigenvalues).
+    H-01: when cond(P) > _ILL_COND_THRESHOLD the eigenvector matrix is
+    numerically ill-conditioned.  Returning P_inv=None signals the caller
+    (_propagate_ncmt) to use the matrix-exponential fallback instead of the
+    modal decomposition, which avoids modal errors from near-repeated
+    eigenvalues.
     """
     eigenvalues, P = np.linalg.eig(M)
     idx = np.argsort(eigenvalues.real)   # ascending: most negative first
     eigenvalues = eigenvalues[idx]
     P = P[:, idx]
     lam = -eigenvalues.real              # positive decay rates, shape (N,)
+
+    # H-01: guard against ill-conditioned eigenvector matrices.
+    if np.linalg.cond(P) > _ILL_COND_THRESHOLD:
+        _log.warning(
+            "ADVAN5: eigenvector matrix is ill-conditioned (cond=%.2e > %.2e). "
+            "Falling back to matrix-exponential propagation for numerical stability.",
+            np.linalg.cond(P),
+            _ILL_COND_THRESHOLD,
+        )
+        return lam, P.real, None  # None → caller uses expm fallback
+
     try:
         P_inv = np.linalg.inv(P)
     except np.linalg.LinAlgError:
-        P_inv = np.linalg.pinv(P)
+        return lam, P.real, None  # exactly singular → also use expm fallback
     return lam, P.real, P_inv.real
 
 
@@ -168,28 +194,40 @@ def _propagate_ncmt(
     a0: np.ndarray,
     lam: np.ndarray,
     P: np.ndarray,
-    P_inv: np.ndarray,
+    P_inv: np.ndarray | None,
     dt: np.ndarray,
+    M: np.ndarray | None = None,
 ) -> np.ndarray:
     """
     Propagate N-compartment system from initial state a0 over time steps dt.
 
-    A(t) = P @ diag(exp(-λ·t)) @ P⁻¹ @ a0
+    Primary path (P_inv is not None):
+        A(t) = P @ diag(exp(-λ·t)) @ P⁻¹ @ a0
+
+    H-01 fallback (P_inv is None — ill-conditioned eigenvector matrix):
+        A(t) = expm(M·t) @ a0   (matrix exponential, unconditionally stable)
 
     Args:
         a0    : Initial state vector, shape (N,).
         lam   : Positive decay rates, shape (N,).
         P     : Right-eigenvector matrix, shape (N, N).
-        P_inv : Inverse of P, shape (N, N).
+        P_inv : Inverse of P, or None to use the expm fallback.
         dt    : Positive time offsets, shape (n_times,).
+        M     : Rate matrix; required when P_inv is None.
 
     Returns:
         Array of shape (n_times, N) with non-negative compartment amounts.
     """
-    c = P_inv @ a0                              # modal coordinates, shape (N,)
-    exp_lam = np.exp(-np.outer(dt, lam))        # (n_times, N)
-    weighted_exp = exp_lam * c[np.newaxis, :]   # (n_times, N)
-    amounts = (P @ weighted_exp.T).T            # (n_times, N)
+    if P_inv is None:
+        # Matrix-exponential fallback for ill-conditioned P.
+        if M is None:
+            raise ValueError("_propagate_ncmt: M must be supplied when P_inv is None")
+        amounts = np.stack([_expm(M * t) @ a0 for t in dt], axis=0)
+    else:
+        c = P_inv @ a0                              # modal coordinates, shape (N,)
+        exp_lam = np.exp(-np.outer(dt, lam))        # (n_times, N)
+        weighted_exp = exp_lam * c[np.newaxis, :]   # (n_times, N)
+        amounts = (P @ weighted_exp.T).T            # (n_times, N)
     return np.maximum(amounts, 0.0)
 
 
@@ -199,27 +237,14 @@ def _bolus_response_n(
     n: int,
     lam: np.ndarray,
     P: np.ndarray,
-    P_inv: np.ndarray,
+    P_inv: np.ndarray | None,
     dt: np.ndarray,
+    M: np.ndarray | None = None,
 ) -> np.ndarray:
-    """
-    Compartment amounts for a single IV bolus into compartment dose_cmt.
-
-    Sets a0[dose_cmt-1] = dose, all others = 0, then propagates.
-
-    Args:
-        dose     : Bolus amount.
-        dose_cmt : 1-based compartment receiving the dose.
-        n        : Total number of compartments.
-        lam, P, P_inv : Eigendecomposition of rate matrix.
-        dt       : Positive time offsets from dose time, shape (n_times,).
-
-    Returns:
-        Array of shape (n_times, N).
-    """
+    """Compartment amounts for a single IV bolus into compartment dose_cmt."""
     a0 = np.zeros(n)
     a0[dose_cmt - 1] = dose
-    return _propagate_ncmt(a0, lam, P, P_inv, dt)
+    return _propagate_ncmt(a0, lam, P, P_inv, dt, M=M)
 
 
 def _infusion_response_n(
@@ -229,8 +254,9 @@ def _infusion_response_n(
     n: int,
     lam: np.ndarray,
     P: np.ndarray,
-    P_inv: np.ndarray,
+    P_inv: np.ndarray | None,
     dt: np.ndarray,
+    M: np.ndarray | None = None,
 ) -> np.ndarray:
     """
     Compartment amounts for a constant-rate infusion into compartment dose_cmt.
@@ -257,27 +283,38 @@ def _infusion_response_n(
     b = np.zeros(n)
     b[dose_cmt - 1] = rate
 
-    c_p = P_inv @ b                              # forcing in eigenbasis, shape (N,)
-    c_p_over_lam = _safe_mode_divide(c_p, lam)  # shape (N,)
-
     n_times = len(dt)
     amounts = np.zeros((n_times, n))
-
     during = dt <= duration
     after = dt > duration
 
-    if np.any(during):
-        t_on = dt[during]
-        exp_lam = np.exp(-np.outer(t_on, lam))                    # (n_during, N)
-        weighted = c_p_over_lam[np.newaxis, :] * (1.0 - exp_lam)  # (n_during, N)
-        amounts[during, :] = (P @ weighted.T).T
+    if P_inv is None:
+        # H-01 expm fallback: A(t) = M⁻¹(expm(Mt) − I)b  during infusion,
+        # then free decay via expm after infusion ends.
+        assert M is not None
+        if np.any(during):
+            for k, t in enumerate(dt[during]):
+                amounts[np.where(during)[0][k], :] = np.linalg.solve(M, (_expm(M * t) - np.eye(n)) @ b)
+        if np.any(after):
+            a_end = np.linalg.solve(M, (_expm(M * duration) - np.eye(n)) @ b)
+            t_post = dt[after] - duration
+            amounts[after, :] = _propagate_ncmt(a_end, lam, P, P_inv, t_post, M=M)
+    else:
+        c_p = P_inv @ b                              # forcing in eigenbasis, shape (N,)
+        c_p_over_lam = _safe_mode_divide(c_p, lam)  # shape (N,)
 
-    if np.any(after):
-        exp_lam_end = np.exp(-lam * duration)              # (N,)
-        c_end = c_p_over_lam * (1.0 - exp_lam_end)        # modal coords of A(duration)
-        a_end = P @ c_end                                  # (N,)
-        t_post = dt[after] - duration
-        amounts[after, :] = _propagate_ncmt(a_end, lam, P, P_inv, t_post)
+        if np.any(during):
+            t_on = dt[during]
+            exp_lam = np.exp(-np.outer(t_on, lam))                    # (n_during, N)
+            weighted = c_p_over_lam[np.newaxis, :] * (1.0 - exp_lam)  # (n_during, N)
+            amounts[during, :] = (P @ weighted.T).T
+
+        if np.any(after):
+            exp_lam_end = np.exp(-lam * duration)              # (N,)
+            c_end = c_p_over_lam * (1.0 - exp_lam_end)        # modal coords of A(duration)
+            a_end = P @ c_end                                  # (N,)
+            t_post = dt[after] - duration
+            amounts[after, :] = _propagate_ncmt(a_end, lam, P, P_inv, t_post)
 
     return np.maximum(amounts, 0.0)
 
@@ -370,6 +407,11 @@ class ADVAN5(PKSubroutine):
         M = _build_rate_matrix(n, kij, ki0)
         lam, P, P_inv = _eigendecomp_n(M)
 
+        # H-04: apply bioavailability (F1) to dose amounts.  ADVAN2/4/12 do
+        # this internally; for ADVAN5 we must scale here because the modal
+        # solver has no concept of an absorption compartment F1 multiplier.
+        f1 = float(pk_params.get("F1", 1.0))
+
         # Accumulate contributions via superposition
         doses = [e for e in dose_events if not e.reset]
         n_times = len(obs_times)
@@ -390,12 +432,12 @@ class ADVAN5(PKSubroutine):
 
             if dose.is_bolus:
                 da = _bolus_response_n(
-                    dose.amount, dose_cmt, n, lam, P, P_inv, dt[mask]
+                    dose.amount * f1, dose_cmt, n, lam, P, P_inv, dt[mask], M=M
                 )
             else:
                 dur = dose.amount / dose.rate
                 da = _infusion_response_n(
-                    dose.rate, dur, dose_cmt, n, lam, P, P_inv, dt[mask]
+                    dose.rate * f1, dur, dose_cmt, n, lam, P, P_inv, dt[mask], M=M
                 )
 
             amounts[mask, :] += da

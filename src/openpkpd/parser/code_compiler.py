@@ -102,8 +102,10 @@ def _translate_line(line: str, intrinsics: dict[str, str]) -> str:
     line = re.sub(r"\.TRUE\.", "True", line, flags=re.IGNORECASE)
     line = re.sub(r"\.FALSE\.", "False", line, flags=re.IGNORECASE)
 
-    # Double-precision literals: 1.5D0 or 1.5D-3 → 1.5e0 or 1.5e-3
-    line = re.sub(r"(\d)D([+-]?\d)", r"\1e\2", line, flags=re.IGNORECASE)
+    # Double-precision literals: 1.5D0, 1.D0, .5D-3 → 1.5e0, 1.e0, .5e-3
+    # H-05: character class includes '.' so that forms like 1.D0 and .5D-3
+    # (decimal point immediately before D) are also converted.
+    line = re.sub(r"([0-9.])D([+-]?\d)", r"\1e\2", line, flags=re.IGNORECASE)
 
     # THETA(n), ETA(n), EPS(n), ERR(n), SIGMA(i,j), A(n), DADT(n)
     line = re.sub(
@@ -177,12 +179,45 @@ def _translate_line(line: str, intrinsics: dict[str, str]) -> str:
             flags=re.IGNORECASE,
         )
 
-    # IF (...) statement → if (...):\n  ...
-    m = re.match(r"^\s*IF\s*\((.+)\)\s+(.+)$", line, re.IGNORECASE)
-    if m:
-        cond = m.group(1).strip()
-        body = m.group(2).strip()
-        line = f"if ({cond}):\n    {body}"
+    # IF (...) statement → if (...):\n    ...
+    # The body is recursively translated so that nested inline-IFs like
+    #   IF(X>1) IF(Y>2) Z=1
+    # produce correctly indented Python:
+    #   if (X>1):
+    #       if (Y>2):
+    #           Z=1
+    # Each body line is indented by one fixed level (4 spaces) relative to
+    # the enclosing if; _translate_block then prepends indent_level spaces
+    # uniformly to every output line.
+    #
+    # We use balanced-parenthesis tracking to locate the first matching ')'
+    # rather than a greedy regex, so that conditions containing nested calls
+    # (e.g. EXP(X)) or back-to-back inline-IFs are parsed correctly.
+    m_if_start = re.match(r"^\s*IF\s*\(", line, re.IGNORECASE)
+    if m_if_start:
+        open_pos = m_if_start.end() - 1  # position of the opening '('
+        depth = 0
+        close_pos = -1
+        for i in range(open_pos, len(line)):
+            if line[i] == "(":
+                depth += 1
+            elif line[i] == ")":
+                depth -= 1
+                if depth == 0:
+                    close_pos = i
+                    break
+        if close_pos != -1:
+            cond = line[open_pos + 1 : close_pos].strip()
+            remainder = line[close_pos + 1:].strip()
+            # Only treat as an inline-IF if there is a non-empty body following
+            # (i.e. not an IF-THEN block — those are handled by _translate_block)
+            if remainder and not re.match(r"^THEN\s*$", remainder, re.IGNORECASE):
+                body_raw = remainder
+                # Recursively translate the body to handle nested inline-IFs
+                body_translated = _translate_line(body_raw, intrinsics)
+                # Indent every line of the translated body by 4 spaces
+                indented_body = "\n".join("    " + ln for ln in body_translated.splitlines())
+                line = f"if ({cond}):\n{indented_body}"
 
     return line
 
@@ -409,6 +444,36 @@ class CompiledPKCallable:
         return result
 
 
+def _detect_uses_amounts(python_code: str) -> bool:
+    """
+    Detect whether generated Python code accesses the ``a`` compartment array.
+
+    Uses AST rather than a regex to avoid false positives from comments and
+    false negatives from oddly-spaced subscript expressions.
+
+    If the code cannot be parsed (SyntaxError), returns True conservatively
+    so that amount-dependent paths are not incorrectly skipped.
+
+    Known limitation: aliased access such as ``amounts = a; amounts[1]`` is
+    NOT detected (returns False).  This is an accepted trade-off; the common
+    case is direct ``a[n]`` access.
+    """
+    import ast as _ast
+
+    try:
+        tree = _ast.parse(python_code)
+    except SyntaxError:
+        return True  # conservative: assume amounts are used if unparseable
+    for node in _ast.walk(tree):
+        if (
+            isinstance(node, _ast.Subscript)
+            and isinstance(node.value, _ast.Name)
+            and node.value.id == "a"
+        ):
+            return True
+    return False
+
+
 class CompiledErrorCallable:
     """
     A compiled $ERROR code block.
@@ -422,7 +487,7 @@ class CompiledErrorCallable:
         self._source = code
         self._fn: Callable | None = None
         self._supports_full_args = True
-        self._uses_amounts = bool(re.search(r"\ba\s*\[", code))
+        self._uses_amounts = _detect_uses_amounts(code)
 
     def __getstate__(self) -> dict:
         return {"_source": self._source, "_fn": None, "_uses_amounts": self._uses_amounts}
@@ -869,12 +934,15 @@ class CompiledDESCallable:
             n_obs = len(obs_times)
             sens = _np.zeros((n_obs, _n_params, _n), dtype=float)
             for j in range(_n_params):
-                tp = list(theta_arr); tp[j] += _eps
-                tm = list(theta_arr); tm[j] -= _eps
+                # H-06: parameter-scaled step avoids ~0 % perturbation for
+                # large parameters and ~1000 % perturbation for tiny ones.
+                h = _eps * max(abs(theta_arr[j]), 1.0)
+                tp = list(theta_arr); tp[j] += h
+                tm = list(theta_arr); tm[j] -= h
                 sens[:, j, :] = (
                     _integrate(obs_times, dose_times, dose_amts, None, tp)
                     - _integrate(obs_times, dose_times, dose_amts, None, tm)
-                ) / (2.0 * _eps)
+                ) / (2.0 * h)
             return states.tolist(), sens.tolist()
 
         def infusion_sens_probe_fn(obs_times, dose_times, dose_amts, dose_rates, theta):
@@ -883,12 +951,14 @@ class CompiledDESCallable:
             n_obs = len(obs_times)
             sens = _np.zeros((n_obs, _n_params, _n), dtype=float)
             for j in range(_n_params):
-                tp = list(theta_arr); tp[j] += _eps
-                tm = list(theta_arr); tm[j] -= _eps
+                # H-06: parameter-scaled step (same rationale as sens_probe_fn)
+                h = _eps * max(abs(theta_arr[j]), 1.0)
+                tp = list(theta_arr); tp[j] += h
+                tm = list(theta_arr); tm[j] -= h
                 sens[:, j, :] = (
                     _integrate(obs_times, dose_times, dose_amts, dose_rates, tp)
                     - _integrate(obs_times, dose_times, dose_amts, dose_rates, tm)
-                ) / (2.0 * _eps)
+                ) / (2.0 * h)
             return states.tolist(), sens.tolist()
 
         return state_probe_fn, sens_probe_fn, infusion_state_probe_fn, infusion_sens_probe_fn

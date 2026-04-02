@@ -8,7 +8,12 @@ from pathlib import Path
 from openpkpd.examples.catalog_models import ExampleEntry
 from openpkpd.examples.catalog_service import ExampleCatalogService
 from openpkpd.parser.control_stream import ControlStream
+import logging
+
+from openpkpd.data.dataset import DatasetValidationError
 from openpkpd.utils.errors import ParseError
+
+_log = logging.getLogger(__name__)
 from openpkpd_gui.app.runtime import load_qt_modules
 from openpkpd_gui.app.settings import (
     default_workspace_root_path,
@@ -1652,7 +1657,14 @@ def build_model_workflow(
         dataset_path = imported_spec.dataset_path
         if not dataset_path or not Path(dataset_path).exists():
             return
-        load_result = load_control_stream_dataset_asset(data_service, imported_spec)
+        try:
+            load_result = load_control_stream_dataset_asset(data_service, imported_spec)
+        except DatasetValidationError as exc:
+            # Dataset exists but fails validation (e.g., non-numeric columns).
+            # Log a warning and continue — the mode switch should still proceed
+            # so the user can see the control stream and fix the data path.
+            _log.warning("Auto-load of control-stream dataset failed: %s", exc)
+            return
         if load_result.dataset_asset is not None:
             project_service.attach_dataset(project, load_result.dataset_asset)
 

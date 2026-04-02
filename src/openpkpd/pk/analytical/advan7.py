@@ -144,6 +144,9 @@ class ADVAN7(PKSubroutine):
             raise PKError(f"ADVAN7: volume must be > 0, got {volume!r}")
 
         M = _build_rate_matrix(n, kij, ki0)
+        # H-04: apply bioavailability (F1) scaling here; ADVAN7 is a general
+        # linear model that may receive oral-route doses.
+        f1 = float(pk_params.get("F1", 1.0))
         doses = [e for e in dose_events if not e.reset]
         n_times = len(obs_times)
         amounts = np.zeros((n_times, n))
@@ -157,10 +160,10 @@ class ADVAN7(PKSubroutine):
             if not np.any(mask):
                 continue
             if dose.is_bolus:
-                da = _bolus_expm(dose.amount, dose_cmt, n, M, dt[mask])
+                da = _bolus_expm(dose.amount * f1, dose_cmt, n, M, dt[mask])
             else:
                 dur = dose.amount / dose.rate
-                da = _infusion_expm(dose.rate, dur, dose_cmt, n, M, dt[mask])
+                da = _infusion_expm(dose.rate * f1, dur, dose_cmt, n, M, dt[mask])
             amounts[mask, :] += da
 
         ipred = amounts[:, out_cmt - 1] / float(volume)

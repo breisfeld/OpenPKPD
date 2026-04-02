@@ -269,6 +269,16 @@ class EventProcessor:
                     duration = 0.0
                     if rate > 0 and amt > 0:
                         duration = amt / rate
+                    elif rate == -2.0:
+                        # H-13: RATE=-2 means the infusion rate is defined in
+                        # the PK block at run-time.  This mode is not yet
+                        # supported; raise explicitly rather than silently
+                        # dropping the dose.
+                        raise NotImplementedError(
+                            f"Subject {subject_id}, time {time}: RATE=-2 "
+                            "(rate specified in $PK code) is not yet supported. "
+                            "Use RATE=-1 with a DUR column or a positive RATE value."
+                        )
                     elif rate == -1.0:
                         # C-05: DUR must be present and finite for RATE=-1 infusions
                         dur_raw = row.get("DUR", None)

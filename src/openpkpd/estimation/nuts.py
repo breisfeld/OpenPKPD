@@ -82,7 +82,8 @@ def _build_tree(
     log_prob: Callable[[np.ndarray], float],
     grad_log_prob: Callable[[np.ndarray], np.ndarray],
     joint_log_prob: Callable[[np.ndarray, np.ndarray], float],
-    delta_max: float = 1000.0,
+    delta_max: float,
+    rng: np.random.Generator,
 ) -> tuple:
     """
     Recursively build a NUTS binary tree.
@@ -132,6 +133,7 @@ def _build_tree(
         grad_log_prob,
         joint_log_prob,
         delta_max,
+        rng,
     )
 
     if s_prime:
@@ -157,6 +159,7 @@ def _build_tree(
                 grad_log_prob,
                 joint_log_prob,
                 delta_max,
+                rng,
             )
         else:
             (
@@ -180,6 +183,7 @@ def _build_tree(
                 grad_log_prob,
                 joint_log_prob,
                 delta_max,
+                rng,
             )
 
         if n_prime > 0:
@@ -187,7 +191,7 @@ def _build_tree(
         else:
             accept_prob = 1.0 if n_double_prime > 0 else 0.0
 
-        if np.random.uniform() < accept_prob:
+        if rng.uniform() < accept_prob:
             theta_prime = theta_double_prime
 
         alpha_prime = alpha_prime + alpha_double_prime
@@ -261,8 +265,9 @@ class NUTSSampler:
         self._log_prob_cache: OrderedDict[bytes, float] = OrderedDict()
         self._log_prob_cache_hits = 0
         self._log_prob_cache_misses = 0
-        if seed is not None:
-            np.random.seed(seed)
+        # H-07: use an instance-level Generator so concurrent NUTSSampler
+        # instances cannot corrupt each other's random state.
+        self._rng = np.random.default_rng(seed)
 
         if grad_log_prob_fn is not None:
             self._grad_log_prob = grad_log_prob_fn
@@ -353,11 +358,11 @@ class NUTSSampler:
 
         for m in range(1, total_steps + 1):
             # Sample fresh momentum
-            r0 = np.random.randn(n_params)
+            r0 = self._rng.standard_normal(n_params)
             joint0 = self._joint_log_prob(theta, r0)
 
             # Slice variable
-            log_u = joint0 - np.random.exponential(1.0)
+            log_u = joint0 - self._rng.exponential(1.0)
 
             # Build NUTS tree
             theta_minus = theta.copy()
@@ -372,7 +377,7 @@ class NUTSSampler:
 
             j = 0
             while s and j < self._max_tree_depth:
-                v = 1 if np.random.uniform() > 0.5 else -1
+                v = 1 if self._rng.uniform() > 0.5 else -1
                 if v == -1:
                     (
                         theta_minus,
@@ -395,6 +400,7 @@ class NUTSSampler:
                         self._grad_log_prob,
                         self._joint_log_prob,
                         self._delta_max,
+                        self._rng,
                     )
                 else:
                     (
@@ -418,11 +424,12 @@ class NUTSSampler:
                         self._grad_log_prob,
                         self._joint_log_prob,
                         self._delta_max,
+                        self._rng,
                     )
 
                 if s_prime:
                     accept = min(1.0, n_prime / max(n_accepted, 1))
-                    if np.random.uniform() < accept:
+                    if self._rng.uniform() < accept:
                         theta_m = theta_prime
 
                 n_accepted += n_prime

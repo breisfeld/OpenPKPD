@@ -5,6 +5,56 @@ This project follows [Semantic Versioning](https://semver.org).
 
 ---
 
+## 0.2.7 — 2026-04-02
+
+### Added
+
+**Steady-state (SS=1, II) dosing — ADVAN1/2/3/4/6**
+- ADVAN1: scale bolus by `1/(1-exp(-K·τ))` at periodic SS.
+- ADVAN2: per-pole accumulation factors `ss_k`, `ss_ka`; limit form for KA≈K.
+- ADVAN3: `_biexp_central_ss()` with per-eigenvalue factors; degenerate fallback.
+- ADVAN4: `_triexp_oral_ss()` + `_decay_difference_ss()` for per-pole SS oral dosing.
+- ADVAN6: iterative periodic-orbit solver `_find_ss_state()` — integrates up to 500
+  dosing cycles until the pre-dose state converges (rtol 1e-5); verified against
+  the ADVAN2 analytical SS result for a 1-cmt oral model.
+- All subroutines warn once on SS=1 with infusion dosing (not yet implemented).
+
+**Numerical accuracy tests**
+- `TestADVAN4VsODE::test_degenerate_eigenvalue_infusion_matches_ode`: validates the
+  `abs(dl) < 1e-10` branch of `_infusion_triexp` against ADVAN6 ODE (rtol 1e-3).
+
+### Fixed
+
+- **NCA**: `compute_dataset` now filters strictly to EVID==0 rows before trapezoidal
+  integration; EVID=2/3/4 dose/reset records no longer corrupt AUC estimates.
+- **SAEM convergence**: phase-2 phi vector includes full omega lower-triangle and
+  sigma diagonal, preventing premature convergence when off-diagonal omegas or
+  residual variances drift.
+- **SAEM OFV monitoring**: OFV now uses the Rao-Blackwell chain-mean η̂ instead of
+  a single chain (chain 0), giving a lower-variance monitoring signal.
+- **SAEM n_eta=0 fast-path**: MH E-step loop is skipped entirely for models with no
+  random effects, avoiding redundant per-subject RNG calls.
+- **IMP ESS feedback**: warn when ESS/isample remains low after reaching
+  `MAX_ISAMPLE_DOUBLINGS` so users know to increase `isample` manually.
+- **FO Cholesky solve**: replaced explicit `C_i^{-1}·I` construction with a Cholesky
+  factorisation that provides both `log|C_i|` and the quadratic form in one pass.
+- **Laplacian**: removed duplicate `LOG2PI_LOCAL`; now uses shared `LOG2PI` constant.
+- **FO `hasattr` dead code**: `result.message if hasattr(result, "message") else ""`
+  simplified to `getattr(result, "message", "")`.
+- **pcVPC**: warn when simulated data lacks a PRED column and skip correction rather
+  than silently producing uncorrected output.
+- **Rust `neg2ll_obs_loop`**: replaced silent min-truncation with an explicit length
+  check (returns 1e30 on mismatch); Python-side ValueError guard added.
+- **Rust transit PD RHS**: `emax` clamped to `[0, 1]` to prevent negative PD
+  production and ODE destabilisation.
+
+### Documentation
+
+- `docs/user_guide/analysis_validation_gaps.md`: added *Recently resolved gaps* table.
+- `docs/changelog.md`: this entry.
+
+---
+
 ## 0.2.6 — 2026-04-02
 
 ### Added

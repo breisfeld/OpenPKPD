@@ -23,6 +23,17 @@ Here, a *strong* validation test means one of the following:
 | P2 | Advanced estimator external benchmarking | SAEM/IMP/BAYES/nonparametric now have unit tests, regression baselines, and eight empirical cross-tool anchors: theophylline via nlmixr2 (FOCEI and Monolix), PK-only warfarin via nlmixr2 (FOCEI and SAEM), neonatal phenobarbital SAEM via Grasela & Donn (1985) literature, warfarin BAYES(Laplace) vs nlmixr2 FOCEI, theophylline NPML vs nlmixr2 FOCEI, phenobarbital `pheno` via Pharmpy, and reduced mixed-endpoint warfarin PK/PD via nlmixr2 (4-subject release-gated and 6-subject second-tier). The FOCE warm-start corruption bug (1e10 OFV sentinel) was also fixed in this cycle. | External benchmark breadth is still thinner than for the core FO/FOCE path; mixed-endpoint empirical coverage is limited to reduced runtime-practical subsets; no second IMP/IMPMAP dataset with an independent external reference yet. |
 | P3 | Analysis-model fit workflows in `src/openpkpd/models/` | TTE, count, categorical, and TMDD families now have **external validation** against scipy closed forms and limit-case reductions | Fixed-dataset fit baselines for PD model families (Emax, indirect response) are still missing |
 
+## Recently resolved gaps *(2026-04-02 cycle)*
+
+| Area | Resolution |
+| --- | --- |
+| Steady-state dosing (SS=1, II) | Implemented for ADVAN1/2/3/4 (analytical per-pole SS factors) and ADVAN6 (iterative periodic-orbit solver). Tests in `TestMultiDoseSteadyState`. |
+| ADVAN3/ADVAN4 degenerate eigenvalue | `_propagate_2cmt` and `_biexp_central` limit forms verified against `scipy.linalg.expm`; `_infusion_triexp` degenerate branch verified against ADVAN6 ODE (`TestADVAN4VsODE::test_degenerate_eigenvalue_infusion_matches_ode`). |
+| NCA with EVID≠0 rows | Fixed `compute_dataset` to filter strictly to EVID==0 observations; tested via `TestNCAExactIntegrals`. |
+| SAEM convergence completeness | Phase-2 phi vector now includes full omega lower-triangle and sigma diagonal; n_eta==0 fast-path added. |
+| 3×3+ OMEGA BLOCK round-trip | `OmegaSpec.to_matrix()` corrected to row-major; `test_block3_to_matrix_row_major` regression added. |
+| Rust `neg2ll_obs_loop` length mismatch | Explicit length check added in Rust + Python-side ValueError guard. |
+
 ## Why these are the biggest gaps
 
 ### Simulation is foundational to downstream validation

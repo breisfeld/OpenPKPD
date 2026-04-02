@@ -5,6 +5,53 @@ This project follows [Semantic Versioning](https://semver.org).
 
 ---
 
+## 0.2.6 — 2026-04-02
+
+### Added
+
+**P1.4 — Native acceleration for user-defined `$DES` ODE models**
+- `CompiledDESCallable.as_multidose_probe()` — compiles the user's NM-TRAN
+  `$DES` block to Numba `@njit` and wraps it in a piecewise multi-dose
+  integration engine.  Returns four probe callables (bolus + infusion variants,
+  state + sensitivity variants) that satisfy the `_NativeOdeTemplate` contract
+  already used by the built-in Rust probes.
+- `IndividualModel._try_build_user_ode_template()` — detects ADVAN6 +
+  `CompiledDESCallable`, auto-derives the volume parameter name (`V`, `V1`,
+  `V2`, or `V3`) and output compartment index, and builds a lazily-cached
+  `_NativeOdeTemplate` with `eligible_advans={6}`.
+- `IndividualModel._iter_templates()` — prepends the user template to the
+  static `_NATIVE_ODE_TEMPLATES` list so all four dispatch loops
+  (`_try_native_ode_probe`, `native_advan6_prediction_eta_jacobian`,
+  `_native_gauss_newton_hessian`, `_native_eta_objective_value_grad`) pick it
+  up automatically.
+- `_build_native_ode_contract()` gate updated to admit ADVAN6 +
+  `CompiledDESCallable` even when no compiled Rust template is present.
+- User ODE template excluded from `__getstate__` (closures cannot be pickled);
+  rebuilt lazily in parallel worker processes on first probe call.
+
+The acceleration is **transparent** — existing models using `.des(…)` benefit
+automatically when `openpkpd[jit]` is installed.  No API changes for users.
+
+Downstream benefits activated for user `$DES` models:
+- Single-probe IPRED prediction (replaces full Python `evaluate()` loop)
+- Native G_i = ∂IPRED/∂η for FOCE/FOCEI inner loop
+- Native Gauss-Newton Hessian for Laplacian/BAYES
+- Native eta gradient for IMPMAP MAP optimization
+
+Nine new unit tests in `tests/unit/test_native_cvodes.py` (Section 18):
+gate activation, template caching, state-probe accuracy vs. analytical
+1-cmt IV (rtol 1e-4), `_try_native_pk_backend` dispatch, sensitivity-probe
+shape and FD agreement (rtol 1e-3), and G_i vs. FD reference (rtol 1e-2).
+
+**Documentation**
+- Added *"Native acceleration for user-defined `$DES` models"* section to
+  `docs/user_guide/pk_subroutines.md` covering activation, eligibility
+  conditions, and limitations.
+- Updated Model workflow tooltip in the GUI to mention that `openpkpd[jit]`
+  enables automatic Numba acceleration for `$DES` models.
+
+---
+
 ## 0.2.5 — 2026-04-01
 
 ### Added

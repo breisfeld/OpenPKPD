@@ -110,7 +110,11 @@ _ADVAN_HELP_TEXT = (
     "Use ADVAN8 when your $DES model has widely separated time scales\n"
     "(e.g. fast distribution K12 >> slow elimination K10), PBPK systems,\n"
     "or receptor-binding models. ADVAN6 handles most standard PK ODEs and\n"
-    "automatically falls back to the stiff solver if the step limit is hit."
+    "automatically falls back to the stiff solver if the step limit is hit.\n\n"
+    "Tip: install openpkpd[jit] to enable Numba acceleration for $DES models.\n"
+    "When active, the FOCE/FOCEI inner loop and Hessian computation use a\n"
+    "compiled ODE probe instead of repeated Python evaluations — no model\n"
+    "changes needed."
 )
 _OMEGA_HELP_TEXT = (
     "OMEGA is the covariance matrix of inter-individual variability (IIV).\n"

@@ -279,7 +279,7 @@ class CompiledPKCallable:
         self._param_names = param_names or []
         self._output_names = _collect_assigned_names(code)
         self._exec_fn: Callable | None = None
-        self._direct_fn_cache: dict[tuple[str, ...], Callable | None] = {}
+        self._direct_fn_cache: dict[tuple, Callable | None] = {}
 
     def _compile_exec(self) -> None:
         source_literal = repr(self._source)
@@ -373,12 +373,15 @@ class CompiledPKCallable:
         a: list[float] | None = None,
         covariates: dict[str, float] | None = None,
     ) -> dict[str, float]:
+        import hashlib
         cov_map = covariates or {}
         covariate_names = tuple(sorted(cov_map))
-        if covariate_names not in self._direct_fn_cache:
-            self._direct_fn_cache[covariate_names] = self._compile_direct(covariate_names)
+        source_hash = hashlib.md5(self._source.encode()).hexdigest()[:8]
+        cache_key = (covariate_names, source_hash)
+        if cache_key not in self._direct_fn_cache:
+            self._direct_fn_cache[cache_key] = self._compile_direct(covariate_names)
 
-        direct_fn = self._direct_fn_cache[covariate_names]
+        direct_fn = self._direct_fn_cache[cache_key]
         if direct_fn is not None:
             return direct_fn(theta, eta, t, a, cov_map)
 

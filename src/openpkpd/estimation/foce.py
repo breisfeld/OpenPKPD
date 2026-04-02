@@ -267,8 +267,8 @@ def _compute_G_i(
             result = native_G_fn(theta, eta, obs_mask, n_eta)
             if result is not None:
                 return result
-        except Exception:
-            pass  # fall through to ADVAN13 or FD path
+        except Exception as _e:
+            logger.warning("native_advan6_prediction_eta_jacobian failed: %s; falling through to FD", _e)
 
     # ── Try sensitivity-assisted gradient (ADVAN13 path) ─────────────────────
     pk_sub = getattr(indiv, "pk_subroutine", None)
@@ -279,8 +279,8 @@ def _compute_G_i(
             return _compute_G_i_via_sensitivity(
                 indiv, pk_sub, theta, eta, sigma, trans, obs_mask, pred0_obs, h
             )
-        except Exception:
-            pass  # fall through to FD path
+        except Exception as _e:
+            logger.warning("sensitivity-assisted G_i failed: %s; falling through to FD", _e)
 
     # ── Standard forward-difference path ─────────────────────────────────────
     for k in range(n_eta):
@@ -289,8 +289,8 @@ def _compute_G_i(
         try:
             _, _, _, pred_p, _ = indiv.evaluate_observation_model(theta, eta_p, sigma, trans=trans)
             G[:, k] = (pred_p[obs_mask] - pred0_obs) / h
-        except Exception:
-            pass  # column stays zero
+        except Exception as _e:
+            logger.warning("G_i FD column %d failed: %s; column set to zero", k, _e)
     return G
 
 

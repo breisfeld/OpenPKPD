@@ -215,5 +215,5 @@ def power_residual_variance(
         Variance as a float. Returns 0 if f <= 0 and theta > 0.
     """
     if f <= 0 and theta > 0:
-        return 0.0
+        return np.finfo(float).tiny
     return float(sigma**2 * abs(f) ** (2.0 * theta))

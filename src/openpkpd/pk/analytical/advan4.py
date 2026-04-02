@@ -134,10 +134,13 @@ def _triexp_oral(
 
     dl = lam2 - lam1
     if abs(dl) < 1e-10:
-        # Equal disposition eigenvalues are rare; keep a conservative fallback
-        # rather than introducing a brittle closed-form limit.
+        # L'Hôpital limit: (exp(-λ₁t)-exp(-λ₂t))/(λ₂-λ₁) → t·exp(-λt)
+        # a2 falls back to the Bateman equation at the degenerate eigenvalue
         a2 = dose * ka / (ka - k) * (np.exp(-k * dt) - np.exp(-ka * dt))
-        a3 = np.zeros_like(dt)
+        # a3: peripheral compartment receives flux via k12 * a2 decay;
+        # limit of k12/(lam2-lam1)*(h1-h2) as lam2→lam1=lam is k12*t*exp(-lam*t)
+        near_equal = dt * np.exp(-lam1 * dt)  # L'Hôpital limit form
+        a3 = dose * ka * k12 * near_equal
         return a1, a2, a3
 
     h1 = _decay_difference(lam1, ka, dt)

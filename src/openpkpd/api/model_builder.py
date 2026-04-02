@@ -138,19 +138,20 @@ class BuiltModel:
 
     def fit(self) -> EstimationResult:
         """Run estimation and return results."""
-        method_name = self.estimation_kwargs.pop("method", "FOCE")
-        interaction = self.estimation_kwargs.pop("interaction", False)
-        maxeval = self.estimation_kwargs.pop("maxeval", 9999)
+        method_name = self.estimation_kwargs.get("method", "FOCE")
+        interaction = self.estimation_kwargs.get("interaction", False)
+        maxeval = self.estimation_kwargs.get("maxeval", 9999)
+        kwargs = {
+            k: v
+            for k, v in self.estimation_kwargs.items()
+            if k not in ("method", "interaction", "maxeval")
+        }
 
         est = get_estimation_method(
             method_name,
             interaction=interaction,
             maxeval=maxeval,
-            **{
-                k: v
-                for k, v in self.estimation_kwargs.items()
-                if k not in ("method", "interaction", "maxeval")
-            },
+            **kwargs,
         )
         result = est.estimate(self.population_model, self.params)
         dataset = getattr(self.population_model, "dataset", None)

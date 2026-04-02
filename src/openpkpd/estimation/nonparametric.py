@@ -403,7 +403,7 @@ class NonparametricMethod(EstimationMethod):
                             -0.5 * n_obs * np.log(2 * np.pi * sigma_diag)
                             - 0.5 * np.sum(residuals**2) / sigma_diag
                         )
-                        row[k] = np.exp(np.clip(log_lik, -500, 0))
+                        row[k] = np.exp(np.clip(log_lik, -500, None))
                     except Exception:
                         row[k] = 1e-300
             except Exception:

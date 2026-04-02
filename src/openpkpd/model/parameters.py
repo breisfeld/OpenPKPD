@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass, field
 
 import numpy as np
 
 from openpkpd.utils.errors import NumericalError
+
+logger = logging.getLogger(__name__)
 
 _MAX_TRANSFORM_EXP_ARG = 500.0
 _MAX_COVARIANCE_LOG_DIAG = min(
@@ -191,7 +194,12 @@ class ParameterSet:
                 raw = float(vec[idx])
                 idx += 1
                 chol[r, c] = _exp_covariance_diag(raw) if r == c else raw
-            return chol @ chol.T, idx
+            result = chol @ chol.T
+            try:
+                np.linalg.cholesky(result)
+            except np.linalg.LinAlgError:
+                logger.warning("_unpack_covariance_blocks: reconstructed matrix is not PD")
+            return result, idx
 
         matrix = np.zeros_like(template_matrix)
         for offset, block_size, fixed in cls._block_slices(specs):
@@ -206,7 +214,15 @@ class ParameterSet:
                 raw = float(vec[idx])
                 idx += 1
                 chol[r, c] = _exp_covariance_diag(raw) if r == c else raw
-            matrix[offset : offset + block_size, offset : offset + block_size] = chol @ chol.T
+            block_result = chol @ chol.T
+            try:
+                np.linalg.cholesky(block_result)
+            except np.linalg.LinAlgError:
+                logger.warning(
+                    "_unpack_covariance_blocks: reconstructed block at offset %d is not PD",
+                    offset,
+                )
+            matrix[offset : offset + block_size, offset : offset + block_size] = block_result
 
         return matrix, idx
 
@@ -547,6 +563,11 @@ def _repair_pd(mat: np.ndarray, epsilon: float = 1e-7) -> np.ndarray:
     Replaces any eigenvalue < epsilon with epsilon, then reconstructs.
     """
     mat = (mat + mat.T) / 2  # Ensure symmetry
+    if mat.size == 0:
+        return mat
     eigenvalues, eigenvectors = np.linalg.eigh(mat)
+    # PA2: use a scale-relative floor so small matrices are not over-regularised
+    max_abs = float(np.max(np.abs(eigenvalues))) if eigenvalues.size > 0 else 0.0
+    epsilon = max(1e-10, 1e-7 * max_abs)
     eigenvalues = np.maximum(eigenvalues, epsilon)
     return eigenvectors @ np.diag(eigenvalues) @ eigenvectors.T

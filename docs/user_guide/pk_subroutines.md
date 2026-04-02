@@ -215,6 +215,70 @@ advan = ADVAN6(n_compartments=2, jit="numpy", max_steps=500_000)
 | Uncertain — want safety + speed | `ADVAN6(jit='auto', method='LSODA')` |
 | Exact reproducibility required | `ADVAN6(jit='scipy')` (default) |
 
+## Native acceleration for user-defined `$DES` models
+
+When `openpkpd[jit]` is installed and you use ADVAN6 with a `$DES` block, the
+engine **automatically activates a native ODE template** for the inner
+estimation loop.  No code changes are required — write your model exactly as
+before and the acceleration is applied transparently.
+
+### What gets faster
+
+| Component | Without JIT | With JIT (P1.4) |
+|---|---|---|
+| IPRED prediction | Full Python `evaluate()` loop | Single compiled probe call |
+| FOCE/FOCEI G_i (η-Jacobian) | N+1 ODE solves per subject | Probe + chain-rule FD |
+| Laplacian / BAYES Hessian | Assembled from N+1 solves | Assembled from G_i above |
+| IMPMAP eta gradient | 20–50 ODE solves per optimisation step | Native gradient descent |
+
+### Activation
+
+Install the JIT extra, then use ADVAN6 with a `$DES` block as normal:
+
+```python
+pip install "openpkpd[jit]"
+```
+
+```python
+(
+    ModelBuilder()
+    .subroutines(advan=6)
+    .pk("""
+        K = THETA(1) * EXP(ETA(1))
+        V = THETA(2) * EXP(ETA(2))
+    """)
+    .des("""
+        DADT(1) = -K * A(1)
+    """)
+    ...
+)
+```
+
+If `openpkpd[jit]` is not installed, the standard Python integration path is
+used.  Behaviour is identical — just without the speedup.
+
+### Eligibility conditions
+
+The native path activates when **all** of the following hold:
+
+- ADVAN6 is used with a non-empty `$DES` block
+- At least one volume parameter (`V`, `V1`, `V2`, or `V3`) appears in the
+  `$PK` block output — required to convert compartment amounts to concentrations
+- All doses go into compartment 1
+- Covariates are time-constant (or absent)
+- `openpkpd[jit]` is installed (Numba ≥ 0.57)
+
+If any condition is not met, the engine falls back to the standard path
+silently.
+
+### Limitations
+
+| Limitation | Detail |
+|---|---|
+| **Stiff ODEs** | The native probe uses NumPy RK45.  Stiff models may trigger the automatic scipy fallback; use ADVAN8 if stiffness is a concern. |
+| **Sensitivity accuracy** | ∂IPRED/∂θ is computed via central finite differences (2·n\_params probe calls per observation set).  Accuracy is ~1e-5 relative error — sufficient for FOCE/Laplacian/IMPMAP. |
+| **No CVODES** | Unlike the built-in Rust probes for common model shapes (1-cmt, 2-cmt, etc.), P1.4 uses Numba RK45 rather than the SUNDIALS BDF integrator.  For non-stiff standard PK models the difference is negligible. |
+
 ## ADVAN5 — General N-Compartment Linear Model
 
 ADVAN5 analytically solves an arbitrary N-compartment linear system of ODEs

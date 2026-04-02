@@ -27,6 +27,9 @@ from openpkpd.model.parameters import ParameterSet
 from openpkpd.pk.base import PKSubroutine
 from openpkpd.utils.constants import BLQMethod
 from openpkpd.utils.errors import ModelError
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -120,7 +123,8 @@ class PopulationModel:
             try:
                 obj = indiv.log_likelihood(params.theta, eta_zero, params.sigma, trans=self.trans)
                 ofv += obj
-            except Exception:
+            except Exception as e:
+                logger.warning("Subject %s OFV failed: %s", subj_id, e)
                 ofv += 1e10  # Penalize failures
         return ofv
 
@@ -143,7 +147,8 @@ class PopulationModel:
                     eta_i, params.theta, params.omega, params.sigma, trans=self.trans
                 )
                 ofv += obj
-            except Exception:
+            except Exception as e:
+                logger.warning("Subject %s OFV failed: %s", subj_id, e)
                 ofv += 1e10
         return ofv
 

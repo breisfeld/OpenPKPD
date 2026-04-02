@@ -15,11 +15,14 @@ References:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from openpkpd.simulation.engine import SimulationEngine
@@ -182,6 +185,7 @@ def _make_bins(times: np.ndarray, n_bins: int) -> np.ndarray:
     edges = np.unique(np.percentile(times, percentile_edges))
 
     if len(edges) < 2:
+        logger.debug("VPC: equal-quantile binning failed, falling back to linear binning")
         t_min = float(np.min(times))
         t_max = float(np.max(times))
         edges = np.linspace(t_min, t_max + 1e-6, n_bins + 1)

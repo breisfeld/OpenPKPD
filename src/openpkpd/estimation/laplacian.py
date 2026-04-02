@@ -138,6 +138,11 @@ class LaplacianMethod(FOCEMethod):
             try:
                 sign, logdet_H = np.linalg.slogdet(H_i)
                 if sign <= 0:
+                    logger.warning(
+                        "Laplacian: non-positive-definite Hessian (sign=%d) at MAP"
+                        " — η may be at a saddle point; logdet set to 0",
+                        sign,
+                    )
                     logdet_H = 0.0
             except Exception:
                 logdet_H = 0.0

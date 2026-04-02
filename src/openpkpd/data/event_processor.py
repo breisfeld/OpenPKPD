@@ -279,6 +279,10 @@ class EventProcessor:
                     dose_events.append(base_event)
 
                     # Expand ADDL doses
+                    if addl > 0 and ii_val <= 0:
+                        raise ValueError(
+                            f"II must be > 0 for ADDL dosing; got II={ii_val} for subject {subject_id}"
+                        )
                     if addl > 0 and ii_val > 0:
                         for k in range(1, addl + 1):
                             dose_events.append(

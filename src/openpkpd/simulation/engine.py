@@ -14,6 +14,7 @@ are simulated datasets.
 
 from __future__ import annotations
 
+import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -529,7 +530,11 @@ def _draw_mvn(rng: np.random.Generator, cov: np.ndarray, n: int) -> np.ndarray:
     try:
         return rng.multivariate_normal(np.zeros(n), cov)
     except np.linalg.LinAlgError:
-        # Near-singular: use diagonal approximation
+        warnings.warn(
+            "OMEGA/SIGMA Cholesky failed; falling back to diagonal sampling — correlations discarded",
+            RuntimeWarning,
+            stacklevel=2,
+        )
         stds = np.sqrt(np.maximum(np.diag(cov), 0.0))
         return rng.normal(0.0, 1.0, n) * stds
 
@@ -551,6 +556,11 @@ def _draw_mvn_batch(rng: np.random.Generator, cov: np.ndarray, n: int, size: int
     try:
         return rng.multivariate_normal(np.zeros(n), cov, size=size)
     except np.linalg.LinAlgError:
+        warnings.warn(
+            "OMEGA/SIGMA Cholesky failed; falling back to diagonal sampling — correlations discarded",
+            RuntimeWarning,
+            stacklevel=2,
+        )
         stds = np.sqrt(np.maximum(np.diag(cov), 0.0))
         return rng.normal(0.0, 1.0, size=(size, n)) * stds
 

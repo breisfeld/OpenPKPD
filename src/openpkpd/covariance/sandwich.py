@@ -20,6 +20,7 @@ Reference: Beal (1992); White (1982) sandwich estimator.
 
 from __future__ import annotations
 
+import warnings as warnings_module
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -31,6 +32,10 @@ from openpkpd.model.parameters import ParameterSet
 from openpkpd.utils.logging import get_logger
 
 logger = get_logger("covariance.sandwich")
+
+
+class CovarianceEstimationWarning(UserWarning):
+    pass
 
 
 @dataclass
@@ -122,7 +127,8 @@ class SandwichCovariance:
                             trans=population_model.trans,
                         )
                     )
-                except Exception:
+                except Exception as e:
+                    logger.warning("Subject %s individual OFV failed during covariance: %s", subj_id, e)
                     return 1e10
 
             return ofv_i
@@ -160,6 +166,11 @@ class SandwichCovariance:
                 warnings.append(f"Condition number of R matrix is large: {cond:.2e}")
         except np.linalg.LinAlgError as exc:
             warnings.append(f"R matrix is singular: {exc}")
+            warnings_module.warn(
+                "Hessian singular; covariance SE unreliable",
+                CovarianceEstimationWarning,
+                stacklevel=3,
+            )
             R_inv = np.eye(n_params)
             cond = float("inf")
 

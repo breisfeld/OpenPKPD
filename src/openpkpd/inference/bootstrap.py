@@ -425,6 +425,15 @@ class BootstrapEngine:
         if n_success == 0:
             raise RuntimeError("All bootstrap replicates failed.  Check model specification.")
 
+        n_total = self.n_boot
+        if n_success < max(1, int(0.1 * n_total)):
+            import warnings
+            warnings.warn(
+                f"Bootstrap: only {n_success}/{n_total} replicates converged"
+                f" ({100 * n_success / n_total:.0f}%). Results may be unreliable.",
+                RuntimeWarning,
+            )
+
         theta_samples = np.array([r.theta_final for r in successful])
         omega_diag_samples = np.array([np.diag(r.omega_final) for r in successful])
         sigma_diag_samples = np.array([np.diag(r.sigma_final) for r in successful])

@@ -126,6 +126,7 @@ class TestPowerResidualVariance:
         assert var == pytest.approx(9.0)
 
     def test_zero_f_positive_theta(self):
-        """f=0 with positive theta → variance = 0."""
+        """f=0 with positive theta → returns tiny positive value (not 0) to avoid downstream division by zero."""
         var = power_residual_variance(f=0.0, sigma=1.0, theta=1.0)
-        assert var == 0.0
+        assert var > 0.0
+        assert var <= np.finfo(float).tiny * 2

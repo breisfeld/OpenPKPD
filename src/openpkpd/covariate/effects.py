@@ -13,6 +13,7 @@ Supported effect types:
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from enum import Enum
 
@@ -86,6 +87,11 @@ class CovariateRelationship:
 
         else:
             # CATEGORICAL: handled externally; return base unchanged as fallback
+            warnings.warn(
+                "CovariateEffect.apply() called on CATEGORICAL effect; use apply_categorical() instead",
+                UserWarning,
+                stacklevel=2,
+            )
             return base_value
 
     def apply_categorical(

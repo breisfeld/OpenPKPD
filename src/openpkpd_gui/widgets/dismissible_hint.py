@@ -31,8 +31,9 @@ def build_dismissible_hint(
     label.setWordWrap(True)
 
     dismiss_btn = qt_widgets.QToolButton()
+    dismiss_btn.setObjectName("dismissible-hint-dismiss")
     dismiss_btn.setText("\u00d7")  # U+00D7 MULTIPLICATION SIGN — in every Latin-1 font
-    dismiss_btn.setFixedSize(18, 18)
+    dismiss_btn.setFixedSize(20, 20)
     dismiss_btn.setToolTip("Dismiss this hint")
 
     row.addWidget(label, 1)

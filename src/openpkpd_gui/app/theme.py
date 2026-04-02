@@ -375,6 +375,12 @@ def build_stylesheet(theme: str) -> str:
             color: {c["button_disabled_text"]};
             border-color: {c["button_disabled_border"]};
         }}
+        QToolButton#dismissible-hint-dismiss {{
+            padding: 0px 2px;
+            border-radius: 5px;
+            min-height: 0;
+            font-size: 13px;
+        }}
         QWidget[collapsibleSection="true"][collapsibleFrame="true"] {{
             background: {c["panel_bg"]};
             border: 1px solid {c["border"]};

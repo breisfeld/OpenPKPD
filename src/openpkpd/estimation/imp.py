@@ -55,6 +55,8 @@ class IMPMethod(EstimationMethod):
 
     #: ESS fraction below which a WARN_006 is emitted (fraction of isample).
     ESS_WARN_FRACTION: float = 0.10
+    #: Maximum number of times isample may be automatically doubled during a run.
+    MAX_ISAMPLE_DOUBLINGS: int = 3
 
     def __init__(
         self,
@@ -67,6 +69,8 @@ class IMPMethod(EstimationMethod):
         iteration_callback=None,
     ) -> None:
         self.isample = isample
+        self._initial_isample = isample  # preserved for diagnostics/reporting
+        self._isample_doublings = 0      # count of automatic doublings so far
         self.maxeval = maxeval
         self.print_interval = print_interval
         self.n_parallel = n_parallel
@@ -106,6 +110,8 @@ class IMPMethod(EstimationMethod):
         self._proposal_cache = {}
         self._proposal_warm_start = {}
         self._low_ess_subjects = []
+        self.isample = self._initial_isample  # reset adaptive isample for each run
+        self._isample_doublings = 0
 
         if self.is_map:
             params = self._warm_start_with_focei(population_model, params)
@@ -134,8 +140,34 @@ class IMPMethod(EstimationMethod):
                     self.iteration_callback(self._iter, ofv)
                 except Exception:
                     pass
+
+            # ── Adaptive isample ─────────────────────────────────────────────
+            # If the majority of subjects have ESS/isample below the warning
+            # fraction, the Monte Carlo estimate is noisy.  Double isample
+            # (up to MAX_ISAMPLE_DOUBLINGS times) so subsequent evaluations
+            # use more samples.  This invalidates the proposal cache so a
+            # fresh MAP/covariance is computed with the new sample count.
+            if (
+                self._last_ess_by_subject
+                and self._isample_doublings < self.MAX_ISAMPLE_DOUBLINGS
+            ):
+                ess_values = np.fromiter(self._last_ess_by_subject.values(), dtype=float)
+                n_low = int(np.sum(ess_values / self.isample < self.ESS_WARN_FRACTION))
+                if n_low > len(ess_values) // 2:
+                    old_isample = self.isample
+                    self.isample *= 2
+                    self._isample_doublings += 1
+                    self._proposal_cache.clear()  # stale proposals no longer valid
+                    logger.warning(
+                        "IMP adaptive isample: %d/%d subjects had ESS/isample < %.2f "
+                        "(doubling %d/%d).  isample: %d → %d.",
+                        n_low, len(ess_values), self.ESS_WARN_FRACTION,
+                        self._isample_doublings, self.MAX_ISAMPLE_DOUBLINGS,
+                        old_isample, self.isample,
+                    )
+
             if self._iter % self.print_interval == 0:
-                logger.info(f"  Iter {self._iter:5d}  OFV={ofv:.4f}")
+                logger.info(f"  Iter {self._iter:5d}  OFV={ofv:.4f}  isample={self.isample}")
             return ofv
 
         result = minimize(
@@ -220,6 +252,8 @@ class IMPMethod(EstimationMethod):
             },
             "importance_sampling": {
                 "isample": int(self.isample),
+                "initial_isample": int(self._initial_isample),
+                "isample_doublings": int(self._isample_doublings),
                 "ess_warning_threshold": float(ess_threshold),
                 "final_eval_ess_by_subject": {
                     int(sid): float(ess) for sid, ess in sorted(self._last_ess_by_subject.items())

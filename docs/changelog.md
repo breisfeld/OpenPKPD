@@ -5,6 +5,46 @@ This project follows [Semantic Versioning](https://semver.org).
 
 ---
 
+## 0.2.5 — 2026-04-01
+
+### Added
+
+**GUI — BLQ/M3 support (P2-C)**
+- Added a scalar **LOQ** spinner to the Data workflow options row.  When set,
+  the value is injected as a constant `LLOQ` column at fit time if the dataset
+  does not already contain one.
+- Added a **BLQ method** combo to the Model workflow estimation settings row,
+  exposing M1 (ignore BLQ, default) and M3 (censored likelihood).  The selection
+  is persisted in `ModelSpec.estimation.options` and applied automatically at
+  fit time by setting `population_model.blq_method`.
+
+**GUI — Interactive GOF subject highlighting (P2-B)**
+- Added a **Subject** filter combo to the Diagnostics workflow filter row.
+  Selecting a subject ID re-renders the active GOF plot with that subject's
+  observations overlaid in red, without leaving the Diagnostics page.
+  Supported plot types: DV vs IPRED, DV vs PRED, CWRES vs TIME, CWRES vs PRED,
+  and |IWRES| vs IPRED.
+
+**GUI — VPC stratification and pcVPC (P3-F)**
+- Added a **Stratify by** combo to the Advanced workflow VPC tab, populated from
+  the active dataset columns (mandatory NONMEM columns excluded).  The selected
+  column is passed to `VPCEngine.compute(stratify_by=...)`.  Repopulates and
+  restores selection on every refresh.
+- Renamed the prediction-corrected checkbox to **pcVPC** and added a descriptive
+  tooltip.
+- Added `stratify_by: str | None` to `VPCConfig`; run summary text includes
+  `stratify=<column>` when stratification is active.
+
+**Documentation**
+- Rewrote `docs/user_guide/gui.md` to fully reflect all current workflow pages,
+  controls, and behaviors including: LOQ spinner, BLQ method combo, subject
+  highlighting, VPC stratification/pcVPC, named model presets, advanced
+  FOCE/FOCEI optimizer controls, NCA options, Results comparison and delta
+  panels, Diagnostics NPDE controls, Advanced Design tab controls, Artifacts
+  tab scope filtering, keyboard shortcuts, and BLQ troubleshooting guidance.
+
+---
+
 ## 0.2.4 — 2026-03-28
 
 ### Changed

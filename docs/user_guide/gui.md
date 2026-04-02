@@ -7,9 +7,8 @@ The OpenPKPD desktop GUI is organised around a simple hierarchy:
 - **Scenario** → a branch within a project (for example `Baseline`, `NCA`, or a covariate variant)
 - **Workflow page** → a task-focused screen such as **Data**, **Model**, or **Results**
 
-Use the Help dialog table of contents to jump directly to the section you need.
-The **Help → Help for this workflow** action opens this guide focused on the
-current workflow page.
+Use the **Help → Help for this workflow** action to jump directly to the section
+for the current page.
 
 ## GUI architecture
 
@@ -20,7 +19,7 @@ graph TB
     end
 
     subgraph "Workflows"
-        WFS["Dashboard · Data · Model · Fit · NCA\nCovariate · Advanced · Results · Diagnostics"]
+        WFS["Dashboard · Data · Model · Fit · NCA\nCovariate · Advanced · Results · Plots · Diagnostics"]
     end
 
     subgraph "Services"
@@ -59,13 +58,17 @@ If you are new to the GUI, the most common end-to-end path is:
 | If you want to… | Go to… | Notes |
 |---|---|---|
 | Load a CSV or sample dataset | **Data workflow** | Import your own file or load a bundled example |
+| Set a lower limit of quantification | **Data workflow** | LOQ spinner in the options row |
 | Build or edit a model | **Model workflow** | Builder and code views stay in sync with saved state |
+| Select BLQ handling (M1/M3) | **Model workflow** | BLQ method combo in estimation settings |
 | Estimate model parameters | **Fit workflow** | Uses the current scenario dataset + model |
 | Run non-compartmental analysis | **NCA workflow** | Works without a compartmental fit |
 | Review reports, logs, and artifacts | **Results workflow** | Best place to inspect completed fits |
-| Browse plot artifacts | **Results workflow** | Filter by kind = `png` / `svg` in the artifact panel |
+| Browse plot artifacts | **Plots workflow** | Filter by analysis and plot type |
 | Review diagnostics / generate NPDE | **Diagnostics workflow** | Focused fit-quality outputs |
+| Highlight a subject across GOF plots | **Diagnostics workflow** | Subject filter combo in the filter row |
 | Run VPC / bootstrap / design tools | **Advanced workflow** | Post-fit analysis tabs |
+| Run VPC with stratification or pcVPC | **Advanced workflow → VPC tab** | Stratify-by combo and pcVPC checkbox |
 | Run stepwise covariate modelling | **Covariate workflow** | Requires a ready base model |
 | Save or reload the whole workspace | **Workspace menu** | Uses `.opkpd` snapshots |
 
@@ -76,17 +79,17 @@ If you are new to the GUI, the most common end-to-end path is:
 - A **workspace** can contain multiple projects.
 - Each **project** contains one or more scenarios.
 - Each new project starts with a default **Baseline** scenario.
-- Scenario workflows are independent enough to support branching experiments:
-  one scenario can hold the base fit, another can hold an NCA-only analysis,
-  and another can test covariate extensions.
+- Scenario workflows are independent, supporting branching experiments:
+  one scenario can hold the base fit, another an NCA-only analysis,
+  and another a covariate extension.
 
 ```mermaid
 graph TD
     WS["Workspace\nname · root_path · recent_files"]
     PRJ["Project\nname · project_id"]
     SCN["Scenario\nname · scenario_id"]
-    DS_A["DatasetAsset\npath · column mapping · validated flag"]
-    MS_A["ModelSpec\nADVAN · TRANS · PK/ERROR code\nestimation config"]
+    DS_A["DatasetAsset\npath · column mapping · LOQ · validated flag"]
+    MS_A["ModelSpec\nADVAN · TRANS · PK/ERROR code\nestimation config · BLQ method"]
     RR_A["RunRecord\nrun_id · status\ntheta / omega / sigma · OFV"]
     AR_A["ArtifactRecord\nkind · path · label · created_at"]
 
@@ -110,6 +113,7 @@ The shell also includes:
 - a project/context header on key pages
 - workflow status strips for readiness and recent progress
 - responsive layouts that stack on narrower window widths
+- dismissible hint banners on first use of each workflow
 
 ### Menu overview
 
@@ -167,20 +171,6 @@ unaffected by this setting.
 The preference is saved across sessions. It takes effect the next time a fit or
 VPC job is started — no restart required.
 
-#### Estimation controls currently exposed in the GUI
-
-The model builder currently exposes the following estimation controls directly:
-
-- estimation method selection (`FO`, `FOCE`, `FOCEI`, `LAPLACIAN`, `SAEM`, `IMP`)
-- `maxeval`
-- `n_starts` (multi-start)
-- tight `gtol` for gradient-based methods
-
-More advanced FOCE/FOCEI optimizer controls such as outer-optimizer selection,
-fallback/polish optimizers, best-iterate retention, and structured retry
-settings are currently available through control streams and the Python API,
-not as dedicated GUI fields.
-
 ### Snapshots and recent files
 
 The GUI snapshot format is `.opkpd`.
@@ -202,7 +192,7 @@ can reconnect those files later.
 
 ### Dashboard workflow
 
-The **Dashboard** page is the fastest way to assess a scenario’s status.
+The **Dashboard** page is the fastest way to assess a scenario's status.
 
 It summarizes:
 
@@ -214,25 +204,48 @@ It summarizes:
 Use the Dashboard when you want to answer: *What is ready? What still needs
 attention? What should I do next?*
 
+Quick buttons for recent snapshots and **New Project / Open Snapshot** actions
+are also available at the top of the Dashboard.
+
 ### Data workflow
 
 The **Data** page is where datasets are loaded, previewed, and validated.
 
 #### Main areas
 
-- **Example dataset controls** — filter, browse, and load bundled examples
-- **Import row** — import a CSV from disk
-- **Options row** — separator, quote/comment, and whitespace handling
+- **Example dataset controls** — filter, browse, and load bundled examples with
+  rich detail view (links to source files and URLs)
+- **Import row** — import a CSV from disk via path or file-browser button
+- **Options row** — separator character, quote/comment ignore character,
+  treat-as-whitespace toggle, and scalar LOQ spinner
 - **Columns panel** — dataset column list
-- **Preview panel** — row preview table
+- **Preview panel** — row preview table (first 100 rows)
 - **Validation panel** — warnings and errors from the imported dataset
+
+An unsaved-changes indicator appears when the import controls differ from the
+saved dataset state.
+
+#### Lower limit of quantification (LOQ)
+
+The **LOQ** spinner in the options row lets you specify a scalar lower limit of
+quantification.  When the dataset does not already contain an `LLOQ` column,
+the GUI injects the value as a constant `LLOQ` column at fit time, making it
+available to BLQ-aware estimation methods (see **Model workflow → BLQ method**).
+
+| LOQ setting | Effect at fit time |
+|---|---|
+| **0.0 / None** | No LOQ injected — `LLOQ` column unchanged. |
+| **> 0** | Written to a new `LLOQ` column if no `LLOQ` column exists. |
+
+The LOQ value is persisted with the dataset import configuration across sessions.
 
 #### Typical usage
 
 1. Load an example dataset or import a CSV.
 2. Confirm the source path and parsing options are correct.
-3. Review columns and preview rows.
-4. Resolve validation errors before moving to **Model**.
+3. If BLQ observations are present, enter the assay LOQ in the LOQ spinner.
+4. Review the columns and preview panels.
+5. Resolve validation errors before moving to **Model**.
 
 ### Model workflow
 
@@ -242,61 +255,131 @@ The **Model** page defines the active model state for the scenario.
 
 Two radio buttons at the top select the model input mode:
 
-- **Builder** — a form-based editor for ADVAN/TRANS selection, THETA/OMEGA/SIGMA tables, PK/ERROR code, and estimation settings.  This is the default for new models.
-- **Control stream** — a plain-text editor for loading or writing a NONMEM-style `.ctl` file directly.
+- **Builder** — a form-based editor for ADVAN/TRANS selection, THETA/OMEGA/SIGMA
+  tables, PK/ERROR code, and estimation settings.  Default for new models.
+- **Control stream** — a plain-text editor for loading or writing a NONMEM-style
+  `.ctl` file directly.
 
-Switching modes is instant; the scenario retains the last-saved state regardless of which view is active.
+Switching modes is instant; the scenario retains the last-saved state regardless
+of which view is active.
 
 #### Main areas
 
-- **Configuration panel** (Builder mode) — dataset path, ADVAN/TRANS, estimation method, and THETA/OMEGA/SIGMA parameter tables
-- **Translation panel** — translation summary, validation output, and code editor view
-- **Control stream panel** (Control stream mode) — plain-text editor plus example and file-open controls
+- **Configuration panel** (Builder mode) — dataset path, named model picker,
+  ADVAN/TRANS spinners, estimation controls, and THETA/OMEGA/SIGMA parameter tables
+- **Translation panel** — translation summary, validation output, and code view
+- **Control stream panel** (Control stream mode) — plain-text editor plus example
+  and file-open/save controls
 
-#### Help buttons
+Help buttons (**?**) on each section show tooltip descriptions of that control's
+purpose, accepted values, and tips.
 
-Each major control group has a **?** help button.  Clicking it shows a tooltip with a description of that control's purpose, accepted values, and any tips.  Hover the button briefly to see the tooltip text without clicking.
+#### Named model presets
+
+The **Named model** combo offers one-click presets for common ADVAN/TRANS pairs:
+
+| Preset | ADVAN | TRANS |
+|---|---|---|
+| 1-compartment IV | 1 | 1 |
+| 1-compartment oral | 2 | 2 |
+| 2-compartment IV | 3 | 1 |
+| 2-compartment oral | 4 | 4 |
+| Custom ODE | 6 | — |
+
+Selecting a preset fills in the ADVAN/TRANS spinners and default parameter tables
+automatically.
+
+#### Estimation settings
+
+| Control | Description |
+|---|---|
+| **Estimation method** combo | `FO`, `FOCE`, `FOCEI`, `LAPLACIAN`, `SAEM`, `IMP`, `BAYES`, `NONPARAMETRIC` |
+| **maxeval** spinbox | Maximum function evaluations |
+| **n_starts** spinbox | Multi-start random restarts |
+| **Tight gtol** checkbox | Tighter gradient convergence tolerance |
+| **BLQ method** combo | BLQ handling: M1 (ignore) or M3 (censored likelihood) |
+| **Covariance** checkbox | Enable sandwich covariance step |
+| **Covariance matrix** combo | Covariance matrix method (Sandwich, Hessian, etc.) |
+| **Nonparametric base** combo | Base method for NONPARAMETRIC (FOCE / FOCEI / FO) |
+
+Advanced FOCE/FOCEI optimizer controls (visible when a gradient-based method is
+selected):
+
+| Control | Description |
+|---|---|
+| **Outer optimizer** combo | Primary outer optimizer (L-BFGS-B, POWELL, etc.) |
+| **Fallback optimizer** combo | Optimizer if outer fails |
+| **Fallback maxeval** spinbox | Iteration limit for fallback |
+| **Retain best iterate** checkbox | Keep best θ/η across all iterations |
+| **Retry on abnormal** checkbox | Retry with perturbed ETAs on abnormal exit |
+| **Retry omega scales** input | Comma-separated ETA perturbation scales (e.g. `0.5, 0.25, 0.1`) |
+
+#### BLQ method
+
+The **BLQ** combo selects how below-quantification limit observations are handled
+at fit time.
+
+| Option | Method | Description |
+|---|---|---|
+| **M1 — Ignore BLQ** | M1 | BLQ observations excluded from the likelihood (default). |
+| **M3 — Censored likelihood** | M3 | BLQ observations contribute `Φ((LOQ − IPRED)/σ)` — the NONMEM M3 method. Requires `LLOQ` in the dataset or a scalar LOQ set in the **Data** workflow. |
+
+The selected method is saved with the model specification and applied
+automatically when a fit is started.
+
+#### THETA / OMEGA / SIGMA tables
+
+- **Add / Remove** buttons manage rows and blocks.
+- **Suggest THETA** auto-populates initial estimates based on the current model structure.
+- Cells are directly editable; changes are reflected immediately in the translation summary.
 
 #### Control stream mode — example control streams
 
-When **Control stream** mode is active, an **Examples** group appears below the editor with:
+When **Control stream** mode is active, an **Examples** group appears below the
+editor with:
 
 - a searchable dropdown listing all bundled example control streams
 - a **Load example** button to apply the selected example
 - an **Open from file…** button to load a `.ctl` file from disk
+- a **Save to file…** button to write the current text to disk
 
 #### Dataset handling in control stream mode
 
-When you open a control stream (via **Load example** or **Open from file…**), the GUI reads the `$DATA` path embedded in the control stream and automatically loads that CSV onto the **Data** screen, replacing any previously loaded dataset.
+When you open a control stream, the GUI reads the `$DATA` path embedded in the
+file and automatically loads that CSV onto the **Data** screen.
 
 **Priority at fit time:**
-- If you subsequently load a different dataset on the **Data** screen, that dataset takes precedence over the control stream's `$DATA` path.
-- If no dataset has been loaded on the **Data** screen, the fit falls back to the `$DATA` path from the control stream.
 
-This means you can open any bundled example and run it without touching the **Data** page at all, while retaining the ability to substitute your own data by loading it on the **Data** page.
+- If you subsequently load a different dataset on the **Data** screen, that
+  dataset takes precedence.
+- If no dataset has been loaded on the **Data** screen, the fit falls back to
+  the `$DATA` path from the control stream.
 
-#### Key capabilities
+This means you can open any bundled example and run it without touching the
+**Data** page, while retaining the ability to substitute your own data.
 
-- switch between Builder and Control stream input modes without losing saved state
-- maintain builder-based model metadata and inspect generated code
-- validate the model before estimation
-- save model state back into the scenario
+#### Keyboard shortcuts
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl+S` | Save model state |
 
 #### Typical usage
 
 **Using Builder mode:**
 
 1. Confirm the correct dataset is attached.
-2. Set the problem title and structural model settings.
-3. Review/edit THETA, OMEGA, and SIGMA values.
-4. Validate the translation.
-5. Click **Save model state** before moving to **Fit**.
+2. Select a named model preset or set ADVAN/TRANS manually.
+3. Choose the estimation method and BLQ handling.
+4. Review/edit THETA, OMEGA, and SIGMA values; use **Suggest THETA** if needed.
+5. Validate the translation.
+6. Click **Save model state** before moving to **Fit**.
 
 **Using Control stream mode:**
 
 1. Select **Control stream** in the mode radio buttons.
-2. Choose a bundled example from the **Examples** dropdown and click **Load example**, or click **Open from file…** to load your own `.ctl` file.
-3. The `$DATA` file referenced in the control stream is loaded automatically onto the **Data** screen.
+2. Pick a bundled example and click **Load example**, or click **Open from file…**.
+3. The `$DATA` file is loaded automatically onto the **Data** screen.
 4. Edit the control stream text if needed.
 5. Click **Save model state** before moving to **Fit**.
 
@@ -306,27 +389,41 @@ The **Fit** page checks scenario readiness for estimation and launches the fit.
 
 #### Main areas
 
-- **Preparation panel** — readiness summary plus validation items
-- **Run panel** — latest run summary and streaming log output
-- **Action row** — refresh readiness and run the fit
+- **Preparation panel** — readiness summary plus clickable validation items
+- **Run panel** — latest run summary, live convergence plot, and streaming log output
+- **Action row** — cancel (during run) and run fit buttons
 
 #### Preparation summary states
-
-The summary label at the top of the preparation panel reflects the current state:
 
 | Label | Meaning |
 |---|---|
 | **Ready to start fit** | Dataset and model are valid; the fit can be started. |
-| **Fit in progress** | A fit is currently running. Wait for it to finish before starting another. |
+| **Fit in progress** | A fit is currently running. |
 | **Fit needs attention** | One or more validation items must be resolved first. |
+
+Clicking a validation item in the list navigates directly to the source workflow
+(Data or Model) and focuses the relevant control.
+
+#### Convergence plot
+
+A live OFV-history chart updates during the run, showing the objective function
+value at each iteration.  The chart is available in the run panel while the job
+is active.
+
+#### Keyboard shortcuts
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl+R` | Start fit (when ready) |
+| `Escape` | Cancel running fit |
 
 #### Typical usage
 
-1. Open **Fit** after saving dataset + model state.
+1. Open **Fit** after saving dataset and model state.
 2. Read the preparation summary.
-3. Confirm the validation list is clear.
+3. Click validation items to resolve any issues.
 4. Click **Run fit**.
-5. Watch the run log and status updates.
+5. Watch the convergence plot and run log.
 
 ### NCA workflow
 
@@ -338,6 +435,15 @@ The **NCA** page supports standalone non-compartmental analysis.
 - **Readiness panel** — dataset validation and preparation summary
 - **Results panel** — latest run summary, preview output, and logs
 - **Action row** — refresh, open results, open artifacts folder, and run NCA
+
+#### Options
+
+| Control | Description |
+|---|---|
+| **Route** combo | Administration route (Oral, IV, etc.) |
+| **AUC method** combo | Numerical integration method (linear, linear-log, etc.) |
+| **Min points** spinbox | Minimum number of points for λz terminal-phase regression |
+| **Exclude Cmax** checkbox | Exclude the Cmax time point from λz fitting |
 
 #### Typical usage
 
@@ -355,10 +461,11 @@ actions.
 #### Top summary
 
 - **Overview label** — run/output count and latest analysis status for the current scenario
-- **Comparison snapshot** — sibling-scenario summary for quick side-by-side review context
+- **Comparison snapshot** — sibling-scenario summary for quick side-by-side context
 - **Comparison panel** — richer sibling-scenario summary with latest fit state,
   successful-run counts, and output counts
-- **Comparison delta** — quick comparison against the current best review target
+- **Comparison delta** — quick comparison against the current best review target;
+  highlights when the current scenario is ahead or behind
 - **Artifact delta** — highlights missing/extra artifact roles and plot groups
   versus the selected comparison target
 - **Stale warning** — warns when saved inputs changed after the latest successful fit
@@ -368,7 +475,7 @@ actions.
 
 Lists all fit runs for the selected scenario in reverse chronological order.
 Each row shows status, short run ID, and either the summary text or the error
-message. Selecting a row populates the detail and artifact panels.
+message.  Selecting a row populates the detail and artifact panels.
 
 #### Detail panel
 
@@ -382,23 +489,31 @@ message. Selecting a row populates the detail and artifact panels.
 
 | Control | Description |
 |---|---|
-| **Kind filter** combo | Filter by artifact kind (`html`, `csv`, `png`, etc.) |
+| **Kind** filter | Filter by artifact kind (`html`, `csv`, `png`, etc.) |
 | **Role** combo | Filter by logical role (`report`, `plot`, `diagnostics_table`, etc.) |
 | **Plot type** combo | Filter by plot type (`gof_panel`, `cwres_vs_time`, `vpc`, etc.) |
+
+**Review menu** (dropdown):
+
+| Action | Description |
+|---|---|
+| **Open convergence** | Open the OFV-history plot |
+| **Open GOF review** | Open the GOF panel artifact |
+| **Open residual review** | Open CWRES / residual trends |
+| **Open ETA review** | Open ETA histogram/pairs plots |
+| **Open profile review** | Open profile-likelihood plots |
+| **Open Bayesian review** | Open Bayesian posterior plots |
 
 **Quick actions**:
 
 - **Open latest report** — open the latest HTML/PDF report
-- **Open latest plot** — open the latest combined plot artifact
+- **Export report PDF** — export the latest report to PDF
 - **Save latest plot copy…** — copy the latest plot to another path
-- **Open convergence** — open the convergence / OFV-history plot
-- **Open GOF review** — open the GOF panel artifact
-- **More actions** dropdown (fit review): residual review, profiles, ETA review
 - **Save copy…** — copy the selected artifact to disk
 - **Open artifact** — open the selected artifact in the system viewer
-- **More actions** dropdown (artifact): diagnostics CSV, NPDE CSV, or containing folder
+- **Open folder** — open the artifact's containing folder
 
-**Artifact preview** — inline preview of the selected artifact.  The preview adapts to the artifact type:
+**Artifact preview** — inline preview of the selected artifact:
 
 | Type | Preview |
 |---|---|
@@ -407,42 +522,37 @@ message. Selecting a row populates the detail and artifact panels.
 | `.txt`, `.log`, `.json`, `.md` | Plain-text browser |
 | `.png`, `.jpg`, `.svg` | Image viewer with scroll support |
 
-#### Review workflow
-
-For repeated model-review cycles:
+#### Comparison review workflow
 
 1. Use **Comparison snapshot** and **Comparison panel** to pick the most useful
-   sibling scenario to inspect.
+   sibling scenario.
 2. Read **Comparison delta** to see whether the current scenario is ahead or
    behind on successful runs and saved outputs.
-3. Read **Artifact delta** to spot missing reports, tables, or plot groups
-   before opening individual artifacts.
-4. Use the quick actions to jump directly to convergence, GOF, or the latest
-   report from the currently selected review target.
+3. Read **Artifact delta** to spot missing reports, tables, or plot groups.
+4. Use **Open comparison scenario** to switch Results directly to that scenario.
+5. Use the review menu to jump to convergence, GOF, or the latest report.
 
 ### Plots workflow
 
-The **Plots** page provides a browsable gallery of plot artifacts produced by
-fit, simulation, VPC, and other runs for the selected scenario.
+The **Plots** page provides a browsable gallery of plot artifacts for the
+selected scenario.
 
 #### Plot list
 
-Lists all plot artifacts for the selected scenario grouped by run.  Each row
-shows the artifact label, plot type, and file path.  Selecting a row loads the
-preview panel.
+Lists all plot artifacts grouped by run.  Each row shows the label, plot type,
+and file path.  Selecting a row loads the preview panel.
 
 #### Preview panel
 
-Displays the selected plot inline.  Supports PNG, SVG, and HTML plot formats.
-Use the **Open** button to open the artifact in the system viewer, or **Save
-copy…** to export it to another location.
+Displays the selected plot inline (PNG, SVG, HTML).  Use **Open** to launch in
+the system viewer or **Save copy…** to export.
 
 #### Filter controls
 
 | Control | Description |
 |---|---|
-| **Plot type** combo | Filter the list by plot type (`gof_panel`, `vpc`, `cwres_vs_time`, etc.) |
-| **Run** combo | Restrict the list to artifacts from a specific run |
+| **Analysis** combo | Filter by analysis type (`fit`, `vpc`, `bootstrap`, etc.) |
+| **Plot type** combo | Filter by plot type (`gof_panel`, `vpc`, `cwres_vs_time`, etc.) |
 
 ### Diagnostics workflow
 
@@ -451,31 +561,36 @@ The **Diagnostics** page focuses on fit-quality outputs and diagnostics tables.
 The page shows:
 
 - **Overview label** — scenario name, dataset/model readiness, latest fit status, artifact count
+- **Stale warning** — warns if dataset or model changed after the latest fit
 - **Status label** — whether the plotting stack is available
 - **Next steps label** — contextual guidance based on the current scenario state
-- **Capabilities label** — supported diagnostics outputs
 - **NPDE status label** — NPDE availability and whether an NPDE CSV exists
 
 #### Filter row
 
 | Control | Description |
 |---|---|
-| **Role** combo | Filter by artifact role |
+| **Role** combo | Filter artifacts by role |
 | **Plot type** combo | Filter by plot type |
+| **Subject** combo | Filter GOF plots by subject ID; overlays that subject's points in red |
+
+#### Subject highlighting
+
+When a subject is selected in the **Subject** combo, the active GOF plot is
+re-rendered with the selected subject's observations highlighted in red.  This
+works for single-panel plot types: DV vs IPRED, DV vs PRED, CWRES vs TIME,
+CWRES vs PRED, and |IWRES| vs IPRED.
 
 #### Action buttons
 
 | Button | Description |
 |---|---|
-| **Open GOF panel** | Opens the goodness-of-fit panel for the latest fit |
-| **Open residual trends** | Opens the CWRES / residual trend artifact |
-| **Generate NPDE CSV** | Runs background NPDE generation (requires a fit in this session) |
-| **Open diagnostics CSV** | Opens the diagnostics table CSV |
-| **Open NPDE CSV** | Opens the NPDE results CSV |
-| **Save copy…** | Copies the selected artifact to disk |
-| **Open artifact** | Opens the selected artifact in the system viewer |
-| **Open folder** | Opens the artifact folder |
-| **Refresh diagnostics** | Refreshes all status labels and artifact lists |
+| **View** dropdown | Open GOF panel, residual trends, diagnostics CSV, or NPDE CSV |
+| **Open artifact** | Open the selected artifact in the system viewer |
+| **Save copy…** | Copy the selected artifact to disk |
+| **Open folder** | Open the artifact's containing folder |
+| **Generate NPDE** | Run background NPDE generation (requires a fit in this session) |
+| **Refresh diagnostics** | Refresh all status labels and artifact lists |
 
 ### Advanced workflow
 
@@ -495,11 +610,27 @@ The current tabs are:
 | **Replicates** spinbox | 10–5000, default 200 | Number of simulation replicates |
 | **Bins** spinbox | 2–50, default 10 | Number of time-axis bins |
 | **Seed** spinbox | 1–999999, default 42 | Random seed for reproducibility |
-| **Prediction-corrected** checkbox | off | Enable pcVPC normalisation |
+| **pcVPC** checkbox | off | Prediction-corrected VPC — normalises DV and predictions by median PRED within each bin |
+| **Stratify by** combo | None (default) | Optional covariate column to stratify the VPC (e.g. `DOSE`, `SEX`); produces one panel per stratum |
+
+The **Stratify by** combo is populated from the active dataset's columns,
+excluding mandatory NONMEM columns (`ID`, `TIME`, `AMT`, `DV`, `EVID`, `MDV`).
+It repopulates automatically when the dataset changes.
 
 **Run VPC** is enabled only when a fit was completed in the GUI session.
-Replicates are distributed across worker threads using the **CPU cores**
-setting from Preferences (0 = auto).
+Replicates are distributed across worker threads using the **CPU cores** setting
+from Preferences (0 = auto).
+
+Generated artifacts:
+
+| Artifact | Description |
+|---|---|
+| VPC summary CSV | Observed and simulated percentile bands per bin |
+| VPC plot | Shaded percentile overlay on observed data |
+| Simulation panel | Spaghetti plots of simulated vs. observed profiles |
+| Prediction interval plot | Simulated median and PI bounds vs. time |
+
+When stratification is active, the run summary includes `stratify=<column>`.
 
 #### Bootstrap tab
 
@@ -510,26 +641,35 @@ setting from Preferences (0 = auto).
 | **Seed** spinbox | 1–999999, default 42 | Random seed |
 | **CI level** spinbox | 0.50–0.99, default 0.95 | Confidence interval level for BCa |
 
-**Run bootstrap** generates summary, CI, and sample-table artifacts.
+**Run bootstrap** generates summary, CI table, and sample-table artifacts.
 
 #### Design tab
 
-The Design tab exposes optimal-design controls including sample counts, subject
-counts, time windows, optimality criterion, and optimization method.
+The Design tab exposes optimal-design controls:
 
-**Run design** generates summary, metrics, schedule, FIM, and expected-SE
-artifacts from the latest successful fit.
+| Control | Description |
+|---|---|
+| **Samples** spinbox | Sample observations per subject |
+| **Subjects** spinbox | Number of subjects |
+| **Tmin / Tmax** spinboxes | Sampling window boundaries |
+| **Criterion** combo | Optimality criterion (D, A, E, etc.) |
+| **Method** combo | Optimisation algorithm |
+| **Restarts** spinbox | Number of random restarts |
+
+**Run design** generates summary, metrics, schedule, FIM, and expected-SE artifacts.
 
 #### Artifacts tab
 
 The Artifacts tab browses the shared Advanced artifact pool.
 
-| Scope | Description |
+| Scope | Artifacts included |
 |---|---|
-| **All** | All advanced artifacts |
-| **VPC** | `vpc_summary` and VPC-type plot artifacts |
+| **All** | All Advanced artifacts |
+| **VPC** | `vpc_summary` and VPC plot artifacts |
 | **Bootstrap** | `bootstrap_summary`, `bootstrap_ci_table`, `bootstrap_samples` |
 | **Design** | `design_summary`, `design_metrics`, `design_schedule`, `design_fim`, `design_expected_se` |
+
+Action buttons: **Open artifact**, **Save copy…**, **Open folder**.
 
 ### Covariate workflow
 
@@ -540,8 +680,8 @@ active base model.
 
 Columns: **Parameter**, **Covariate**, **Effect**, **Reference**
 
-- **Parameter** — PK parameter to test (for example `CL`, `V`)
-- **Covariate** — dataset column to use (for example `WT`, `AGE`)
+- **Parameter** — PK parameter to test (e.g. `CL`, `V`)
+- **Covariate** — dataset column to use (e.g. `WT`, `AGE`)
 - **Effect** — relationship type: `power`, `linear`, `exp`, `categorical`
 - **Reference** — reference value for continuous covariates
 
@@ -559,12 +699,17 @@ Use **Add candidate** and **Remove selected** to manage the list.
 
 Columns: **Type**, **Relationship**, **ΔOFV**, **p-value**, **Status**.
 
+Rows are colour-coded: accepted relationships are highlighted green, rejected
+ones are shown normally.  Use the accepted relationships as the basis for a
+derived scenario or model update.
+
 #### Action buttons
 
 | Button | Description |
 |---|---|
 | **Refresh readiness** | Re-check that the base model and dataset are ready |
 | **Run SCM** | Submit the stepwise covariate search |
+| **Cancel** | Cancel a running SCM |
 
 ## End-to-end walkthroughs
 
@@ -593,28 +738,28 @@ using FOCE estimation.
 3. Set **Problem title** to `Theophylline 1-CMT oral`.
 4. Click **Use active dataset**.
 5. Set **ADVAN** = `2`, **TRANS** = `2`, **Estimation** = `FOCE`.
-6. Review THETA initial estimates.
-7. Click **Save model state**.
+6. Review THETA initial estimates (use **Suggest THETA** if needed).
+7. Leave **BLQ method** = `M1 — Ignore BLQ` (no BLQ observations in this dataset).
+8. Click **Save model state**.
 
-> **Alternative:** Select the **Control stream** radio button, pick a theophylline example from the Examples dropdown, and click **Load example**.  The dataset is loaded automatically.
+> **Alternative:** Select the **Control stream** radio button, pick a theophylline
+> example from the Examples dropdown, and click **Load example**.  The dataset is
+> loaded automatically.
 
 #### Step 4 — Run the fit
 
 1. Select `Baseline` → **Fit**.
 2. Confirm the preparation panel says the fit is ready.
-3. Click **Run fit**.
-4. Wait for the status to update to `Latest run — Succeeded`.
+3. Click **Run fit** (or press `Ctrl+R`).
+4. Watch the live convergence plot and run log.
 
 #### Step 5 — Review results
 
 1. Open `Baseline` → **Results** to inspect the fit, report artifacts, and plot outputs.
-2. Use the comparison snapshot and comparison focus text at the top of the page
-   to decide which sibling scenario should be reviewed next.
-3. Review the **Comparison panel** for per-scenario fit status, successful-run
-   count, and output count without leaving the current Results page.
-4. Click **Open comparison scenario** to switch the Results page directly to the
-   recommended sibling scenario.
-5. Open `Baseline` → **Diagnostics** for CWRES and other diagnostics outputs.
+2. Use **Comparison panel** to compare with sibling scenarios.
+3. Use the review dropdown (convergence, GOF, residuals, ETA review) for focused inspection.
+4. Open `Baseline` → **Diagnostics** for CWRES and other diagnostics.
+5. Use the **Subject** filter in Diagnostics to highlight individual subjects across GOF plots.
 
 #### Step 6 — Save the snapshot
 
@@ -632,7 +777,7 @@ This walkthrough runs non-compartmental analysis without a compartmental fit.
 
 #### Step 2 — Load the dataset
 
-1. Open the scenario’s **Data** workflow.
+1. Open the scenario's **Data** workflow.
 2. Import a CSV with at least `ID`, `TIME`, `DV`, and `EVID`.
 3. Confirm the preview and validation panels look correct.
 
@@ -644,16 +789,18 @@ This walkthrough runs non-compartmental analysis without a compartmental fit.
 4. Click **Run NCA**.
 5. Review the latest results summary and preview output.
 
-### Walkthrough 3 — Post-fit VPC and covariate search
+### Walkthrough 3 — Post-fit VPC with stratification and covariate search
 
 This walkthrough assumes you already completed the fit from Walkthrough 1.
 
-#### Step 1 — Generate a VPC
+#### Step 1 — Generate a stratified VPC
 
 1. Select `Baseline` → **Advanced**.
 2. On the **VPC** tab, set replicates, bins, and seed.
-3. Click **Run VPC**.
-4. Open the **Artifacts** tab and filter **Scope** = `VPC` to review the output.
+3. To stratify by dose group, choose `DOSE` from the **Stratify by** combo.
+4. Check **pcVPC** for prediction-corrected output (optional).
+5. Click **Run VPC**.
+6. Open the **Artifacts** tab, filter **Scope** = `VPC` to review plots and summary.
 
 #### Step 2 — Configure the covariate search
 
@@ -671,23 +818,51 @@ This walkthrough assumes you already completed the fit from Walkthrough 1.
 
 ### Common reasons a button is disabled
 
-- **Fit / SCM / NCA run buttons** are often disabled because required dataset or model state is incomplete.
+- **Fit / SCM / NCA run buttons** are often disabled because required dataset or
+  model state is incomplete or an existing run is still in progress.
 - Read the readiness summary on the current workflow page first.
 - Review validation lists before assuming a background runner failed.
+- For VPC and Bootstrap, a reusable fit must exist in the current session.
+
+### BLQ observations
+
+If your dataset contains observations below the assay LOQ:
+
+1. Enter the scalar LOQ value in the **LOQ** spinner on the **Data** page.
+2. On the **Model** page, set **BLQ method** = `M3 — Censored likelihood`.
+3. Run the fit normally — the M3 likelihood contribution is applied automatically.
+
+If your dataset already has a per-observation `LLOQ` column, the LOQ spinner
+value is ignored at fit time (the existing column takes precedence).
 
 ### Choosing the right review page
 
-- Use **Results** when you want run-centric context, logs, and all artifacts (use the kind filter in the artifact panel to narrow to plots).
-- Use **Diagnostics** when you want fit-quality outputs or NPDE-specific actions.
+- Use **Results** when you want run-centric context, logs, and all artifacts.
+- Use **Plots** when you want a gallery view filtered by plot type or analysis.
+- Use **Diagnostics** when you want fit-quality outputs, NPDE actions, or
+  subject-level highlighting across GOF plots.
 
 ### Saving and sharing work
 
 - Use **Save Project Snapshot…** to preserve the whole workspace.
-- Use **Save copy…** actions on Results / Plots / Diagnostics when you only need one artifact.
-- Set a sensible **Default workspace files location** in Preferences so save dialogs open where you expect.
+- Use **Save copy…** actions on Results / Plots / Diagnostics when you only need
+  one artifact.
+- Set a sensible **Default workspace files location** in Preferences so save
+  dialogs open where you expect.
+
+### Keyboard shortcuts
+
+| Shortcut | Context | Action |
+|---|---|---|
+| `Ctrl+S` | Model workflow | Save model state |
+| `Ctrl+R` | Fit workflow | Start fit |
+| `Escape` | Fit workflow | Cancel running fit |
 
 ### Help resources
 
 - **Help → Help for this workflow** jumps directly to the current workflow section.
 - **Help → User Guide** opens the full guide from the top.
-- If a workflow references artifacts, the scenario must usually have completed at least one relevant run.
+- Help buttons (**?**) on each major section in the Model workflow show inline
+  tooltips with control descriptions.
+- If a workflow references artifacts, the scenario must usually have completed at
+  least one relevant run.

@@ -44,7 +44,7 @@ Full autodoc reference for all public classes and functions.
 - **NONMEM-compatible output**: `.lst`, `.ext`, `.phi`, `.cov`, `.cor`, `$TABLE`
 - **Python API**: `ModelBuilder` — no `.ctl` file required
 - **Diagnostic plots**: GOF, PK, PD, ETA panels (matplotlib, optional)
-- **Desktop GUI**: a workspace / project / scenario shell with Overview, Data, Model, Fit, NCA, Results, Plots, Diagnostics, Covariate, and Advanced workflows
+- **Desktop GUI**: a workspace / project / scenario shell with Dashboard, Data, Model, Fit, NCA, Results, Plots, Diagnostics, Covariate, and Advanced workflows; BLQ/M3 handling, interactive GOF subject highlighting, VPC stratification and pcVPC
 - **Examples and tests**: runnable examples plus unit/integration/regression coverage
 
 For the current support classification across estimation, analysis, and workflow

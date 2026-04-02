@@ -500,6 +500,15 @@ def _apply_prediction_correction(
         )
         return obs, sim
 
+    if "PRED" not in sim.columns:
+        warnings.warn(
+            "pcVPC: PRED column not found in simulated data; prediction correction skipped. "
+            "Ensure your simulation engine populates a PRED column (model predictions at η=0).",
+            UserWarning,
+            stacklevel=3,
+        )
+        return obs, sim
+
     # Assign each observed row to a time bin
     obs["_bin"] = pd.cut(obs["TIME"], bins=bins, labels=False, include_lowest=True)
 

@@ -12,8 +12,9 @@ When KA ≈ K, L'Hôpital limit: A2(t) = F * DOSE * KA * t * exp(-K*t)
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -29,6 +30,8 @@ class _BolusDoseDesign:
     amount: float
     positive_idx: np.ndarray
     dt_pos: np.ndarray
+    ss: bool = False
+    ii: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -98,6 +101,8 @@ class ADVAN2(PKSubroutine):
                         amount=float(dose.amount),
                         positive_idx=positive_idx,
                         dt_pos=dt_pos,
+                        ss=dose.ss,
+                        ii=float(dose.ii),
                     )
                 )
                 continue
@@ -172,12 +177,25 @@ class ADVAN2(PKSubroutine):
             amt = dose.amount * f1
             if len(dose.positive_idx) > 0:
                 exp_ka = np.exp(-ka * dose.dt_pos)
-                if return_amounts and a1 is not None:
-                    a1[dose.positive_idx] = amt * exp_ka
-                if limit_form:
-                    a2[dose.positive_idx] = amt * ka * dose.dt_pos * np.exp(-k * dose.dt_pos)
+                if dose.ss and dose.ii > 0:
+                    tau = dose.ii
+                    ss_k = 1.0 / (1.0 - np.exp(-k * tau))
+                    ss_ka = 1.0 / (1.0 - np.exp(-ka * tau))
+                    if return_amounts and a1 is not None:
+                        a1[dose.positive_idx] = amt * ss_ka * exp_ka
+                    if limit_form:
+                        a2[dose.positive_idx] = amt * ka * dose.dt_pos * np.exp(-k * dose.dt_pos) * ss_k
+                    else:
+                        a2[dose.positive_idx] = amt * bolus_scale * (
+                            ss_k * np.exp(-k * dose.dt_pos) - ss_ka * exp_ka
+                        )
                 else:
-                    a2[dose.positive_idx] = amt * bolus_scale * (np.exp(-k * dose.dt_pos) - exp_ka)
+                    if return_amounts and a1 is not None:
+                        a1[dose.positive_idx] = amt * exp_ka
+                    if limit_form:
+                        a2[dose.positive_idx] = amt * ka * dose.dt_pos * np.exp(-k * dose.dt_pos)
+                    else:
+                        a2[dose.positive_idx] = amt * bolus_scale * (np.exp(-k * dose.dt_pos) - exp_ka)
             ipred = a2 / v
             if return_amounts and a1 is not None:
                 amounts = np.empty((n_times, 2), dtype=float)
@@ -187,19 +205,45 @@ class ADVAN2(PKSubroutine):
                 amounts = np.empty((n_times, 0), dtype=float)
             return PKSolution(times=obs_times.copy(), amounts=amounts, ipred=ipred)
 
+        ss_infusion_warned = False
         for dose in design.bolus_doses:
             amt = dose.amount * f1
             if len(dose.positive_idx) == 0:
                 continue
             exp_ka = np.exp(-ka * dose.dt_pos)
-            if return_amounts and a1 is not None:
-                a1[dose.positive_idx] += amt * exp_ka
-            if limit_form:
-                a2[dose.positive_idx] += amt * ka * dose.dt_pos * np.exp(-k * dose.dt_pos)
+            if dose.ss and dose.ii > 0:
+                # Steady-state oral bolus: per-pole SS accumulation factors.
+                # A2_ss(t) = F*D*KA/(KA-K) * [exp(-K*t)/(1-exp(-K*tau))
+                #                              - exp(-KA*t)/(1-exp(-KA*tau))]
+                # Reference: Rowland & Tozer, Clinical PK & PD, Ch. 17.
+                tau = dose.ii
+                ss_k = 1.0 / (1.0 - np.exp(-k * tau))
+                ss_ka = 1.0 / (1.0 - np.exp(-ka * tau))
+                if return_amounts and a1 is not None:
+                    a1[dose.positive_idx] += amt * ss_ka * exp_ka
+                if limit_form:
+                    a2[dose.positive_idx] += amt * ka * dose.dt_pos * np.exp(-k * dose.dt_pos) * ss_k
+                else:
+                    a2[dose.positive_idx] += amt * bolus_scale * (
+                        ss_k * np.exp(-k * dose.dt_pos) - ss_ka * exp_ka
+                    )
             else:
-                a2[dose.positive_idx] += amt * bolus_scale * (np.exp(-k * dose.dt_pos) - exp_ka)
+                if return_amounts and a1 is not None:
+                    a1[dose.positive_idx] += amt * exp_ka
+                if limit_form:
+                    a2[dose.positive_idx] += amt * ka * dose.dt_pos * np.exp(-k * dose.dt_pos)
+                else:
+                    a2[dose.positive_idx] += amt * bolus_scale * (np.exp(-k * dose.dt_pos) - exp_ka)
 
         for inf_dose in design.infusion_doses:
+            if getattr(inf_dose, "ss", False) and not ss_infusion_warned:
+                warnings.warn(
+                    "ADVAN2: SS=1 with infusion dosing is not yet implemented; "
+                    "predictions are computed from a single-dose infusion.",
+                    UserWarning,
+                    stacklevel=3,
+                )
+                ss_infusion_warned = True
             amt = inf_dose.amount * f1
             r = inf_dose.rate
             d = amt / r

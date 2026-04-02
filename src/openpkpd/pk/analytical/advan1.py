@@ -15,6 +15,7 @@ Infusions of duration D (rate = DOSE / D):
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable
 
 import numpy as np
@@ -51,15 +52,33 @@ class ADVAN1(PKSubroutine):
         doses = [e for e in dose_events if not e.reset]
         amounts = np.zeros(len(obs_times))
 
+        ss_infusion_warned = False
         for dose in doses:
             if dose.is_bolus:
                 # A(t) = DOSE * exp(-K * (t - t_dose)) for t > t_dose
                 # Strict inequality: pre-dose convention (observation at t_dose is pre-dose)
                 dt = obs_times - dose.time
                 mask = dt > 0
-                amounts[mask] += dose.amount * np.exp(-k * dt[mask])
+                if dose.ss and dose.ii > 0:
+                    # Steady-state IV bolus: A(0+) = D/(1-exp(-K*tau))
+                    # = D * ss_factor, then decays as exp(-K*t).
+                    # Reference: Rowland & Tozer, Clinical PK & PD, Ch. 17.
+                    tau = dose.ii
+                    ss_factor = 1.0 / (1.0 - np.exp(-k * tau))
+                    amounts[mask] += dose.amount * ss_factor * np.exp(-k * dt[mask])
+                else:
+                    amounts[mask] += dose.amount * np.exp(-k * dt[mask])
             else:
                 # Infusion: rate R for duration D = AMT/RATE
+                if dose.ss and not ss_infusion_warned:
+                    warnings.warn(
+                        "ADVAN1: SS=1 with infusion dosing is not yet implemented; "
+                        "predictions are computed from a single-dose infusion. "
+                        "Use multiple ADDL doses or a large AMT to approximate SS.",
+                        UserWarning,
+                        stacklevel=3,
+                    )
+                    ss_infusion_warned = True
                 r = dose.rate
                 d = dose.amount / r  # infusion duration
                 t0 = dose.time

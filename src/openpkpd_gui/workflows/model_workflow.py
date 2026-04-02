@@ -714,7 +714,7 @@ def build_model_workflow(
     model_spec = default_model_spec(project)
     translation_result = translation_service.translate(model_spec)
 
-    root, _, layout, scroll_area = build_scrollable_page(
+    root, _, layout, scroll_area, _outer = build_scrollable_page(
         qt_widgets, root_object_name="model-workflow"
     )
 

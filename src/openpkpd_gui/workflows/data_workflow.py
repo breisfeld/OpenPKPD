@@ -287,7 +287,7 @@ def build_data_workflow(
     dataset_service = dataset_service or DatasetService()
     project_service = project_service or ProjectService()
 
-    root, _, layout, scroll_area = build_scrollable_page(
+    root, _, layout, scroll_area, _outer = build_scrollable_page(
         qt_widgets, root_object_name="data-workflow"
     )
     active_options = dataset_service.options_from_asset(project.active_dataset)

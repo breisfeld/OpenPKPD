@@ -480,7 +480,7 @@ def build_overview_workflow(project: Workspace):
     secondary_layout.addWidget(readiness_column, 3)
     secondary_layout.addWidget(workflows_column, 2)
 
-    content_layout.addWidget(combined_header)
+    layout.insertWidget(0, combined_header)
     content_layout.addWidget(hero_panel)
     content_layout.addWidget(primary_row)
     content_layout.addWidget(secondary_row)

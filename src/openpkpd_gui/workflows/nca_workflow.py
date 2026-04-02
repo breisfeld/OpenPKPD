@@ -153,7 +153,7 @@ def build_nca_workflow(
     job_runner = job_runner or JobRunner(max_workers=1)
     preparation = nca_service.prepare_run(project)
 
-    root, _, layout, scroll_area = build_scrollable_page(
+    root, _, layout, scroll_area, _outer = build_scrollable_page(
         qt_widgets, root_object_name="nca-workflow"
     )
 

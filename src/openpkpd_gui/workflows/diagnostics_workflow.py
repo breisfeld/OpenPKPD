@@ -295,7 +295,7 @@ def build_diagnostics_workflow(
     owns_job_runner = job_runner is None
     job_runner = job_runner or JobRunner(max_workers=1)
 
-    root, _, layout, scroll_area = build_scrollable_page(
+    root, _, layout, scroll_area, outer_layout = build_scrollable_page(
         qt_widgets, root_object_name="diagnostics-workflow"
     )
 
@@ -485,7 +485,7 @@ def build_diagnostics_workflow(
     action_row.setContentsMargins(0, 0, 0, 0)
     action_row.setSpacing(8)
 
-    layout.addWidget(combined_header)
+    outer_layout.insertWidget(0, combined_header)
     layout.addWidget(title_label)
     layout.addWidget(hint_widget)
     layout.addWidget(overview_label)

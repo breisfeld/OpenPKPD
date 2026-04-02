@@ -145,7 +145,7 @@ def build_covariate_workflow(
     project_service = project_service or ProjectService()
     job_runner = job_runner or JobRunner(max_workers=1)
 
-    root, _, layout, scroll_area = build_scrollable_page(
+    root, _, layout, scroll_area, _outer = build_scrollable_page(
         qt_widgets, root_object_name="covariate-workflow"
     )
 

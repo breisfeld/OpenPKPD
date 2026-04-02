@@ -31,6 +31,16 @@ def build_combined_header(
     container.setObjectName(f"{object_prefix}-combined-header")
     container.setProperty("surfaceRole", "workflow-header")
     install_semantic_state_styles(container)
+    # When pinned outside a scroll area (sticky-header pattern), the container
+    # must not propagate its text content width as the window's minimum width.
+    # QSizePolicy.Ignored tells the *outer* layout to ignore the container's
+    # sizeHint/minimumSizeHint; the container still receives whatever width the
+    # layout assigns and clips/truncates its content gracefully.
+    container.setSizePolicy(
+        qt_widgets.QSizePolicy.Policy.Ignored,
+        qt_widgets.QSizePolicy.Policy.Preferred,
+    )
+    container.setMinimumWidth(0)
 
     layout = qt_widgets.QHBoxLayout(container)
     layout.setContentsMargins(0, 2, 0, 2)
@@ -38,12 +48,16 @@ def build_combined_header(
 
     breadcrumb_label = qt_widgets.QLabel()
     breadcrumb_label.setObjectName(f"{object_prefix}-breadcrumb")
+    # Prevent text from imposing a large minimum width when this header is
+    # pinned outside a QScrollArea (sticky-header pattern).
+    breadcrumb_label.setMinimumWidth(0)
     layout.addWidget(breadcrumb_label, 1)
 
     chips: dict[str, object] = {}
     for wid in status_workflow_ids:
         chip = qt_widgets.QLabel()
         chip.setObjectName(f"{object_prefix}-status-chip-{wid}")
+        chip.setMinimumWidth(0)  # allow chip to be narrower than its text
         chip.setMargin(4)
         chip.setFrameShape(qt_widgets.QFrame.Shape.StyledPanel)
         layout.addWidget(chip)

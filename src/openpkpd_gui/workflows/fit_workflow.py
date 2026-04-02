@@ -167,7 +167,7 @@ def build_fit_workflow(
     job_runner = job_runner or JobRunner(max_workers=1)
     preparation = fit_service.prepare_run(project)
 
-    root, _, layout, scroll_area = build_scrollable_page(
+    root, _, layout, scroll_area, outer_layout = build_scrollable_page(
         qt_widgets, root_object_name="fit-workflow"
     )
 
@@ -291,7 +291,7 @@ def build_fit_workflow(
     action_row.setContentsMargins(0, 0, 0, 0)
     action_row.setSpacing(8)
 
-    layout.addWidget(combined_header)
+    outer_layout.insertWidget(0, combined_header)
     layout.addWidget(title_label)
     layout.addWidget(hint_widget)
     layout.addWidget(content_row_widget, 1)

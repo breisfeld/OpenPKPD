@@ -8,6 +8,12 @@ SEMANTIC_STATE_STYLESHEET = """
 QLabel[semanticState], QPushButton[semanticState] {
     font-weight: 600;
 }
+QLabel[semanticState] {
+    border-style: solid;
+    border-width: 1px;
+    border-radius: 6px;
+    padding: 2px 8px;
+}
 QFrame[semanticState="not_started"], QLabel[semanticState="not_started"], QPushButton[semanticState="not_started"] {
     color: #5f6b7a;
     border-color: #c8d0da;

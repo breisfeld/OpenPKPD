@@ -103,7 +103,6 @@ class ADVAN2(PKSubroutine):
                 continue
 
             rate = float(dose.rate)
-            float(dose.amount) / rate
             infusion_doses.append(
                 _InfusionDoseDesign(
                     amount=float(dose.amount),

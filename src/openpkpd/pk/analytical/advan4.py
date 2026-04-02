@@ -50,14 +50,7 @@ class ADVAN4(PKSubroutine):
             raise PKError(
                 f"ADVAN4 requires KA, K, K12, K21, V2; got params={list(pk_params.keys())}"
             )
-        assert (
-            ka is not None
-            and k is not None
-            and k12 is not None
-            and k21 is not None
-            and v2 is not None
-        )
-
+        # ka, k, k12, k21, v2 are not None — the PKError raise above guarantees this
         lam1, lam2 = _eigenvalues(k, k12, k21)  # type: ignore[arg-type]
 
         doses = [e for e in dose_events if not e.reset]

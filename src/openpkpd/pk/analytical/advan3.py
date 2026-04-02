@@ -15,7 +15,7 @@ Eigenvalues:
     λ2 = (S + D) / 2   (faster)
 
 Coefficients for A1 (central compartment):
-    A1(t) = DOSE * [(λ2 - K21)/(λ2-λ1) * exp(-λ1*t) + (K21 - λ1)/(λ2-λ1) * exp(-λ2*t)]
+    A1(t) = DOSE * [(K21 - λ1)/(λ2-λ1) * exp(-λ1*t) + (λ2 - K21)/(λ2-λ1) * exp(-λ2*t)]
     A2(t) = DOSE * K12/(λ2-λ1) * [exp(-λ1*t) - exp(-λ2*t)]
 """
 
@@ -112,8 +112,8 @@ class ADVAN3(PKSubroutine):
                 f"ADVAN3 requires K, K12, K21, V1 (or V); or CL, Q, V1, V2 (TRANS4); "
                 f"got params={list(pk_params.keys())}"
             )
-        assert k is not None and k12 is not None and k21 is not None and v1 is not None
-        if float(v1) <= 0.0:
+        # k, k12, k21, v1 are not None — the PKError raise above guarantees this
+        if float(v1) <= 0.0:  # type: ignore[arg-type]
             raise PKError(f"ADVAN3 requires V1/V > 0, got V1={v1}")
 
         lam1, lam2 = _eigenvalues(k, k12, k21)  # type: ignore[arg-type]
@@ -214,8 +214,13 @@ def _propagate_2cmt(
     """
     dl = lam2 - lam1
     if dl < 1e-10:
-        a1 = (a1_0 + a2_0 * k21 * dt) * np.exp(-lam1 * dt)
-        a2 = a2_0 * np.exp(-lam1 * dt)
+        # Degenerate eigenvalue limit (λ1 = λ2 = λ).
+        # Derived by taking dl→0 in the biexponential formulas:
+        #   a1 = exp(-λt) * [a1_0*(1 + (k21-λ)*t) + a2_0*k21*t]
+        #   a2 = exp(-λt) * [a2_0*(1 + (λ-k21)*t) + a1_0*k12*t]
+        e = np.exp(-lam1 * dt)
+        a1 = (a1_0 * (1.0 + (k21 - lam1) * dt) + a2_0 * k21 * dt) * e
+        a2 = (a2_0 * (1.0 + (lam1 - k21) * dt) + a1_0 * k12 * dt) * e
         return a1, a2
 
     e1 = np.exp(-lam1 * dt)

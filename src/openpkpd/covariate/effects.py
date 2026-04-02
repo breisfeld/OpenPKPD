@@ -29,6 +29,31 @@ class CovariateEffect(Enum):
     CATEGORICAL = "categorical"
 
 
+def _validate_integer_categories(categories: list) -> None:
+    """Validate that categories are integers forming a contiguous 1..K range.
+
+    NONMEM categorical covariates must be encoded as integers 1, 2, ..., K
+    because NM-TRAN code uses ``IF (COV == 1) ...`` etc.
+    """
+    if not categories:
+        raise ValueError("categories must be a non-empty list")
+    for i, cat in enumerate(categories):
+        if not isinstance(cat, int):
+            raise ValueError(
+                f"categories[{i}]={cat!r} is not an integer. "
+                "NONMEM categorical covariates must be integer-coded (1, 2, ..., K). "
+                "String categories like 'MALE'/'FEMALE' must be re-encoded before use."
+            )
+    sorted_cats = sorted(categories)
+    expected = list(range(1, len(categories) + 1))
+    if sorted_cats != expected:
+        raise ValueError(
+            f"categories {sorted_cats} do not form a contiguous range starting at 1. "
+            f"Expected {expected}. "
+            "NONMEM integer-coding requires categories 1, 2, ..., K with no gaps and no 0-based indexing."
+        )
+
+
 @dataclass
 class CovariateRelationship:
     """
@@ -49,6 +74,10 @@ class CovariateRelationship:
     effect: CovariateEffect
     reference: float = 70.0
     categories: list[str] | None = None
+
+    def __post_init__(self) -> None:
+        if self.effect == CovariateEffect.CATEGORICAL and self.categories:
+            _validate_integer_categories(self.categories)
 
     def apply(
         self,
@@ -76,6 +105,14 @@ class CovariateRelationship:
                 raise ValueError(f"Power covariate reference must be > 0, got {self.reference}")
             ratio = cov_value / self.reference
             # Guard against non-positive ratios (e.g., WT=0 would blow up)
+            if ratio <= 0:
+                warnings.warn(
+                    f"Power covariate value {cov_value!r} produces a non-positive ratio "
+                    f"({ratio:.4g}); clamping to 1e-10. Check input data for data quality issues "
+                    f"(e.g., negative body weight or zero clearance).",
+                    UserWarning,
+                    stacklevel=2,
+                )
             ratio = max(ratio, 1e-10)
             return base_value * (ratio**theta_cov)
 
@@ -160,6 +197,8 @@ class CovariateRelationship:
         elif self.effect == CovariateEffect.CATEGORICAL:
             if not self.categories:
                 raise ValueError("categories must be specified for CATEGORICAL covariate effect")
+            # Validate again at code-generation time (catches bypassed construction)
+            _validate_integer_categories(self.categories)
             lines = [f"; Categorical effect of {cov} on {par}"]
             for i, _ in enumerate(self.categories[1:], start=0):
                 # Each non-reference category gets its own theta

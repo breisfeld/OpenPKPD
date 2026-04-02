@@ -153,7 +153,11 @@ class TestExponentialEffect:
 
 
 class TestCategoricalEffect:
-    """Tests for CovariateEffect.CATEGORICAL."""
+    """Tests for CovariateEffect.CATEGORICAL.
+
+    CV4: categories must be NONMEM-compatible integers (1, 2, ..., K) at construction.
+    apply_categorical() then uses these integer keys as category identifiers.
+    """
 
     def test_categorical_apply_returns_base_unchanged(self) -> None:
         """apply() for CATEGORICAL returns base_value (handled by apply_categorical)."""
@@ -161,7 +165,7 @@ class TestCategoricalEffect:
             "CL",
             "SEX",
             CovariateEffect.CATEGORICAL,
-            categories=["male", "female"],
+            categories=[1, 2],  # NONMEM-compatible integer encoding: 1=male, 2=female
         )
         result = rel.apply(10.0, 0.0, theta_cov=1.5)
         assert result == pytest.approx(10.0)
@@ -172,9 +176,9 @@ class TestCategoricalEffect:
             "CL",
             "SEX",
             CovariateEffect.CATEGORICAL,
-            categories=["male", "female"],
+            categories=[1, 2],  # 1=male (reference), 2=female
         )
-        result = rel.apply_categorical(10.0, "male", {"female": 1.3})
+        result = rel.apply_categorical(10.0, 1, {2: 1.3})
         assert result == pytest.approx(10.0)
 
     def test_categorical_apply_categorical_non_reference(self) -> None:
@@ -183,16 +187,16 @@ class TestCategoricalEffect:
             "CL",
             "SEX",
             CovariateEffect.CATEGORICAL,
-            categories=["male", "female"],
+            categories=[1, 2],  # 1=male (reference), 2=female
         )
-        result = rel.apply_categorical(10.0, "female", {"female": 1.3})
+        result = rel.apply_categorical(10.0, 2, {2: 1.3})
         assert result == pytest.approx(13.0)
 
     def test_categorical_convenience_constructor(self) -> None:
-        """categorical_effect() convenience constructor."""
-        rel = categorical_effect("CL", "SEX", categories=["male", "female"])
+        """categorical_effect() convenience constructor with integer categories."""
+        rel = categorical_effect("CL", "SEX", categories=[1, 2])
         assert rel.effect == CovariateEffect.CATEGORICAL
-        assert rel.categories == ["male", "female"]
+        assert rel.categories == [1, 2]
 
     def test_apply_categorical_wrong_effect_type(self) -> None:
         """apply_categorical on a non-categorical relationship raises ValueError."""
@@ -232,7 +236,7 @@ class TestGeneratePKCode:
             "CL",
             "SEX",
             CovariateEffect.CATEGORICAL,
-            categories=["male", "female"],
+            categories=[1, 2],  # NONMEM requires integer-coded categories
         )
         code = rel.generate_pk_code(theta_index=4)
         assert "IF" in code.upper() or "THETA" in code
@@ -371,7 +375,7 @@ class TestDefaultCovariateTheta:
             "CL",
             "SEX",
             CovariateEffect.CATEGORICAL,
-            categories=["M", "F"],
+            categories=[1, 2],  # NONMEM-compatible integer categories
         )
         init, lower, upper = _default_covariate_theta(rel)
         assert init == pytest.approx(1.0)
@@ -562,6 +566,7 @@ class _DeterministicSCMEngine:
                 omega_final=np.array([[0.1]]),
                 sigma_final=np.array([[0.1]]),
                 ofv=self._ofv_map[key],
+                converged=True,
             )
 
         self._engine._fit_current = _fit_current  # type: ignore[method-assign]

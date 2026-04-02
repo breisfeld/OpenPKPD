@@ -54,6 +54,10 @@ from openpkpd.model.parameters import ThetaSpec
 logger = logging.getLogger("openpkpd.covariate.scm")
 
 
+class SCMError(RuntimeError):
+    """Raised when the SCM procedure encounters a fatal configuration error."""
+
+
 # ── Data classes ──────────────────────────────────────────────────────────────
 
 
@@ -163,7 +167,13 @@ class SCMEngine:
         n_jobs: int = 1,
         estimation_method: str = "FOCE",
         estimation_kwargs: dict[str, Any] | None = None,
+        correction: str | None = None,
     ) -> None:
+        if correction is not None and correction != "bonferroni":
+            raise ValueError(
+                f"correction={correction!r} is not supported. "
+                "Use None (no correction) or 'bonferroni'."
+            )
         self.base_model_builder = base_model_builder
         self.base_pk_code = base_pk_code
         self.candidates = list(candidates)
@@ -173,6 +183,10 @@ class SCMEngine:
         self.n_jobs = n_jobs
         self.estimation_method = estimation_method
         self.estimation_kwargs: dict[str, Any] = estimation_kwargs or {}
+        self.correction = correction
+        # Persistent failure tracking for forward selection candidates
+        self._failed_counts: dict[tuple[str, str], int] = {}
+        self._permanently_excluded: set[tuple[str, str]] = set()
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
@@ -194,6 +208,12 @@ class SCMEngine:
         base_result = self._fit_current([], [])
         base_ofv = base_result.ofv
         logger.info("Base OFV = %.4f", base_ofv)
+
+        if not getattr(base_result, "converged", True):
+            raise SCMError(
+                f"Base model did not converge (OFV={base_result.ofv:.4f}). "
+                "SCM requires a converged base model."
+            )
 
         steps: list[SCMStep] = []
         model_history: list[EstimationResult] = [base_result]
@@ -282,6 +302,13 @@ class SCMEngine:
         """
         n_workers = os.cpu_count() or 1 if self.n_jobs < 1 else self.n_jobs
 
+        # Filter out permanently excluded candidates before running
+        active_candidates = [
+            c
+            for c in remaining
+            if (c.parameter, c.covariate) not in self._permanently_excluded
+        ]
+
         def _run(
             candidate: CovariateRelationship,
         ) -> tuple[CovariateRelationship, Any, Exception | None]:
@@ -291,24 +318,40 @@ class SCMEngine:
                 return candidate, None, exc
 
         if n_workers == 1:
-            raw_results = [_run(c) for c in remaining]
+            raw_results = [_run(c) for c in active_candidates]
         else:
             with ThreadPoolExecutor(max_workers=n_workers) as executor:
-                futures = {executor.submit(_run, c): c for c in remaining}
+                futures = {executor.submit(_run, c): c for c in active_candidates}
                 raw_results = [f.result() for f in as_completed(futures)]
 
         best_step: SCMStep | None = None
         best_delta: float = 0.0  # we want the most negative delta (largest drop)
 
         for candidate, trial_result, exc in raw_results:
+            candidate_key = (candidate.parameter, candidate.covariate)
             if exc is not None:
-                logger.warning(
-                    "Failed to fit candidate %s~%s: %s",
-                    candidate.parameter,
-                    candidate.covariate,
-                    exc,
+                self._failed_counts[candidate_key] = (
+                    self._failed_counts.get(candidate_key, 0) + 1
                 )
+                if self._failed_counts[candidate_key] >= 2:
+                    self._permanently_excluded.add(candidate_key)
+                    logger.warning(
+                        "SCM: candidate %s~%s failed %d times; permanently excluded.",
+                        candidate.parameter,
+                        candidate.covariate,
+                        self._failed_counts[candidate_key],
+                    )
+                else:
+                    logger.warning(
+                        "Failed to fit candidate %s~%s: %s",
+                        candidate.parameter,
+                        candidate.covariate,
+                        exc,
+                    )
                 continue
+            else:
+                # Reset failure counter on success
+                self._failed_counts.pop(candidate_key, None)
 
             delta = trial_result.ofv - base_result.ofv  # negative = improvement
             df = 1  # one extra THETA per continuous covariate relationship
@@ -335,8 +378,13 @@ class SCMEngine:
         if best_step is None:
             return None
 
+        # Apply multiple-testing correction to the acceptance threshold
+        alpha = self.forward_pvalue
+        if self.correction == "bonferroni":
+            alpha = self.forward_pvalue / max(len(active_candidates), 1)
+
         # Only propagate if the best step actually meets the criterion
-        best_step.accepted = best_step.p_value < self.forward_pvalue
+        best_step.accepted = best_step.p_value < alpha
         return best_step
 
     # ── Backward step ──────────────────────────────────────────────────────────
@@ -425,9 +473,7 @@ class SCMEngine:
         New THETA parameters are appended (one per continuous relationship).
         The $PK code has covariate lines appended after the base code.
         """
-        import copy as _copy
-
-        builder = _copy.deepcopy(self.base_model_builder)
+        builder = self.base_model_builder.clone()
 
         # Build augmented $PK code
         pk_lines = [self.base_pk_code.rstrip()]

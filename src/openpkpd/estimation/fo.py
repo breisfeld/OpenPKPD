@@ -107,7 +107,7 @@ class FOMethod(EstimationMethod):
             n_function_evals=self._iter,
             elapsed_time=elapsed,
             method=self.method_name,
-            message=result.message if hasattr(result, "message") else "",
+            message=getattr(result, "message", ""),
         )
         dataset = getattr(population_model, "dataset", None)
         if dataset is not None and hasattr(dataset, "n_observations"):
@@ -130,6 +130,12 @@ class FOMethod(EstimationMethod):
 
         where C_i = R_i Ω R_i^T + diag(σ_j² * f_ij²) [for proportional]
                   = R_i Ω R_i^T + Σ_eps    [for additive]
+
+        Note: there is no separate log|Ω| term here.  Ω is absorbed into C_i
+        via the R_i Ω R_i^T outer product, so the FO marginal likelihood
+        integrates out η analytically without an explicit η prior penalty.
+        This is in contrast to FOCE/FOCEI, which conditions on the mode η̂_i
+        and therefore carries an explicit log|Ω| + η̂^T Ω^{-1} η̂ term.
         """
         ofv = 0.0
         eta_zero = np.zeros(params.n_eta())

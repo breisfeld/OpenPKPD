@@ -620,6 +620,10 @@ fn probe_multidose_core<const N: usize, Theta: Copy>(
         y[0] += dose_amts[dose_i];
         while obs_i < n_obs && obs_times[obs_i] <= td { out[obs_i] = y.to_vec(); obs_i += 1; }
         if obs_i >= n_obs && next_t.is_infinite() { break; }
+        // A new CVODES solver is created for each dose segment.  CVODES initialises
+        // its internal history from the current state y at time td, so it cannot
+        // continue stepping through a bolus discontinuity — the state vector jumps
+        // instantaneously at td and the old solver's Jacobian/BDF history is invalid.
         let mut solver = SolverNoSensi::new(LinearMultistepMethod::Bdf, rhs, td, &y,
             1e-8, AbsTolerance::scalar(1e-10), theta,
         ).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("{e:?}")))?;

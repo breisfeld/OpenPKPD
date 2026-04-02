@@ -147,24 +147,30 @@ class IMPMethod(EstimationMethod):
             # (up to MAX_ISAMPLE_DOUBLINGS times) so subsequent evaluations
             # use more samples.  This invalidates the proposal cache so a
             # fresh MAP/covariance is computed with the new sample count.
-            if (
-                self._last_ess_by_subject
-                and self._isample_doublings < self.MAX_ISAMPLE_DOUBLINGS
-            ):
+            if self._last_ess_by_subject:
                 ess_values = np.fromiter(self._last_ess_by_subject.values(), dtype=float)
                 n_low = int(np.sum(ess_values / self.isample < self.ESS_WARN_FRACTION))
                 if n_low > len(ess_values) // 2:
-                    old_isample = self.isample
-                    self.isample *= 2
-                    self._isample_doublings += 1
-                    self._proposal_cache.clear()  # stale proposals no longer valid
-                    logger.warning(
-                        "IMP adaptive isample: %d/%d subjects had ESS/isample < %.2f "
-                        "(doubling %d/%d).  isample: %d → %d.",
-                        n_low, len(ess_values), self.ESS_WARN_FRACTION,
-                        self._isample_doublings, self.MAX_ISAMPLE_DOUBLINGS,
-                        old_isample, self.isample,
-                    )
+                    if self._isample_doublings < self.MAX_ISAMPLE_DOUBLINGS:
+                        old_isample = self.isample
+                        self.isample *= 2
+                        self._isample_doublings += 1
+                        self._proposal_cache.clear()  # stale proposals no longer valid
+                        logger.warning(
+                            "IMP adaptive isample: %d/%d subjects had ESS/isample < %.2f "
+                            "(doubling %d/%d).  isample: %d → %d.",
+                            n_low, len(ess_values), self.ESS_WARN_FRACTION,
+                            self._isample_doublings, self.MAX_ISAMPLE_DOUBLINGS,
+                            old_isample, self.isample,
+                        )
+                    else:
+                        logger.warning(
+                            "IMP: %d/%d subjects still have low ESS/isample (< %.2f) "
+                            "after %d doublings (isample=%d). "
+                            "Consider increasing isample manually or improving the proposal.",
+                            n_low, len(ess_values), self.ESS_WARN_FRACTION,
+                            self._isample_doublings, self.isample,
+                        )
 
             if self._iter % self.print_interval == 0:
                 logger.info(f"  Iter {self._iter:5d}  OFV={ofv:.4f}  isample={self.isample}")

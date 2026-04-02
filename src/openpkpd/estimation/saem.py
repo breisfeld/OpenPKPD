@@ -573,13 +573,16 @@ class SAEMMethod(EstimationMethod):
                 if not is_phase1:
                     ph2_sigma_history.append(sigma.copy())
 
-            # Compute current OFV for monitoring (average chain 0 across subjects)
+            # Compute current OFV for monitoring (Rao-Blackwell mean across all chains).
+            # Using the chain-mean η rather than a single chain gives a lower-variance
+            # OFV estimate and avoids misleading spikes when chain 0 is momentarily stuck.
             ofv = 0.0
             for sid in subj_ids:
                 indiv = individual_models[sid]
                 try:
+                    eta_mean = np.mean(eta_chains[sid], axis=0)
                     ofv += indiv.obj_eta(
-                        eta_chains[sid][0],
+                        eta_mean,
                         theta,
                         omega,
                         sigma,

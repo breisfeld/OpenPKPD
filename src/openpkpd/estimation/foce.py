@@ -370,6 +370,12 @@ def _compute_G_i_via_sensitivity(
 
         # ∂IPRED/∂η[k]: perturb amounts by d_amounts_k * h and use FD
         perturbed_amounts = amounts0 + d_amounts_k * h
+        # Semi-public API: IndividualModel may expose `_obs_from_amounts(theta, eta,
+        # sigma, trans, amounts)` as a faster path that skips ODE re-integration and
+        # applies the observation model directly to a pre-computed amounts array.
+        # Contract: returns the same tuple as evaluate_observation_model().
+        # Falls back to the full evaluate_observation_model() with _amounts= kwarg
+        # if the fast path is not available.
         obs_from_amounts = getattr(indiv, "_obs_from_amounts", None)
         if obs_from_amounts is not None:
             raw = obs_from_amounts(theta, eta_p, sigma, trans=trans, amounts=perturbed_amounts)
@@ -982,6 +988,12 @@ class FOCEMethod(EstimationMethod):
         than relying on SciPy's generic numerical-difference wrapper. On the
         ODE-heavy mixed-endpoint path this reduces duplicate bookkeeping and
         lets the exact outer-evaluation cache absorb revisits cleanly.
+
+        TODO (L-5): Evaluate replacing this with scipy jac="2-point" (central FD).
+        Central differences are more accurate and scipy handles boundary clamping
+        internally. The custom boundary-clamping logic below (lines ~988-1003)
+        may introduce asymmetric steps that reduce gradient accuracy near bounds.
+        Benchmark on standard test cases before switching.
         """
         x_arr = np.asarray(x, dtype=float)
         f0 = float(objective(x_arr))

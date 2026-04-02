@@ -10,6 +10,7 @@ Solution combines ADVAN2 absorption with ADVAN3 disposition:
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable
 
 import numpy as np
@@ -58,6 +59,7 @@ class ADVAN4(PKSubroutine):
         a2 = np.zeros(len(obs_times))  # central
         a3 = np.zeros(len(obs_times))  # peripheral
 
+        ss_infusion_warned = False
         for dose in doses:
             amt = dose.amount * f1
             dt = obs_times - dose.time
@@ -65,11 +67,22 @@ class ADVAN4(PKSubroutine):
             t = dt[mask]
 
             if dose.is_bolus:
-                da1, da2, da3 = _triexp_oral(amt, ka, k, k12, k21, lam1, lam2, t)  # type: ignore[arg-type]
+                if dose.ss and dose.ii > 0:
+                    da1, da2, da3 = _triexp_oral_ss(amt, ka, k, k12, k21, lam1, lam2, t, dose.ii)  # type: ignore[arg-type]
+                else:
+                    da1, da2, da3 = _triexp_oral(amt, ka, k, k12, k21, lam1, lam2, t)  # type: ignore[arg-type]
                 a1[mask] += da1
                 a2[mask] += da2
                 a3[mask] += da3
             else:
+                if dose.ss and not ss_infusion_warned:
+                    warnings.warn(
+                        "ADVAN4: SS=1 with infusion dosing is not yet implemented; "
+                        "predictions are computed from a single-dose infusion.",
+                        UserWarning,
+                        stacklevel=3,
+                    )
+                    ss_infusion_warned = True
                 # Infusion into depot
                 r = dose.rate
                 dur = amt / r
@@ -146,6 +159,57 @@ def _triexp_oral(
     a3 = dose * ka * k12 / dl * (h1 - h2)
 
     return a1, a2, a3
+
+
+def _triexp_oral_ss(
+    dose: float,
+    ka: float,
+    k: float,
+    k12: float,
+    k21: float,
+    lam1: float,
+    lam2: float,
+    dt: np.ndarray,
+    tau: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Depot, central, peripheral at periodic SS for an oral bolus (dosing interval tau).
+
+    Per-pole SS accumulation factors (Rowland & Tozer, Ch. 17):
+        A1_ss = D * ss_ka * exp(-KA*t)
+        A2_ss = D * KA * [c1 * h1_ss + c2 * h2_ss]
+    where h_i_ss(t) = (ss_i*exp(-λ_i*t) - ss_ka*exp(-KA*t)) / (KA - λ_i)
+    and ss_i = 1/(1-exp(-λ_i*τ)), ss_ka = 1/(1-exp(-KA*τ)).
+    """
+    ss_ka = 1.0 / (1.0 - np.exp(-ka * tau))
+    a1 = dose * ss_ka * np.exp(-ka * dt)
+
+    dl = lam2 - lam1
+    if abs(dl) < 1e-10:
+        # Degenerate: approximate by scaling the single-dose solution by ss_ka
+        a2 = dose * ka / (ka - k) * ss_ka * (np.exp(-k * dt) - np.exp(-ka * dt))
+        a3 = np.zeros_like(dt, dtype=float)
+        return a1, a2, a3
+
+    ss1 = 1.0 / (1.0 - np.exp(-lam1 * tau))
+    ss2 = 1.0 / (1.0 - np.exp(-lam2 * tau))
+    c1 = (k21 - lam1) / dl
+    c2 = (lam2 - k21) / dl
+
+    h1_ss = _decay_difference_ss(lam1, ka, dt, ss1, ss_ka)
+    h2_ss = _decay_difference_ss(lam2, ka, dt, ss2, ss_ka)
+
+    a2 = dose * ka * (c1 * h1_ss + c2 * h2_ss)
+    a3 = dose * ka * k12 / dl * (h1_ss - h2_ss)
+    return a1, a2, a3
+
+
+def _decay_difference_ss(
+    a: float, b: float, dt: np.ndarray, ss_a: float, ss_b: float
+) -> np.ndarray:
+    """SS version of decay_difference: (ss_a*exp(-a*t) - ss_b*exp(-b*t)) / (b - a)."""
+    if abs(b - a) < 1e-10:
+        return ss_a * dt * np.exp(-a * dt)
+    return (ss_a * np.exp(-a * dt) - ss_b * np.exp(-b * dt)) / (b - a)
 
 
 def _infusion_triexp(

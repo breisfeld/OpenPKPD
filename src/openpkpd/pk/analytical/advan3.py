@@ -21,6 +21,7 @@ Coefficients for A1 (central compartment):
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable
 
 import numpy as np
@@ -59,6 +60,40 @@ def _biexp_central(
 
     a1 = dose * ((k21 - lam1) / dl * np.exp(-lam1 * dt) + (lam2 - k21) / dl * np.exp(-lam2 * dt))
     a2 = dose * k12 / dl * (np.exp(-lam1 * dt) - np.exp(-lam2 * dt))
+    return a1, a2
+
+
+def _biexp_central_ss(
+    dose: float,
+    k: float,
+    k12: float,
+    k21: float,
+    lam1: float,
+    lam2: float,
+    dt: np.ndarray,
+    tau: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """A1, A2 at periodic steady-state for an IV bolus dose (dosing interval tau).
+
+    Per-eigenvalue SS accumulation factors (Rowland & Tozer, Ch. 17):
+        A1_ss(t) = D * [(K21-λ1)/(λ2-λ1)*ss1*exp(-λ1*t) + (λ2-K21)/(λ2-λ1)*ss2*exp(-λ2*t)]
+        A2_ss(t) = D * K12/(λ2-λ1) * [ss1*exp(-λ1*t) - ss2*exp(-λ2*t)]
+    where ss_i = 1/(1-exp(-λ_i*τ)).
+    """
+    dl = lam2 - lam1
+    ss1 = 1.0 / (1.0 - np.exp(-lam1 * tau))
+    if dl < 1e-10:
+        # Degenerate: scale the single-dose Jordan form by the common ss factor.
+        e = np.exp(-lam1 * dt)
+        a1 = dose * ss1 * e * (1.0 + (k21 - lam1) * dt)
+        a2 = dose * ss1 * k12 * dt * e
+        return a1, a2
+    ss2 = 1.0 / (1.0 - np.exp(-lam2 * tau))
+    a1 = dose * (
+        (k21 - lam1) / dl * ss1 * np.exp(-lam1 * dt)
+        + (lam2 - k21) / dl * ss2 * np.exp(-lam2 * dt)
+    )
+    a2 = dose * k12 / dl * (ss1 * np.exp(-lam1 * dt) - ss2 * np.exp(-lam2 * dt))
     return a1, a2
 
 
@@ -122,15 +157,29 @@ class ADVAN3(PKSubroutine):
         a1 = np.zeros(len(obs_times))
         a2 = np.zeros(len(obs_times))
 
+        ss_infusion_warned = False
         for dose in doses:
             dt = obs_times - dose.time
             mask = dt > 0  # pre-dose convention
 
             if dose.is_bolus:
-                da1, da2 = _biexp_central(dose.amount, k, k12, k21, lam1, lam2, dt[mask])  # type: ignore[arg-type]
+                if dose.ss and dose.ii > 0:
+                    da1, da2 = _biexp_central_ss(
+                        dose.amount, k, k12, k21, lam1, lam2, dt[mask], dose.ii  # type: ignore[arg-type]
+                    )
+                else:
+                    da1, da2 = _biexp_central(dose.amount, k, k12, k21, lam1, lam2, dt[mask])  # type: ignore[arg-type]
                 a1[mask] += da1
                 a2[mask] += da2
             else:
+                if dose.ss and not ss_infusion_warned:
+                    warnings.warn(
+                        "ADVAN3: SS=1 with infusion dosing is not yet implemented; "
+                        "predictions are computed from a single-dose infusion.",
+                        UserWarning,
+                        stacklevel=3,
+                    )
+                    ss_infusion_warned = True
                 # Infusion: integrate biexponential over duration
                 r = dose.rate
                 dur = dose.amount / r

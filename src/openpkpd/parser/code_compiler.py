@@ -170,10 +170,14 @@ def _translate_line(line: str, intrinsics: dict[str, str]) -> str:
     line = re.sub(r"\bIWRES\b", "iwres", line, flags=re.IGNORECASE)
     line = re.sub(r"\bW\b", "w", line)
 
-    # FORTRAN intrinsics (longest-match first to avoid partial replacements)
+    # FORTRAN intrinsics (longest-match first to avoid partial replacements).
+    # The negative lookbehind (?<!\.) prevents double-replacement when the
+    # intrinsic body is recursively translated: e.g. "math.sqrt(" contains
+    # a word boundary before "sqrt" (because "." is non-word) so without the
+    # lookbehind a second pass would produce "math.math.sqrt(".
     for fname, pyname in sorted(intrinsics.items(), key=lambda x: -len(x[0])):
         line = re.sub(
-            rf"\b{re.escape(fname)}\b\s*(?=\()",
+            rf"(?<!\.)\b{re.escape(fname)}\b\s*(?=\()",
             pyname + " ",
             line,
             flags=re.IGNORECASE,
@@ -232,11 +236,18 @@ def _is_comment_line(line: str) -> bool:
 
 
 def _translate_block(code: str, intrinsics: dict[str, str]) -> str:
-    """Translate a full NM-TRAN code block to Python."""
+    """Translate a full NM-TRAN code block to Python.
+
+    Validates that every IF...THEN has a matching ENDIF and that ENDIF is never
+    used without a corresponding IF...THEN.  Raises :class:`CompilerError` on
+    mismatch so the problem is reported before any execution attempt.
+    """
     lines = code.splitlines()
     result: list[str] = []
     indent_level = 0
-    for line in lines:
+    # Separate counter used *only* for pairing validation (not affected by ELSE).
+    then_depth = 0
+    for lineno, line in enumerate(lines, start=1):
         if _is_comment_line(line):
             continue
         stripped = line.strip()
@@ -246,6 +257,7 @@ def _translate_block(code: str, intrinsics: dict[str, str]) -> str:
             cond = _translate_line(m_if_then.group(1).strip(), intrinsics)
             result.append("    " * indent_level + f"if ({cond}):")
             indent_level += 1
+            then_depth += 1
             continue
 
         if re.match(r"^ELSE\s*$", stripped, re.IGNORECASE):
@@ -260,15 +272,29 @@ def _translate_block(code: str, intrinsics: dict[str, str]) -> str:
             cond = _translate_line(m_elseif.group(1).strip(), intrinsics)
             result.append("    " * indent_level + f"elif ({cond}):")
             indent_level += 1
+            # ELSE IF...THEN does not open a new block — it closes the previous
+            # IF/ELSE-IF and opens a replacement, so then_depth stays the same.
             continue
 
         if re.match(r"^ENDIF\s*$", stripped, re.IGNORECASE):
+            then_depth -= 1
+            if then_depth < 0:
+                raise CompilerError(
+                    f"Unmatched ENDIF at line {lineno}: "
+                    "found ENDIF without a preceding IF...THEN."
+                )
             indent_level = max(indent_level - 1, 0)
             continue
 
         translated = _translate_line(stripped, intrinsics)
         for translated_line in translated.splitlines():
             result.append("    " * indent_level + translated_line)
+
+    if then_depth != 0:
+        raise CompilerError(
+            f"Unmatched IF...THEN: {then_depth} IF...THEN block(s) never closed with ENDIF."
+        )
+
     return "\n".join(result)
 
 

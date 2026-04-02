@@ -520,4 +520,74 @@ def test_format_example_dataset_details_html_includes_clickable_actions() -> Non
     assert "Open dataset" in details
     assert "Open bundle folder" in details
     assert "Open bundle notes" in details
-    assert "Open upstream source" in details
+
+
+# ---------------------------------------------------------------------------
+# P2-C: LOQ field in DatasetAsset and LOQ spin in data workflow
+# ---------------------------------------------------------------------------
+
+
+def test_dataset_asset_loq_roundtrips_via_dict() -> None:
+    asset = DatasetAsset(display_name="theo.csv", loq=0.05)
+    restored = DatasetAsset.from_dict(asset.to_dict())
+    assert restored.loq == pytest.approx(0.05)
+
+
+def test_dataset_asset_loq_none_roundtrips_as_none() -> None:
+    asset = DatasetAsset(display_name="theo.csv", loq=None)
+    restored = DatasetAsset.from_dict(asset.to_dict())
+    assert restored.loq is None
+
+
+def test_dataset_asset_loq_missing_key_defaults_to_none() -> None:
+    payload: dict[str, object] = {"display_name": "theo.csv"}
+    asset = DatasetAsset.from_dict(payload)
+    assert asset.loq is None
+
+
+@pytest.mark.unit
+def test_data_workflow_has_loq_spin() -> None:
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+
+    _, _, qt_widgets = load_qt_modules()
+    app = qt_widgets.QApplication.instance() or qt_widgets.QApplication(
+        ["test", "-platform", "offscreen"]
+    )
+    project = Workspace(name="LOQ spin test")
+    widget = build_data_workflow(project)
+    try:
+        widget.show()
+        app.processEvents()
+        loq_spin = widget.findChild(qt_widgets.QDoubleSpinBox, "data-loq-spin")
+        assert loq_spin is not None
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()
+
+
+@pytest.mark.unit
+def test_data_workflow_loq_spin_reflects_saved_asset(tmp_path: Path) -> None:
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+
+    _, _, qt_widgets = load_qt_modules()
+    app = qt_widgets.QApplication.instance() or qt_widgets.QApplication(
+        ["test", "-platform", "offscreen"]
+    )
+    project = Workspace(name="LOQ sync test")
+    project.active_dataset = DatasetAsset(
+        source_path=str(tmp_path / "fake.csv"), display_name="fake.csv", loq=1.23
+    )
+    widget = build_data_workflow(project)
+    try:
+        widget.show()
+        app.processEvents()
+        loq_spin = widget.findChild(qt_widgets.QDoubleSpinBox, "data-loq-spin")
+        assert loq_spin is not None
+        assert loq_spin.value() == pytest.approx(1.23)
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()

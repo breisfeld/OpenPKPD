@@ -857,10 +857,29 @@ def build_model_workflow(
     _np_base_idx = max(0, nonparam_base_combo.findData(_np_base_default))
     nonparam_base_combo.setCurrentIndex(_np_base_idx)
 
+    # BLQ method selector (P2-C)
+    blq_method_label = qt_widgets.QLabel("BLQ:")
+    blq_method_label.setObjectName("model-blq-method-label")
+    blq_method_combo = qt_widgets.QComboBox()
+    blq_method_combo.setObjectName("model-blq-method-combo")
+    blq_method_combo.addItem("M1 — Ignore BLQ", userData="M1")
+    blq_method_combo.addItem("M3 — Censored likelihood", userData="M3")
+    blq_method_combo.setToolTip(
+        "BLQ handling method.\n"
+        "M1: exclude below-LOQ observations (default).\n"
+        "M3: replace BLQ likelihood with Φ((LOQ−IPRED)/σ). "
+        "Requires an LLOQ column in the dataset or a scalar LOQ set in the Data workflow."
+    )
+    _blq_init = str(model_spec.estimation.options.get("blq_method", "M1"))
+    _blq_idx = max(0, blq_method_combo.findData(_blq_init))
+    blq_method_combo.setCurrentIndex(_blq_idx)
+
     estimation_row.addWidget(estimation_combo)
     estimation_row.addWidget(_make_help_button("Estimation Methods", _ESTIMATION_HELP_TEXT))
     estimation_row.addWidget(nonparam_base_label)
     estimation_row.addWidget(nonparam_base_combo)
+    estimation_row.addWidget(blq_method_label)
+    estimation_row.addWidget(blq_method_combo)
     estimation_row.addWidget(covariance_checkbox)
     estimation_row.addWidget(covariance_matrix_combo)
     estimation_row.addWidget(_make_help_button("Covariance Step", _COV_HELP_TEXT))
@@ -1003,6 +1022,9 @@ def build_model_workflow(
         np_base = str(options.get("base_method", "FOCE"))
         np_base_idx = max(0, nonparam_base_combo.findData(np_base))
         nonparam_base_combo.setCurrentIndex(np_base_idx)
+        blq = str(options.get("blq_method", "M1"))
+        blq_idx = max(0, blq_method_combo.findData(blq))
+        blq_method_combo.setCurrentIndex(blq_idx)
 
     def _refresh_estimation_option_affordances() -> None:
         method = str(estimation_combo.currentData())
@@ -1415,6 +1437,7 @@ def build_model_workflow(
                     "retry_on_abnormal": retry_on_abnormal_checkbox.isChecked(),
                     "retry_omega_scales": retry_omega_scales,
                     "base_method": nonparam_base_combo.currentData(),
+                    "blq_method": blq_method_combo.currentData(),
                 },
             ),
             covariance=CovarianceConfig(

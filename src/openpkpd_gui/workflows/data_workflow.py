@@ -353,6 +353,22 @@ def build_data_workflow(
     options_row.addSpacing(12)
     options_row.addWidget(qt_widgets.QLabel("IGNORE char"))
     options_row.addWidget(ignore_char_input)
+    options_row.addSpacing(12)
+    options_row.addWidget(qt_widgets.QLabel("LOQ"))
+    loq_spin = qt_widgets.QDoubleSpinBox()
+    loq_spin.setObjectName("data-loq-spin")
+    loq_spin.setRange(0.0, 1e6)
+    loq_spin.setDecimals(4)
+    loq_spin.setSingleStep(0.01)
+    loq_spin.setSpecialValueText("None")
+    loq_spin.setToolTip(
+        "Scalar lower limit of quantification (LOQ). "
+        "Set to 0 to disable. Used with M3 BLQ handling in the Model workflow."
+    )
+    loq_spin.setMaximumWidth(120)
+    _active_loq = project.active_dataset.loq if project.active_dataset else None
+    loq_spin.setValue(_active_loq if _active_loq is not None else 0.0)
+    options_row.addWidget(loq_spin)
     options_row.addStretch(1)
 
     summary_label = qt_widgets.QLabel(format_dataset_summary(project.active_dataset))
@@ -563,6 +579,7 @@ def build_data_workflow(
             "separator": options.separator,
             "treat_as_whitespace": options.treat_as_whitespace,
             "ignore_char": options.ignore_char or "",
+            "loq": dataset_asset.loq if dataset_asset else None,
         }
 
     def _current_control_state() -> dict[str, object]:
@@ -571,6 +588,7 @@ def build_data_workflow(
             "separator": separator_input.text(),
             "treat_as_whitespace": whitespace_checkbox.isChecked(),
             "ignore_char": ignore_char_input.text(),
+            "loq": loq_spin.value() if loq_spin.value() > 0.0 else None,
         }
 
     def _sync_from_project() -> None:
@@ -580,6 +598,9 @@ def build_data_workflow(
         separator_input.setText(str(project_state["separator"]))
         whitespace_checkbox.setChecked(bool(project_state["treat_as_whitespace"]))
         ignore_char_input.setText(str(project_state["ignore_char"]))
+        loq_spin.blockSignals(True)
+        loq_spin.setValue(float(project_state["loq"]) if project_state["loq"] is not None else 0.0)
+        loq_spin.blockSignals(False)
         separator_input.setEnabled(not whitespace_checkbox.isChecked())
         _render(
             project.active_dataset, dataset_service.validation_from_asset(project.active_dataset)
@@ -676,6 +697,10 @@ def build_data_workflow(
         if result.dataset_asset is not None:
             project_service.attach_dataset(project, result.dataset_asset)
             path_input.setText(result.dataset_asset.source_path or path_input.text())
+            # Preserve any user-specified scalar LOQ across reloads
+            _loq_val = loq_spin.value()
+            if _loq_val > 0.0 and project.active_dataset is not None:
+                project.active_dataset.loq = _loq_val
             _mapping_widget.setVisible(False)
             _sync_from_project()
             _notify_project_state_changed()
@@ -713,6 +738,7 @@ def build_data_workflow(
         separator_input.setText(",")
         whitespace_checkbox.setChecked(False)
         ignore_char_input.setText("")
+        loq_spin.setValue(0.0)
         result = dataset_service.load_example(str(example_key), options=_collect_import_options())
         if result.dataset_asset is not None:
             project_service.attach_dataset(project, result.dataset_asset)
@@ -761,6 +787,14 @@ def build_data_workflow(
     path_input.textChanged.connect(lambda _text: _update_unsaved_indicator())
     separator_input.textChanged.connect(lambda _text: _update_unsaved_indicator())
     ignore_char_input.textChanged.connect(lambda _text: _update_unsaved_indicator())
+
+    def _apply_loq_to_project(_value: float) -> None:
+        loq = _value if _value > 0.0 else None
+        if project.active_dataset is not None:
+            project.active_dataset.loq = loq
+        _update_unsaved_indicator()
+
+    loq_spin.valueChanged.connect(_apply_loq_to_project)
     path_input.editingFinished.connect(_load_from_path)
     whitespace_checkbox.toggled.connect(lambda _checked: _reload_if_path_set())
     separator_input.editingFinished.connect(_reload_if_path_set)

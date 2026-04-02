@@ -215,7 +215,7 @@ def test_create_job_builder_mode_and_apply_outcome(tmp_path: Path) -> None:
 
     captured: dict[str, int] = {}
 
-    def _fake_estimate(_built_model: object, *, n_parallel: int = 0) -> object:
+    def _fake_estimate(_built_model: object, *, n_parallel: int = 0, ctx=None) -> object:
         captured["n_parallel"] = n_parallel
         return type(
             "FakeEstimationResult",
@@ -695,3 +695,134 @@ def test_restore_fit_context_payloads_collects_decode_and_restore_failures() -> 
     assert len(warnings) == 2
     assert any("Could not decode saved fit state" in warning for warning in warnings)
     assert any("was not found" in warning for warning in warnings)
+
+
+# ---------------------------------------------------------------------------
+# P2-C: LOQ injection and blq_method routing in FitService
+# ---------------------------------------------------------------------------
+
+
+def _write_dataset_with_lloq(path: Path) -> None:
+    path.write_text("ID,TIME,AMT,DV,EVID,LLOQ\n1,0,100,0,1,0.5\n1,1,0,5,0,0.5\n", encoding="utf-8")
+
+
+def test_apply_dataset_asset_injects_scalar_loq_as_lloq_column(tmp_path: Path) -> None:
+    dataset_path = tmp_path / "theo.csv"
+    _write_dataset(dataset_path)
+    dataset_asset = DatasetAsset(
+        source_path=str(dataset_path),
+        display_name="theo.csv",
+        loq=0.5,
+    )
+
+    captured_dataset = {}
+
+    class _FakeBuilder:
+        def dataset(self, ds):
+            captured_dataset["ds"] = ds
+
+    error = FitService._apply_dataset_asset_to_builder(_FakeBuilder(), dataset_asset)
+
+    assert error is None
+    ds = captured_dataset["ds"]
+    assert "LLOQ" in ds.df.columns
+    assert float(ds.df["LLOQ"].iloc[0]) == pytest.approx(0.5)
+
+
+def test_apply_dataset_asset_does_not_overwrite_existing_lloq(tmp_path: Path) -> None:
+    dataset_path = tmp_path / "lloq.csv"
+    _write_dataset_with_lloq(dataset_path)
+    dataset_asset = DatasetAsset(
+        source_path=str(dataset_path),
+        display_name="lloq.csv",
+        loq=99.0,  # should be ignored — file already has LLOQ
+    )
+
+    captured_dataset = {}
+
+    class _FakeBuilder:
+        def dataset(self, ds):
+            captured_dataset["ds"] = ds
+
+    FitService._apply_dataset_asset_to_builder(_FakeBuilder(), dataset_asset)
+
+    ds = captured_dataset["ds"]
+    # Original LLOQ values from file (0.5) must not be overwritten with 99
+    assert float(ds.df["LLOQ"].iloc[0]) == pytest.approx(0.5)
+
+
+def test_apply_dataset_asset_zero_loq_does_not_inject(tmp_path: Path) -> None:
+    dataset_path = tmp_path / "theo.csv"
+    _write_dataset(dataset_path)
+    dataset_asset = DatasetAsset(
+        source_path=str(dataset_path),
+        display_name="theo.csv",
+        loq=0.0,
+    )
+
+    captured_dataset = {}
+
+    class _FakeBuilder:
+        def dataset(self, ds):
+            captured_dataset["ds"] = ds
+
+    FitService._apply_dataset_asset_to_builder(_FakeBuilder(), dataset_asset)
+
+    ds = captured_dataset["ds"]
+    assert "LLOQ" not in ds.df.columns
+
+
+def test_estimate_built_model_pops_blq_method_and_applies_to_population_model(
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class _FakeEstimation:
+        def estimate(self, population_model, params):
+            return type(
+                "FakeResult",
+                (),
+                {
+                    "theta_final": np.asarray([1.0]),
+                    "omega_final": np.asarray([[0.3]]),
+                    "sigma_final": np.asarray([[0.1]]),
+                    "post_hoc_etas": {},
+                    "warnings": [],
+                    "method": "FOCE",
+                    "n_observations": 0,
+                    "n_subjects": 0,
+                    "compute_n_parameters": lambda *_a, **_kw: None,
+                },
+            )()
+
+    def _fake_get_estimation_method(method, **kwargs):
+        captured["method"] = method
+        captured["kwargs"] = kwargs
+        return _FakeEstimation()
+
+    monkeypatch.setattr(
+        "openpkpd_gui.services.fit_service.get_estimation_method",
+        _fake_get_estimation_method,
+    )
+
+    class _FakePopulationModel:
+        blq_method: str = "M1"
+
+        def n_subjects(self):
+            return 1
+
+        @property
+        def dataset(self):
+            return None
+
+    class _FakeBuiltModel:
+        params = type("P", (), {"theta": [1.0], "omega": [[0.3]], "sigma": [[0.1]], "theta_specs": [], "omega_specs": [], "sigma_specs": []})()
+        population_model = _FakePopulationModel()
+        estimation_kwargs = {"method": "FOCE", "blq_method": "M3"}
+        do_covariance = False
+
+    FitService()._estimate_built_model(_FakeBuiltModel())
+
+    assert _FakeBuiltModel.population_model.blq_method == "M3"
+    # blq_method must NOT be forwarded to get_estimation_method
+    assert "blq_method" not in captured.get("kwargs", {})

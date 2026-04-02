@@ -23,6 +23,7 @@ class DatasetAsset:
     preview_rows: list[dict[str, object]] = field(default_factory=list)
     validation_errors: list[str] = field(default_factory=list)
     validation_warnings: list[str] = field(default_factory=list)
+    loq: float | None = None  # scalar lower limit of quantification (GUI-specified)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -39,6 +40,7 @@ class DatasetAsset:
             "preview_rows": [dict(row) for row in self.preview_rows],
             "validation_errors": list(self.validation_errors),
             "validation_warnings": list(self.validation_warnings),
+            "loq": self.loq,
         }
 
     @classmethod
@@ -63,4 +65,5 @@ class DatasetAsset:
             preview_rows=[dict(row) for row in payload.get("preview_rows", [])],
             validation_errors=[str(value) for value in payload.get("validation_errors", [])],
             validation_warnings=[str(value) for value in payload.get("validation_warnings", [])],
+            loq=float(payload["loq"]) if payload.get("loq") is not None else None,
         )

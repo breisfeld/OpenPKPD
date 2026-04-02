@@ -186,6 +186,10 @@ class FitService:
             )
         except Exception as exc:
             return str(exc)
+        # Inject scalar LOQ as LLOQ column when user has set a GUI-level LOQ
+        scalar_loq = getattr(dataset_asset, "loq", None)
+        if scalar_loq is not None and float(scalar_loq) > 0.0 and not dataset.has_lloq:
+            dataset.df["LLOQ"] = float(scalar_loq)
         build_dataset(dataset)
         return None
 
@@ -557,6 +561,7 @@ class FitService:
         method_name = estimation_kwargs.pop("method", Method.FOCE)
         interaction = bool(estimation_kwargs.pop("interaction", False))
         maxeval = int(estimation_kwargs.pop("maxeval", 9999))
+        blq_method = str(estimation_kwargs.pop("blq_method", "M1"))
 
         if ctx is not None:
             def _iteration_callback(iteration: int, ofv: float) -> None:
@@ -575,6 +580,9 @@ class FitService:
         )
         population_model = built_model.population_model
         params = built_model.params
+        # Apply BLQ method to population model (propagates to individual models at fit time)
+        if hasattr(population_model, "blq_method"):
+            population_model.blq_method = blq_method
         result = estimation.estimate(population_model, params)
 
         dataset = getattr(population_model, "dataset", None)

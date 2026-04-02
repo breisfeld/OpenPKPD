@@ -1162,3 +1162,81 @@ def test_suggest_button_present_in_model_workflow() -> None:
         widget.close()
         widget.deleteLater()
         app.processEvents()
+
+
+# ---------------------------------------------------------------------------
+# P2-C: BLQ method combo in model workflow
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_model_workflow_has_blq_method_combo() -> None:
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+    widget, app, qt_widgets = _build_model_workflow_widget()
+    try:
+        combo = widget.findChild(qt_widgets.QComboBox, "model-blq-method-combo")
+        assert combo is not None, "model-blq-method-combo not found"
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()
+
+
+@pytest.mark.unit
+def test_model_workflow_blq_method_combo_has_m1_and_m3() -> None:
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+    widget, app, qt_widgets = _build_model_workflow_widget()
+    try:
+        combo = widget.findChild(qt_widgets.QComboBox, "model-blq-method-combo")
+        assert combo is not None
+        data_values = [combo.itemData(i) for i in range(combo.count())]
+        assert "M1" in data_values
+        assert "M3" in data_values
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()
+
+
+@pytest.mark.unit
+def test_model_workflow_blq_method_combo_defaults_to_m1() -> None:
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+    widget, app, qt_widgets = _build_model_workflow_widget()
+    try:
+        combo = widget.findChild(qt_widgets.QComboBox, "model-blq-method-combo")
+        assert combo is not None
+        assert combo.currentData() == "M1"
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()
+
+
+@pytest.mark.unit
+def test_model_workflow_blq_method_combo_loads_saved_spec() -> None:
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+
+    from openpkpd_gui.domain.model_spec import EstimationConfig
+
+    _, _, qt_widgets = load_qt_modules()
+    app = qt_widgets.QApplication.instance() or qt_widgets.QApplication(
+        ["test", "-platform", "offscreen"]
+    )
+    project = Workspace(name="BLQ combo saved spec")
+    est = EstimationConfig(method="FOCE", options={"blq_method": "M3"})
+    project.active_model_spec = ModelSpec(problem_title="Demo", estimation=est)
+    widget = build_model_workflow(project)
+    try:
+        widget.show()
+        app.processEvents()
+        combo = widget.findChild(qt_widgets.QComboBox, "model-blq-method-combo")
+        assert combo is not None
+        assert combo.currentData() == "M3"
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()

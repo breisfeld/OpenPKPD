@@ -211,8 +211,40 @@ class ADVAN6(PKSubroutine):
         )
         t_start = 0.0
 
-        # Initial state
+        # Initial state: for SS doses, compute the periodic-orbit pre-dose state.
+        # Only the first SS dose establishes the initial condition; subsequent doses
+        # are applied normally in the main integration loop.
+        # Scan dose_events directly (no extra _prepare_doses call) and apply the
+        # F-factor and lag-time adjustments on-the-fly so the schedule cache is not
+        # invalidated.
         y_current = np.zeros(self.n_compartments)
+        for _d in dose_events:
+            if _d.reset or not (_d.ss and _d.ii > 0):
+                continue
+            cmt = int(_d.compartment)
+            f = f_factors.get(cmt, 1.0)
+            lag = alag.get(cmt, 0.0)
+            # Build an F/lag-adjusted copy for _find_ss_state
+            _d_adj = DoseEvent(
+                time=_d.time + lag,
+                amount=_d.amount * f,
+                rate=_d.rate,
+                duration=_d.duration,
+                compartment=cmt,
+                ss=False,
+                ii=_d.ii,
+                reset=False,
+            )
+            try:
+                y_current = self._find_ss_state(_d_adj, des_callable, pk_params, jit_tier)
+            except Exception as exc:
+                warnings.warn(
+                    f"ADVAN6: SS initial-state computation failed ({exc}); "
+                    "using y=0 as starting state.",
+                    UserWarning,
+                    stacklevel=3,
+                )
+            break  # only the first SS dose sets the initial condition
 
         y_out = np.zeros((len(obs_times), self.n_compartments))
 
@@ -281,6 +313,89 @@ class ADVAN6(PKSubroutine):
             amounts=y_out,
             ipred=ipred,
         )
+
+    def _find_ss_state(
+        self,
+        ss_dose: "DoseEvent",
+        des_callable: "Callable",
+        pk_params: dict[str, float],
+        jit_tier: str,
+        max_iter: int = 500,
+        rtol: float = 1e-5,
+    ) -> np.ndarray:
+        """
+        Find the periodic-orbit pre-dose state for a steady-state dose event.
+
+        Iterates: apply dose → integrate one dosing interval τ → repeat until
+        the state at the end of each interval converges to the state at its start.
+
+        This is the standard NONMEM SS=1 initialisation for ODE models:
+        integrate multiple cycles starting from y=0 until the system reaches
+        its periodic orbit, then return the converged pre-dose state y_pre.
+
+        The caller's main loop then applies the dose normally (adding dose.amount
+        to the appropriate compartment) before proceeding with the observation-
+        window integration.
+
+        Args:
+            ss_dose:     The DoseEvent with ss=True and ii>0 (already F-adjusted).
+            des_callable: Compiled $DES callable.
+            pk_params:   PK parameters for the RHS.
+            jit_tier:    JIT tier string.
+            max_iter:    Maximum iteration cycles (default 500).
+            rtol:        Relative convergence tolerance (default 1e-5).
+
+        Returns:
+            y_pre: state vector just before the dose at the periodic orbit.
+        """
+        tau = float(ss_dose.ii)
+        n = self.n_compartments
+        y_pre = np.zeros(n)
+
+        for _ in range(max_iter):
+            y_post = y_pre.copy()
+            active_inf: dict[int, tuple[float, float]] = {}
+
+            # Apply the dose (bolus: add to compartment; infusion: register rate)
+            if ss_dose.is_bolus:
+                cmt_idx = ss_dose.compartment - 1
+                if 0 <= cmt_idx < n:
+                    y_post[cmt_idx] += ss_dose.amount
+                rhs = _make_rhs(des_callable, pk_params, {}, n)
+                seg = self._integrate_segment(
+                    rhs, 0.0, tau, y_post, np.array([tau]),
+                    jit_tier, des_callable, pk_params, {}
+                )
+                y_next = seg[-1].copy()
+            else:
+                # Infusion: apply rate for duration d, then free decay for remainder
+                dur = ss_dose.amount / ss_dose.rate
+                cmt_idx = ss_dose.compartment - 1
+                end_t = min(dur, tau)
+                if 0 <= cmt_idx < n:
+                    active_inf[cmt_idx] = (ss_dose.rate, end_t)
+                rhs_on = _make_rhs(des_callable, pk_params, active_inf, n)
+                seg_on = self._integrate_segment(
+                    rhs_on, 0.0, end_t, y_post, np.array([end_t]),
+                    jit_tier, des_callable, pk_params, active_inf
+                )
+                y_mid = seg_on[-1].copy()
+                if dur < tau:
+                    rhs_off = _make_rhs(des_callable, pk_params, {}, n)
+                    seg_off = self._integrate_segment(
+                        rhs_off, dur, tau, y_mid, np.array([tau]),
+                        jit_tier, des_callable, pk_params, {}
+                    )
+                    y_next = seg_off[-1].copy()
+                else:
+                    y_next = y_mid
+
+            norm_next = float(np.linalg.norm(y_next))
+            if norm_next > 0.0 and float(np.linalg.norm(y_next - y_pre)) / norm_next < rtol:
+                return y_next
+            y_pre = y_next
+
+        return y_pre
 
     def _build_schedule(
         self,

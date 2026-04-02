@@ -504,6 +504,36 @@ class TestADVAN3ExactEigendecomposition:
         # Mass conservation
         assert np.all(a1 + a2 <= DOSE + 1e-8)
 
+    def test_propagate_2cmt_degenerate_matches_expm(self):
+        """
+        _propagate_2cmt degenerate branch (λ1=λ2) must match scipy.linalg.expm.
+
+        Exact degenerate case: K = K21, K12 = 0 → D = sqrt(S²-4K*K21) = 0.
+        Rate matrix becomes upper-triangular: M = [[-K, K],[0, -K]].
+        expm(M*t) = exp(-K*t) * [[1, K*t],[0, 1]].
+        """
+        from scipy.linalg import expm
+
+        K, K12, K21 = 0.3, 0.0, 0.3  # exact degenerate: D = 0, lam1 = lam2 = K
+        lam1, lam2 = _eigenvalues(K, K12, K21)
+        assert (lam2 - lam1) < 1e-10, "Test setup requires degenerate eigenvalues"
+
+        a1_0, a2_0 = 40.0, 25.0
+        times = np.array([0.5, 2.0, 8.0])
+        m = np.array([[-(K + K12), K21], [K12, -K21]])
+        y0 = np.array([a1_0, a2_0])
+
+        a1_prop, a2_prop = _propagate_2cmt(a1_0, a2_0, K, K12, K21, lam1, lam2, times)
+
+        for i, ti in enumerate(times):
+            ref = expm(m * ti) @ y0
+            assert a1_prop[i] == pytest.approx(ref[0], rel=1e-10, abs=1e-12), (
+                f"A1 degenerate mismatch at t={ti}: got {a1_prop[i]:.6f}, expected {ref[0]:.6f}"
+            )
+            assert a2_prop[i] == pytest.approx(ref[1], rel=1e-10, abs=1e-12), (
+                f"A2 degenerate mismatch at t={ti}: got {a2_prop[i]:.6f}, expected {ref[1]:.6f}"
+            )
+
 
 # ============================================================================
 # Section 4 — ADVAN4 cross-validation against ADVAN6 ODE
@@ -1346,3 +1376,112 @@ class TestNCALogInterpolation:
         exact = self._exact_auc(1.5, 6.0)
         # Should be exact because log interpolation preserves monoexponential shape
         assert partial == pytest.approx(exact, rel=1e-10)
+
+
+# ============================================================================
+# Section 9 — Multi-dose accumulation / steady-state (H-6)
+# ============================================================================
+
+
+@pytest.mark.unit
+class TestMultiDoseSteadyState:
+    """
+    Verify that superposition of N equally-spaced IV bolus doses (ADVAN1) and
+    oral doses (ADVAN2) converges to the analytical steady-state.
+
+    At steady state with dosing interval τ:
+      C_trough = (D/V) * exp(-K*τ) / (1 - exp(-K*τ))
+      C_peak   = (D/V) / (1 - exp(-K*τ))
+
+    Reference: Rowland & Tozer, "Clinical Pharmacokinetics and Pharmacodynamics",
+    4th ed., Chapter 17.
+    """
+
+    K, V = 0.15, 10.0
+    DOSE, TAU = 100.0, 12.0
+    N_DOSES = 30  # 30 doses >> 5 half-lives → within 1% of SS
+
+    @staticmethod
+    def _advan1_peak_trough(k: float, v: float, dose: float, tau: float, n: int) -> tuple[float, float]:
+        """Simulate ADVAN1 and return peak/trough after the n-th dose."""
+        times_all = []
+        for i in range(n):
+            t0 = i * tau
+            times_all.extend([t0 + 1e-9, t0 + tau - 1e-9])
+        obs_times = np.array(times_all)
+        doses = [DoseEvent(time=i * tau, amount=dose, compartment=1) for i in range(n)]
+        sol = ADVAN1().solve({"K": k, "V": v}, doses, obs_times)
+        ipred = sol.ipred
+        peak = float(ipred[-2])   # just after last dose
+        trough = float(ipred[-1])  # just before next dose
+        return peak, trough
+
+    def test_advan1_trough_converges_to_ss(self):
+        """After 30 doses, ADVAN1 trough must be within 1% of the analytical SS trough."""
+        c_trough_ss = (self.DOSE / self.V) * math.exp(-self.K * self.TAU) / (
+            1.0 - math.exp(-self.K * self.TAU)
+        )
+        _, trough = self._advan1_peak_trough(self.K, self.V, self.DOSE, self.TAU, self.N_DOSES)
+        assert trough == pytest.approx(c_trough_ss, rel=0.01), (
+            f"ADVAN1 trough after {self.N_DOSES} doses = {trough:.4f}; "
+            f"SS analytical = {c_trough_ss:.4f}"
+        )
+
+    def test_advan1_peak_converges_to_ss(self):
+        """After 30 doses, ADVAN1 peak must be within 1% of the analytical SS peak."""
+        c_peak_ss = (self.DOSE / self.V) / (1.0 - math.exp(-self.K * self.TAU))
+        peak, _ = self._advan1_peak_trough(self.K, self.V, self.DOSE, self.TAU, self.N_DOSES)
+        assert peak == pytest.approx(c_peak_ss, rel=0.01), (
+            f"ADVAN1 peak after {self.N_DOSES} doses = {peak:.4f}; "
+            f"SS analytical = {c_peak_ss:.4f}"
+        )
+
+    def test_advan1_single_dose_to_ss_ratio(self):
+        """
+        Accumulation ratio R = C_peak_ss / C_peak_single = 1 / (1 - exp(-K*tau)).
+        ADVAN1 simulated ratio must match within 1%.
+        Reference: Rowland & Tozer, Table 17-1.
+        """
+        r_ss_exact = 1.0 / (1.0 - math.exp(-self.K * self.TAU))
+        # Single dose peak (1 dose at t=0, measure at t=ε)
+        t_eps = np.array([1e-9])
+        sol1 = ADVAN1().solve(
+            {"K": self.K, "V": self.V},
+            [DoseEvent(time=0.0, amount=self.DOSE, compartment=1)],
+            t_eps,
+        )
+        c_peak_single = float(sol1.ipred[0])
+        peak_ss, _ = self._advan1_peak_trough(self.K, self.V, self.DOSE, self.TAU, self.N_DOSES)
+        r_simulated = peak_ss / c_peak_single
+        assert r_simulated == pytest.approx(r_ss_exact, rel=0.01), (
+            f"Accumulation ratio {r_simulated:.4f} vs exact {r_ss_exact:.4f}"
+        )
+
+    def test_advan2_trough_converges_to_ss(self):
+        """
+        ADVAN2 multi-dose oral: trough after 30 doses must match analytical SS.
+
+        At SS for oral dosing with 1-cmt model:
+          C_trough = (F*D/V) * KA/(KA-K) * [exp(-K*tau)/(1-exp(-K*tau))
+                                              - exp(-KA*tau)/(1-exp(-KA*tau))]
+        Reference: Rowland & Tozer, Chapter 17, Eq. 17-4.
+        """
+        KA, K, V = 1.2, 0.15, 10.0
+        DOSE, TAU, N = 200.0, 12.0, 30
+
+        doses = [DoseEvent(time=i * TAU, amount=DOSE, compartment=1) for i in range(N)]
+        # Observe just before the (N+1)-th dose — trough after N-th dose
+        t_trough = np.array([(N - 1) * TAU + TAU - 1e-9])
+        sol = ADVAN2().solve({"KA": KA, "K": K, "V": V}, doses, t_trough)
+        c_trough_sim = float(sol.ipred[0])
+
+        # Analytical SS trough for oral 1-cmt
+        factor = KA / (KA - K)
+        c_trough_ss = (DOSE / V) * factor * (
+            math.exp(-K * TAU) / (1.0 - math.exp(-K * TAU))
+            - math.exp(-KA * TAU) / (1.0 - math.exp(-KA * TAU))
+        )
+        assert c_trough_sim == pytest.approx(c_trough_ss, rel=0.01), (
+            f"ADVAN2 trough after {N} doses = {c_trough_sim:.4f}; "
+            f"SS analytical = {c_trough_ss:.4f}"
+        )

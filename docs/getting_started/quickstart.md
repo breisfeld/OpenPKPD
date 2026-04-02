@@ -124,4 +124,4 @@ Plots require `matplotlib`. Install with `uv add "OpenPKPD[plots]"`.
 - {doc}`/user_guide/gui` — the current desktop GUI layout, menus, and workflows
 - {doc}`/user_guide/pk_subroutines` — choosing the right ADVAN and TRANS
 - {doc}`/user_guide/estimation_methods` — FO vs FOCE vs SAEM
-- {doc}`/examples/index` — seven annotated worked examples
+- {doc}`/examples/index` — annotated worked examples from the shipped example suite

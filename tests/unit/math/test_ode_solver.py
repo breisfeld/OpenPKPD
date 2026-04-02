@@ -77,6 +77,44 @@ def test_solve_ode_piecewise_applies_reset_between_observations():
 
 
 @pytest.mark.unit
+def test_solve_ode_piecewise_preserves_duplicate_observation_times():
+    obs_times = np.array([1.0, 1.0, 2.0])
+    amounts = solve_ode_piecewise(
+        _piecewise_decay_rhs(0.2),
+        [DoseEvent(time=0.0, amount=100.0, compartment=1)],
+        obs_times,
+        np.array([0.0]),
+        method="BDF",
+        rtol=1e-10,
+        atol=1e-12,
+    )
+
+    expected = 100.0 * np.exp(-0.2 * obs_times)
+    np.testing.assert_allclose(amounts[:, 0], expected, rtol=1e-6, atol=1e-8)
+    assert amounts[0, 0] == pytest.approx(amounts[1, 0])
+
+
+@pytest.mark.unit
+def test_solve_ode_piecewise_accumulates_overlapping_infusions_in_same_compartment():
+    obs_times = np.array([0.5, 1.0, 1.5, 2.0, 2.5])
+    amounts = solve_ode_piecewise(
+        _piecewise_decay_rhs(0.0),
+        [
+            DoseEvent(time=0.0, amount=100.0, rate=50.0, compartment=1),
+            DoseEvent(time=0.5, amount=100.0, rate=50.0, compartment=1),
+        ],
+        obs_times,
+        np.array([0.0]),
+        method="BDF",
+        rtol=1e-10,
+        atol=1e-12,
+    )
+
+    expected = np.array([25.0, 75.0, 125.0, 175.0, 200.0])
+    np.testing.assert_allclose(amounts[:, 0], expected, rtol=1e-7, atol=1e-8)
+
+
+@pytest.mark.unit
 def test_solve_ode_piecewise_handles_empty_observation_grid():
     amounts = solve_ode_piecewise(
         _piecewise_decay_rhs(0.1),

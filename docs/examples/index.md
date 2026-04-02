@@ -1,7 +1,7 @@
 # Examples
 
 Selected documentation pages for the example suite. The repository currently
-ships 30 self-contained example scripts covering common population PK/PD
+ships 34 self-contained example scripts covering common population PK/PD
 workflows. All scripts can
 be run directly:
 
@@ -57,7 +57,7 @@ of displaying them interactively.
 |--------|-------|
 | `01_theophylline_fo.py` | FO estimation |
 | `02_warfarin_foce.py` | FOCE with interaction |
-| `15_bayesian.py` | Bayesian Laplace approximation (PyMC optional) |
+| `15_bayes_laplace.py` | Bayesian Laplace approximation (PyMC optional) |
 | `20_saem_estimation.py` | SAEM (stochastic EM) with convergence history |
 | `21_laplacian_prior.py` | Laplacian estimation + prior augmentation (MAP) |
 

@@ -21,8 +21,8 @@ import pytest
 
 ROOT = Path(__file__).parents[2]
 EXAMPLES_DIR = ROOT / "examples"
-ALL_EXAMPLES = tuple(range(1, 31))
-PLOT_EXAMPLES = {1, 2, 3, 4, 5, 7, 9, 11, 12, 14, 16, 17, 20, 21, 22, 23, 24}
+ALL_EXAMPLES = tuple(sorted(int(path.name[:2]) for path in EXAMPLES_DIR.glob("[0-9][0-9]_*.py")))
+PLOT_EXAMPLES = {1, 2, 3, 4, 5, 7, 9, 11, 12, 14, 16, 17, 20, 21, 22, 23, 24, 33, 34}
 
 SMOKE_TIMEOUTS = {
     14: 180,

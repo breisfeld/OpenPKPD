@@ -89,23 +89,34 @@ def solve_ode_piecewise(
 
     y = y0.copy().astype(float)
 
-    # Map obs_times → output indices
-    obs_set = {t: i for i, t in enumerate(obs_times)}
+    # Map obs_times → all output indices at that time. This preserves
+    # duplicate observation rows (for example same-time multi-endpoint data)
+    # and avoids collapsing them to a single output slot.
+    obs_indices: dict[float, list[int]] = {}
+    for i, time in enumerate(np.asarray(obs_times, dtype=float)):
+        obs_indices.setdefault(float(time), []).append(i)
     y_out = np.zeros((len(obs_times), len(y)))
 
-    # Active infusion state: {compartment_idx: (rate, end_time)}
-    active_infusions: dict[int, tuple[float, float]] = {}
+    # Active infusion state: {compartment_idx: [(rate, end_time), ...]}
+    active_infusions: dict[int, list[tuple[float, float]]] = {}
 
-    def make_rhs_with_infusions(infusions: dict[int, tuple[float, float]]) -> Callable:
+    def make_rhs_with_infusions(
+        infusions: dict[int, list[tuple[float, float]]],
+    ) -> Callable:
         def _rhs(t: float, y: np.ndarray) -> np.ndarray:
             # Add active infusion rates
             infusion_rates = np.zeros(len(y))
-            for cmt_idx, (rate, end_t) in infusions.items():
-                if t <= end_t:
-                    infusion_rates[cmt_idx] += rate
+            for cmt_idx, entries in infusions.items():
+                for rate, end_t in entries:
+                    if t <= end_t:
+                        infusion_rates[cmt_idx] += rate
             return rhs(t, y, infusion_rates)
 
         return _rhs
+
+    def _record_state(t: float, state: np.ndarray) -> None:
+        for idx in obs_indices.get(float(t), []):
+            y_out[idx, :] = state
 
     event_iter = iter(dose_events)
     next_event: DoseEvent | None = next(event_iter, None)
@@ -128,20 +139,22 @@ def solve_ode_piecewise(
                 if 0 <= cmt_idx < len(y):
                     y[cmt_idx] += ev.amount
             elif ev.is_infusion:
-                end_t = ev.time + ev.amount / ev.rate
-                active_infusions[cmt_idx] = (ev.rate, end_t)
+                active_infusions.setdefault(cmt_idx, []).append((ev.rate, ev.infusion_end_time))
 
         # Remove expired infusions
-        active_infusions = {k: v for k, v in active_infusions.items() if v[1] > t_start}
+        active_infusions = {
+            k: [(rate, end_t) for rate, end_t in entries if end_t > t_start]
+            for k, entries in active_infusions.items()
+        }
+        active_infusions = {k: entries for k, entries in active_infusions.items() if entries}
 
         # Record at t_start after applying discontinuous events, before solving
         # forward to the next time point.
-        if t_start in obs_set:
-            y_out[obs_set[t_start], :] = y
+        _record_state(t_start, y)
 
         if t_end > t_start + 1e-14:
             _rhs = make_rhs_with_infusions(active_infusions)
-            eval_pts = [t for t in obs_times if t_start < t <= t_end]
+            eval_pts = sorted({float(t) for t in obs_times if t_start < t <= t_end})
             if eval_pts:
                 _, y_seg = solve_ode_scipy(
                     _rhs,
@@ -153,8 +166,7 @@ def solve_ode_piecewise(
                     atol=atol,
                 )
                 for j, t_pt in enumerate(eval_pts):
-                    if t_pt in obs_set:
-                        y_out[obs_set[t_pt], :] = y_seg[:, j]
+                    _record_state(t_pt, y_seg[:, j])
             else:
                 _, y_seg = solve_ode_scipy(
                     _rhs,
@@ -184,10 +196,8 @@ def solve_ode_piecewise(
                 if 0 <= cmt_idx < len(y):
                     y[cmt_idx] += ev.amount
             elif ev.is_infusion:
-                end_t = ev.time + ev.amount / ev.rate
-                active_infusions[cmt_idx] = (ev.rate, end_t)
+                active_infusions.setdefault(cmt_idx, []).append((ev.rate, ev.infusion_end_time))
 
-        if final_time in obs_set:
-            y_out[obs_set[final_time], :] = y
+        _record_state(final_time, y)
 
     return y_out

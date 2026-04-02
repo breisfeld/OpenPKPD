@@ -20,7 +20,7 @@ NONMEM-style control-stream support, a CLI, and a Qt desktop GUI.
 - **Covariate workflows**: manual covariate coding, imputation helpers, and stepwise SCM
 - **Data/output**: NONMEM-compatible `.lst/.ext/.phi/.cov/.cor` outputs, `$TABLE`, HTML reports, and NCA exports
 - **Advanced integrations**: SBML import, sparse-sampling NCA, built-in multi-core parallelism for estimation and simulation
-- **Examples and tests**: 32 example scripts plus extensive unit/integration/regression coverage
+- **Examples and tests**: 34 example scripts plus extensive unit/integration/regression coverage
 
 ## Installation
 
@@ -190,7 +190,7 @@ print("OFV:", result.ofv)
 print("THETA:", result.theta_final)
 ```
 
-See `examples/` for 32 runnable examples covering FO/FOCE, control streams,
+See `examples/` for 34 runnable examples covering FO/FOCE, control streams,
 FOCEI optimizer controls, VPC, NCA, optimal design, Bayesian estimation,
 SBML import, DDE, IOV, PBPK, advanced PD, IMP/IMPMAP warm-start comparison,
 nonparametric support-point estimation, and phenobarbital population PK.

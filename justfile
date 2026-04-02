@@ -153,7 +153,7 @@ benchmark-estimation *args:
 run-all-examples:
     {{uv_base}} python scripts/just/examples.py run-all
 
-# Run a single example by number (01–24)
+# Run a single example by number (auto-discovered from examples/)
 # Usage: just example 01
 #        just example 12
 run-example num:

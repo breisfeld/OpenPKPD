@@ -11,8 +11,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 EXAMPLES = ROOT / "examples"
 OUTPUTS = ROOT / "docs" / "_static" / "examples"
-PLOTS = {1, 2, 3, 4, 5, 7, 9, 11, 12, 14, 16, 17, 20, 21, 22, 23, 24}
+PLOTS = {1, 2, 3, 4, 5, 7, 9, 11, 12, 14, 16, 17, 20, 21, 22, 23, 24, 33, 34}
 CLUSTER = {18}
+
+
+def example_numbers() -> list[int]:
+    return sorted(int(path.name[:2]) for path in EXAMPLES.glob("[0-9][0-9]_*.py"))
 
 
 def extra_for(num: int) -> str | None:
@@ -94,14 +98,14 @@ def main() -> int:
         return run_one(args.num, output_dir=args.output)
 
     if args.cmd == "run-all":
-        for num in range(1, 25):
+        for num in example_numbers():
             rc = run_one(num, output_dir=args.output)
             if rc != 0:
                 return rc
         return 0
 
     failures: list[int] = []
-    for num in range(1, 25):
+    for num in example_numbers():
         rc = run_one(num, output_dir=str(OUTPUTS), capture=True)
         if rc != 0:
             failures.append(num)

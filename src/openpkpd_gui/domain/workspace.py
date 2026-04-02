@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -92,9 +93,13 @@ class Scenario:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> Scenario:
+        if "scenario_id" not in payload:
+            raise ValueError(
+                "Workspace data is corrupted: 'scenario_id' is missing from scenario payload"
+            )
         scenario = cls(
             name=str(payload.get("name", "Baseline")),
-            scenario_id=str(payload.get("scenario_id", uuid4().hex)),
+            scenario_id=str(payload["scenario_id"]),
             parent_scenario_id=(
                 str(payload["parent_scenario_id"]) if payload.get("parent_scenario_id") else None
             ),
@@ -154,6 +159,12 @@ class Project:
 
     @property
     def active_scenario(self) -> Scenario:
+        """Return the currently active scenario.
+
+        Returns a live lookup by ID each time; callers must not cache the
+        returned object across mutations (e.g. scenario removal), as the
+        reference may become stale.
+        """
         scenario = self.find_scenario(self.active_scenario_id)
         if scenario is None:
             scenario = self.scenarios[0]
@@ -189,9 +200,13 @@ class Project:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> Project:
+        if "project_id" not in payload:
+            raise ValueError(
+                "Workspace data is corrupted: 'project_id' is missing from project payload"
+            )
         return cls(
             name=str(payload.get("name", "Project 1")),
-            project_id=str(payload.get("project_id", uuid4().hex)),
+            project_id=str(payload["project_id"]),
             created_at=str(payload.get("created_at", _timestamp())),
             updated_at=str(payload.get("updated_at", _timestamp())),
             scenarios=[Scenario.from_dict(dict(item)) for item in payload.get("scenarios", [])],
@@ -219,6 +234,7 @@ class Workspace:
     projects: list[Project] = field(default_factory=list)
     active_project_id: str | None = None
     metadata: dict[str, object] = field(default_factory=dict)
+    _lock: threading.RLock = field(default_factory=threading.RLock, init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if not self.projects:
@@ -287,10 +303,11 @@ class Workspace:
         return scenario
 
     def add_project(self, project: Project, *, make_active: bool = True) -> Project:
-        self.projects.append(project)
-        if make_active:
-            self.active_project_id = project.project_id
-        self.touch()
+        with self._lock:
+            self.projects.append(project)
+            if make_active:
+                self.active_project_id = project.project_id
+            self.touch()
         return project
 
     @property
@@ -336,12 +353,14 @@ class Workspace:
         self.touch()
 
     def add_run(self, run: RunRecord) -> None:
-        self.active_scenario.add_run(run)
-        self.touch()
+        with self._lock:
+            self.active_scenario.add_run(run)
+            self.touch()
 
     def add_artifact(self, artifact: ArtifactRecord) -> None:
-        self.active_scenario.add_artifact(artifact)
-        self.touch()
+        with self._lock:
+            self.active_scenario.add_artifact(artifact)
+            self.touch()
 
     def to_dict(self, *, include_selection: bool = True) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -362,10 +381,14 @@ class Workspace:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, object]) -> Workspace:
+        if "workspace_id" not in payload:
+            raise ValueError(
+                "Workspace data is corrupted: 'workspace_id' is missing from workspace payload"
+            )
         return cls(
             name=str(payload.get("name", "Untitled Workspace")),
             root_path=str(payload["root_path"]) if payload.get("root_path") else None,
-            workspace_id=str(payload.get("workspace_id", uuid4().hex)),
+            workspace_id=str(payload["workspace_id"]),
             created_at=str(payload.get("created_at", _timestamp())),
             updated_at=str(payload.get("updated_at", _timestamp())),
             recent_files=[str(value) for value in payload.get("recent_files", [])],

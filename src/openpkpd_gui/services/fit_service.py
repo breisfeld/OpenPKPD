@@ -9,6 +9,8 @@ import logging
 import platform
 import subprocess
 import sys
+import threading
+import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -110,6 +112,7 @@ class FitService:
     def __init__(self, translation_service: ModelTranslationService | None = None) -> None:
         self._translation_service = translation_service or ModelTranslationService()
         self._fit_contexts: dict[tuple[str, str, str], FitContext] = {}
+        self._fit_contexts_lock = threading.Lock()
         self._last_context_error: str | None = None
         self._last_restore_warnings: list[str] = []
 
@@ -168,6 +171,24 @@ class FitService:
             kwargs["ignore_char"] = dataset_asset.ignore_char
         if dataset_asset.input_columns:
             kwargs["input_columns"] = list(dataset_asset.input_columns)
+        # Detect tab-delimited files when the user has not opted into whitespace mode
+        # and the separator is still the default comma.
+        if not dataset_asset.treat_as_whitespace and dataset_asset.separator == ",":
+            source = dataset_asset.source_path
+            if source:
+                try:
+                    with open(source, encoding="utf-8", errors="replace") as _fh:
+                        first_line = _fh.readline()
+                    if "\t" in first_line and "," not in first_line:
+                        warnings.warn(
+                            f"The dataset file {source!r} appears to be tab-delimited "
+                            "(first line contains tabs but no commas) but the separator "
+                            "is set to comma. Consider enabling 'treat_as_whitespace' or "
+                            "setting the separator to tab ('\\t').",
+                            stacklevel=2,
+                        )
+                except OSError:
+                    pass
         return kwargs
 
     @classmethod
@@ -188,8 +209,18 @@ class FitService:
             return str(exc)
         # Inject scalar LOQ as LLOQ column when user has set a GUI-level LOQ
         scalar_loq = getattr(dataset_asset, "loq", None)
-        if scalar_loq is not None and float(scalar_loq) > 0.0 and not dataset.has_lloq:
-            dataset.df["LLOQ"] = float(scalar_loq)
+        if scalar_loq is not None and float(scalar_loq) > 0.0:
+            if dataset.has_lloq:
+                lloq_series = dataset.df["LLOQ"]
+                if lloq_series.nunique() > 1:
+                    warnings.warn(
+                        "The dataset already contains a non-uniform LLOQ column. "
+                        "The GUI-specified scalar LOQ will not overwrite it.",
+                        stacklevel=2,
+                    )
+                # Do not overwrite any existing LLOQ column (uniform or not).
+            else:
+                dataset.df["LLOQ"] = float(scalar_loq)
         build_dataset(dataset)
         return None
 
@@ -269,7 +300,8 @@ class FitService:
         return None
 
     def latest_fit_context(self, workspace: Workspace) -> FitContext | None:
-        context = self._fit_contexts.get(self._context_key(workspace))
+        with self._fit_contexts_lock:
+            context = self._fit_contexts.get(self._context_key(workspace))
         if context is None or context.scenario_ref is not workspace.active_scenario:
             return None
         latest_run = self.latest_run(workspace)
@@ -302,7 +334,9 @@ class FitService:
     def all_fit_context_payloads(self, workspace: Workspace) -> dict[tuple[str, str], bytes]:
         """Return serialized fit contexts for all valid scenarios, keyed by (project_id, scenario_id)."""
         result: dict[tuple[str, str], bytes] = {}
-        for (ws_id, proj_id, scen_id), context in self._fit_contexts.items():
+        with self._fit_contexts_lock:
+            contexts_snapshot = list(self._fit_contexts.items())
+        for (ws_id, proj_id, scen_id), context in contexts_snapshot:
             if ws_id != workspace.workspace_id:
                 continue
             match = workspace.find_scenario(scen_id, project_id=proj_id)
@@ -369,7 +403,7 @@ class FitService:
                 if self._last_context_error is None:
                     self._last_context_error = "Could not restore fit context: model rebuild failed."
                 return False
-            self._fit_contexts[(workspace.workspace_id, proj_id, scen_id)] = FitContext(
+            new_context = FitContext(
                 workspace_id=workspace.workspace_id,
                 project_id=proj_id,
                 scenario_id=scen_id,
@@ -381,6 +415,8 @@ class FitService:
                 estimation_result=estimation_result,
                 population_model=population_model,
             )
+            with self._fit_contexts_lock:
+                self._fit_contexts[(workspace.workspace_id, proj_id, scen_id)] = new_context
             return True
         except Exception as exc:
             self._last_context_error = f"Could not restore fit context: {exc}"
@@ -502,7 +538,7 @@ class FitService:
         scenario_id: str,
         dataset_path: str | None,
     ) -> None:
-        self._fit_contexts[(workspace.workspace_id, project_id, scenario_id)] = FitContext(
+        new_context = FitContext(
             workspace_id=workspace.workspace_id,
             project_id=project_id,
             scenario_id=scenario_id,
@@ -514,6 +550,8 @@ class FitService:
             estimation_result=estimation_result,
             population_model=population_model,
         )
+        with self._fit_contexts_lock:
+            self._fit_contexts[(workspace.workspace_id, project_id, scenario_id)] = new_context
 
     def _run_builder_fit(
         self,

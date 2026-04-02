@@ -87,7 +87,7 @@ def test_no_log_when_support_within_subjects(caplog):
 
     with patch("openpkpd.estimation.get_estimation_method") as mock_get:
         mock_get.return_value.estimate.return_value = base_result
-        with caplog.at_level(logging.INFO, logger="estimation.nonparametric"):
+        with caplog.at_level(logging.INFO, logger="openpkpd.estimation.nonparametric"):
             result = method.estimate(pop, params)
 
     truncation_logs = [
@@ -114,7 +114,7 @@ def test_no_log_when_support_equals_subjects(caplog):
 
     with patch("openpkpd.estimation.get_estimation_method") as mock_get:
         mock_get.return_value.estimate.return_value = base_result
-        with caplog.at_level(logging.INFO, logger="estimation.nonparametric"):
+        with caplog.at_level(logging.INFO, logger="openpkpd.estimation.nonparametric"):
             result = method.estimate(pop, params)
 
     truncation_logs = [
@@ -146,7 +146,7 @@ def test_info_log_when_support_exceeds_subjects(caplog):
 
     with patch("openpkpd.estimation.get_estimation_method") as mock_get:
         mock_get.return_value.estimate.return_value = base_result
-        with caplog.at_level(logging.INFO, logger="estimation.nonparametric"):
+        with caplog.at_level(logging.INFO, logger="openpkpd.estimation.nonparametric"):
             result = method.estimate(pop, params)
 
     truncation_logs = [
@@ -184,7 +184,7 @@ def test_support_points_capped_at_n_subjects(caplog):
 
     with patch("openpkpd.estimation.get_estimation_method") as mock_get:
         mock_get.return_value.estimate.return_value = base_result
-        with caplog.at_level(logging.INFO, logger="estimation.nonparametric"):
+        with caplog.at_level(logging.INFO, logger="openpkpd.estimation.nonparametric"):
             result = method.estimate(pop, params)
 
     assert len(result.support_weights) == n_subjects

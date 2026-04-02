@@ -50,6 +50,25 @@ from openpkpd.utils.logging import get_logger
 logger = get_logger("api.model_builder")
 
 
+class ConfigurationError(ValueError):
+    """Raised when an invalid ADVAN/TRANS combination or covariate column is specified."""
+    pass
+
+
+# Valid TRANS values for each ADVAN. None means any TRANS is accepted.
+_VALID_ADVAN_TRANS: dict[int, set[int] | None] = {
+    1:  {1, 2},           # 1-cmt IV: TRANS1 (K), TRANS2 (CL/V)
+    2:  {1, 2},           # 1-cmt oral: same
+    3:  {1, 3, 4, 5},     # 2-cmt IV: TRANS1 (micro), TRANS3/4/5
+    4:  {1, 3, 4, 5},     # 2-cmt oral: same
+    11: {1, 3, 4, 5, 6},  # 3-cmt IV: adds TRANS6
+    12: {1, 3, 4, 5, 6},  # 3-cmt oral
+    6:  None,             # general ODE: no TRANS restriction
+    8:  None,             # general ODE with SS: no TRANS restriction
+    10: None,             # general ODE with saturable binding: no TRANS restriction
+}
+
+
 @dataclass
 class BuiltModel:
     """
@@ -252,6 +271,15 @@ class ModelBuilder:
 
     def subroutines(self, advan: int = 2, trans: int = 2, **kwargs: Any) -> ModelBuilder:
         """Set ADVAN and TRANS subroutine numbers and optional subroutine kwargs."""
+        if advan not in _VALID_ADVAN_TRANS:
+            raise ConfigurationError(
+                f"ADVAN={advan} is not supported. Supported: {sorted(_VALID_ADVAN_TRANS)}"
+            )
+        allowed = _VALID_ADVAN_TRANS[advan]
+        if allowed is not None and trans not in allowed:
+            raise ConfigurationError(
+                f"TRANS={trans} is not valid for ADVAN={advan}. Allowed TRANS values: {sorted(allowed)}"
+            )
         self._advan = advan
         self._trans = trans
         self._subroutine_kwargs = dict(kwargs)
@@ -415,6 +443,20 @@ class ModelBuilder:
         self._impute_method = method
         return self
 
+    def clone(self) -> "ModelBuilder":
+        """Return a copy of this builder. Callable attributes are shared by reference."""
+        import copy
+        new = ModelBuilder.__new__(ModelBuilder)
+        for k, v in self.__dict__.items():
+            if callable(v):
+                setattr(new, k, v)  # share callable by reference
+            else:
+                try:
+                    setattr(new, k, copy.deepcopy(v))
+                except Exception:
+                    setattr(new, k, v)  # fallback: share by reference
+        return new
+
     def build(self) -> BuiltModel:
         """
         Assemble and validate the model, returning a BuiltModel ready to fit.
@@ -424,6 +466,16 @@ class ModelBuilder:
             if self._data_path is None:
                 raise ModelError("No data specified. Call .data() first.")
             self._dataset = NONMEMDataset.from_csv(self._data_path)
+
+        # Validate covariate columns against dataset
+        if self._covariate_columns and self._dataset is not None:
+            ds_cols = list(self._dataset.df.columns)
+            missing = [c for c in self._covariate_columns if c not in ds_cols]
+            if missing:
+                raise ConfigurationError(
+                    f"Covariate column(s) {missing} not found in dataset. "
+                    f"Available columns: {ds_cols}"
+                )
 
         # Apply covariate imputation if requested
         if self._impute_columns:

@@ -30,7 +30,6 @@ from openpkpd.math.autodiff import jacobian
 from openpkpd.math.matrix import repair_pd
 from openpkpd.model.parameters import ParameterSet
 from openpkpd.utils.constants import LOG2PI
-from openpkpd.utils.errors import NumericalError
 from openpkpd.utils.logging import get_logger
 
 logger = get_logger("estimation.fo")
@@ -139,7 +138,7 @@ class FOMethod(EstimationMethod):
             try:
                 ofv_i = self._fo_ofv_individual(population_model, params, subj_id, eta_zero)
                 ofv += ofv_i
-            except (NumericalError, Exception):
+            except Exception:
                 ofv += 1e10
 
         # A4: add prior penalty if model is PriorAugmentedModel

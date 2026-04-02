@@ -529,6 +529,7 @@ class FOCEMethod(EstimationMethod):
         self._outer_eval_cache: dict[
             tuple[float, ...], tuple[float, dict[int, np.ndarray]]
         ] = {}
+        self._outer_eval_cache_max: int = 512
         self._best_outer_x: np.ndarray | None = None
         self._best_outer_ofv: float = np.inf
 
@@ -686,6 +687,10 @@ class FOCEMethod(EstimationMethod):
         eta_hat: dict[int, np.ndarray],
     ) -> None:
         key = tuple(np.asarray(x, dtype=float).tolist())
+        if len(self._outer_eval_cache) >= self._outer_eval_cache_max:
+            # Evict the oldest entry (insertion-order guaranteed in Python 3.7+)
+            oldest_key = next(iter(self._outer_eval_cache))
+            del self._outer_eval_cache[oldest_key]
         self._outer_eval_cache[key] = (
             float(ofv),
             {sid: np.asarray(value, dtype=float).copy() for sid, value in eta_hat.items()},
@@ -1247,7 +1252,12 @@ class FOCEMethod(EstimationMethod):
             else:
                 ofv_i += log_det_omega
             return float(ofv_i)
-        except Exception:
+        except Exception as _outer_subj_e:
+            logger.debug(
+                "FOCE outer OFV failed for subject %s: %s",
+                subj_id,
+                _outer_subj_e,
+            )
             return 1e10
 
     def _outer_ofv(

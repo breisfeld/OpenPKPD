@@ -665,6 +665,39 @@ DADT(3) =  K12 * A(2) - K21 * A(3)
         assert np.all(a2 >= -1e-8), "Central A2 negative"
         assert np.all(a1 + a2 <= self.DOSE_AMT + 1e-6), "A1+A2 exceeds dose"
 
+    def test_degenerate_eigenvalue_infusion_matches_ode(self):
+        """
+        A-2: Verify the ADVAN4 degenerate-eigenvalue infusion formula (λ1≈λ2)
+        against the ADVAN6 numerical ODE.
+
+        Degenerate eigenvalues occur when S² = 4*K*K21, i.e.
+        (K+K12+K21)² = 4*K*K21.  With K=0.3, K21=0.3, K12=0.0 → S=0.6, D=0.
+        This triggers the `abs(dl) < 1e-10` branch in _infusion_triexp.
+        """
+        from openpkpd.pk.ode.advan6 import ADVAN6
+
+        # Degenerate: K = K21 = 0.3, K12 = 0  → D = sqrt((0.6)^2 - 4*0.3*0.3) = 0
+        params_anal = {"KA": 1.0, "K": 0.3, "K12": 0.0, "K21": 0.3, "V2": 10.0}
+        params_ode = {"KA": 1.0, "K10": 0.3, "K12": 0.0, "K21": 0.3, "V": 10.0, "V2": 10.0}
+
+        # Infusion: 100 mg over 2 h (rate = 50 mg/h)
+        infusion_dose = [DoseEvent(time=0.0, amount=100.0, rate=50.0, compartment=1)]
+        times = np.array([0.5, 1.0, 2.0, 3.0, 6.0, 12.0, 24.0])
+
+        des_callable = self._build_des()
+        sol_anal = ADVAN4().solve(params_anal, infusion_dose, times)
+        advan6 = ADVAN6(n_compartments=3)
+        advan6.output_compartment = 2
+        sol_ode = advan6.solve(params_ode, infusion_dose, times, des_callable=des_callable)
+
+        np.testing.assert_allclose(
+            sol_anal.ipred,
+            sol_ode.ipred,
+            rtol=1e-3,
+            atol=1e-7,
+            err_msg="ADVAN4 degenerate-eigenvalue infusion central deviates from ADVAN6 ODE",
+        )
+
 
 # ============================================================================
 # Section 5 — NCA: exact integral validation

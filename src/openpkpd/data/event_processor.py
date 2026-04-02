@@ -28,6 +28,7 @@ import pandas as pd
 
 from openpkpd.data.columns import ADDL, AMT, CMT, DV, EVID, ID, II, MDV, RATE, SS, TIME
 from openpkpd.utils.constants import EVID_DOSE, EVID_OBS, EVID_OTHER, EVID_RESET, EVID_RESET_DOSE
+from openpkpd.utils.errors import DataError
 
 OCC = "OCC"  # Occasion column for IOV
 
@@ -257,13 +258,33 @@ class EventProcessor:
                     addl = int(row.get(ADDL, 0))
                     reset = evid == EVID_RESET_DOSE
 
+                    # C-04: guard against NaN AMT on infusion rows
+                    if np.isnan(amt) and rate != 0.0:
+                        raise DataError(
+                            f"Subject {subject_id}, time {time}: AMT is NaN. "
+                            "All dose amounts must be finite."
+                        )
+
                     # Compute infusion duration and normalize duration-based infusions
                     duration = 0.0
                     if rate > 0 and amt > 0:
                         duration = amt / rate
                     elif rate == -1.0:
-                        duration = float(row.get("DUR", 0.0))
-                        if duration > 0 and amt > 0:
+                        # C-05: DUR must be present and finite for RATE=-1 infusions
+                        dur_raw = row.get("DUR", None)
+                        if dur_raw is None or np.isnan(float(dur_raw)):
+                            raise DataError(
+                                f"Subject {subject_id}, time {time}: RATE=-1 requires a "
+                                f"valid DUR value, but DUR is "
+                                f"{'absent from the dataset' if dur_raw is None else 'NaN'}."
+                            )
+                        duration = float(dur_raw)
+                        if duration <= 0:
+                            raise DataError(
+                                f"Subject {subject_id}, time {time}: RATE=-1 requires "
+                                f"DUR > 0, got DUR={duration}."
+                            )
+                        if amt > 0:
                             rate = amt / duration
 
                     base_event = DoseEvent(
@@ -277,6 +298,13 @@ class EventProcessor:
                         reset=reset,
                     )
                     dose_events.append(base_event)
+
+                    # C-07: SS dosing requires a positive inter-dose interval
+                    if ss_flag and ii_val <= 0:
+                        raise DataError(
+                            f"Subject {subject_id}, time {time}: SS=1 requires II > 0, "
+                            f"got II={ii_val}."
+                        )
 
                     # Expand ADDL doses
                     if addl > 0 and ii_val <= 0:

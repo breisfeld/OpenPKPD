@@ -13,10 +13,14 @@ for a single subject given their:
 from __future__ import annotations
 
 import inspect
+import logging
 import math
 import re
+import threading
 from collections.abc import Callable
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 import numpy as np
 
@@ -306,6 +310,7 @@ _BLQ_METHOD_CODE: dict[str | None, int] = {
 
 
 _NAN_LLOQ_CACHE: dict[int, np.ndarray] = {}
+_NAN_LLOQ_CACHE_LOCK = threading.Lock()
 
 
 def _apply_alag(
@@ -345,10 +350,11 @@ def _build_lloq_array(lloq: object, n: int) -> np.ndarray:
     avoid allocating a new one on every log_likelihood call.
     """
     if lloq is None:
-        cached = _NAN_LLOQ_CACHE.get(n)
-        if cached is None:
-            cached = np.full(n, np.nan, dtype=np.float64)
-            _NAN_LLOQ_CACHE[n] = cached
+        with _NAN_LLOQ_CACHE_LOCK:
+            cached = _NAN_LLOQ_CACHE.get(n)
+            if cached is None:
+                cached = np.full(n, np.nan, dtype=np.float64)
+                _NAN_LLOQ_CACHE[n] = cached
         return cached
     out = np.full(n, np.nan, dtype=np.float64)
     if np.ndim(lloq) == 0:
@@ -435,12 +441,15 @@ class IndividualModel:
             for i in range(len(subject_events.obs_times))
         )
         self._observation_dvid = self._build_observation_dvid()
-        self._unique_occasions = (
-            np.unique(occasion_indices)
-            if occasion_indices is not None
-            and len(occasion_indices) == len(subject_events.obs_times)
-            else None
-        )
+        if occasion_indices is not None:
+            if len(occasion_indices) != len(subject_events.obs_times):
+                raise ValueError(
+                    f"occasion_indices length ({len(occasion_indices)}) must match "
+                    f"obs_times length ({len(subject_events.obs_times)})"
+                )
+            self._unique_occasions = np.unique(occasion_indices)
+        else:
+            self._unique_occasions = None
         solve_signature = inspect.signature(pk_subroutine.solve)
         self._solve_supports_return_amounts = "return_amounts" in solve_signature.parameters or any(
             param.kind == inspect.Parameter.VAR_KEYWORD
@@ -465,8 +474,14 @@ class IndividualModel:
         state["_eta_penalty_cache_key"] = None
         state["_eta_penalty_precision"] = None
         state["_eta_penalty_block_size"] = None
-        # User ODE template contains Python closures that can't be pickled;
-        # _try_build_user_ode_template will lazily rebuild it in the worker.
+        # User ODE template contains Python closures that can't be pickled.
+        # Preserve only the param_keys so __setstate__ can rebuild eagerly in
+        # the worker before the first prediction call (C-06).
+        if self._user_ode_template is not None:
+            cached_keys, _ = self._user_ode_template
+            state["_user_ode_param_keys"] = cached_keys
+        else:
+            state["_user_ode_param_keys"] = None
         state["_user_ode_template"] = None
         return state
 
@@ -478,6 +493,17 @@ class IndividualModel:
             self._derivative_kernel_cache = {}
         if "_user_ode_template" not in self.__dict__:
             self._user_ode_template = None
+        # C-06: eagerly rebuild the user ODE template (triggering Numba JIT here,
+        # at worker startup) rather than lazily on the first prediction call.
+        param_keys: tuple[str, ...] | None = self.__dict__.pop("_user_ode_param_keys", None)
+        if param_keys is not None:
+            try:
+                dummy_params = {k: 1.0 for k in param_keys}
+                self._try_build_user_ode_template(dummy_params)
+            except Exception:  # noqa: BLE001
+                # Compilation failure in the worker is non-fatal; the first
+                # prediction call will fall back to the scipy integrator.
+                self._user_ode_template = None
 
     @staticmethod
     def _infer_error_requires_amounts(error_callable: Callable | None) -> bool:
@@ -617,7 +643,11 @@ class IndividualModel:
                 try:
                     if cov_df[col].dropna().nunique() > 1:
                         return None
-                except Exception:
+                except Exception as _cov_e:
+                    logger.warning(
+                        "IndividualModel %s failed at covariate-constancy check: %s",
+                        getattr(self, "subject_id", "?"), _cov_e,
+                    )
                     return None  # cannot verify constancy — stay conservative
 
         # Doses must be into compartment 1 (the central compartment for IV
@@ -731,7 +761,11 @@ class IndividualModel:
                     ),
                     dtype=float,
                 )
-        except Exception:
+        except Exception as _ode_probe_e:
+            logger.warning(
+                "IndividualModel %s failed at native ODE probe: %s",
+                getattr(self, "subject_id", "?"), _ode_probe_e,
+            )
             return None
 
         n_states = template.n_states
@@ -743,6 +777,11 @@ class IndividualModel:
         amounts[:, :n_states] = amounts_raw
 
         V = float(pk_params[template.vol_param_name])
+        if V <= 0:
+            raise ValueError(
+                f"Volume parameter {template.vol_param_name}={V:.6g} must be > 0 "
+                f"(subject {getattr(self, 'subject_id', '?')})"
+            )
         ipred = amounts_raw[:, template.output_cmt_idx] / V
         return PKSolution(times=obs_times.copy(), amounts=amounts, ipred=ipred, f=ipred.copy())
 
@@ -810,7 +849,11 @@ class IndividualModel:
             pk_params_0 = self.pk_callable(
                 theta_list, eta_list, t=0.0, covariates=self._base_covariates
             )
-        except Exception:
+        except Exception as _pk_e:
+            logger.warning(
+                "IndividualModel %s failed at pk_callable (eta Jacobian path): %s",
+                getattr(self, "subject_id", "?"), _pk_e,
+            )
             return None
 
         n_cmt = contract.get("n_compartments", -1)
@@ -883,7 +926,11 @@ class IndividualModel:
                     contract["dose_amts"],
                     ode_theta,
                 )
-        except Exception:
+        except Exception as _sens_e:
+            logger.warning(
+                "IndividualModel %s failed at native sensitivity probe (eta Jacobian): %s",
+                getattr(self, "subject_id", "?"), _sens_e,
+            )
             return None
 
         states = np.array(states_raw, dtype=float)[inv_order]   # (n_obs, n_states)
@@ -906,8 +953,11 @@ class IndividualModel:
                     J_pk_eta[j, k] = (
                         float(pp.get(name, 0.0)) - float(pm.get(name, 0.0))
                     ) / (2.0 * eps)
-            except Exception:
-                pass
+            except Exception as _fd_e:
+                logger.warning(
+                    "IndividualModel %s failed at pk_callable FD (J_pk_eta col %d): %s",
+                    getattr(self, "subject_id", "?"), k, _fd_e,
+                )
 
         return dF_dODE @ J_pk_eta   # (n_obs, n_eta)
 
@@ -958,7 +1008,11 @@ class IndividualModel:
             pk_params_0 = self.pk_callable(
                 theta_list, eta_list, t=0.0, covariates=self._base_covariates
             )
-        except Exception:
+        except Exception as _pk_gnhess_e:
+            logger.warning(
+                "IndividualModel %s failed at pk_callable (Gauss-Newton hessian path): %s",
+                getattr(self, "subject_id", "?"), _pk_gnhess_e,
+            )
             return None
 
         n_cmt = contract.get("n_compartments", -1)
@@ -1020,7 +1074,11 @@ class IndividualModel:
                     contract["dose_amts"],
                     ode_theta,
                 )
-        except Exception:
+        except Exception as _gn_sens_e:
+            logger.warning(
+                "IndividualModel %s failed at native sensitivity probe (Gauss-Newton): %s",
+                getattr(self, "subject_id", "?"), _gn_sens_e,
+            )
             return None
 
         states = np.array(states_raw, dtype=float)[inv_order]         # (n_obs, n_states)
@@ -1044,8 +1102,11 @@ class IndividualModel:
                     J_pk_eta[j, k] = (
                         float(pp.get(name, 0.0)) - float(pm.get(name, 0.0))
                     ) / (2.0 * eps)
-            except Exception:
-                pass
+            except Exception as _gn_fd_e:
+                logger.warning(
+                    "IndividualModel %s failed at pk_callable FD (GN J_pk_eta col %d): %s",
+                    getattr(self, "subject_id", "?"), k, _gn_fd_e,
+                )
 
         G_i = dF_dODE @ J_pk_eta  # (n_obs, n_eta)
 
@@ -1147,7 +1208,11 @@ class IndividualModel:
             pk_params_0 = self.pk_callable(
                 theta_list, eta_list, t=0.0, covariates=self._base_covariates
             )
-        except Exception:
+        except Exception as _pk_vg_e:
+            logger.warning(
+                "IndividualModel %s failed at pk_callable (eta obj value/grad path): %s",
+                getattr(self, "subject_id", "?"), _pk_vg_e,
+            )
             return None
 
         n_cmt = contract.get("n_compartments", -1)
@@ -1206,7 +1271,11 @@ class IndividualModel:
                     contract["dose_amts"],
                     ode_theta,
                 )
-        except Exception:
+        except Exception as _vg_sens_e:
+            logger.warning(
+                "IndividualModel %s failed at native sensitivity probe (value/grad path): %s",
+                getattr(self, "subject_id", "?"), _vg_sens_e,
+            )
             return None
 
         states = np.array(states_raw, dtype=float)[inv_order]
@@ -1229,8 +1298,11 @@ class IndividualModel:
                     J_pk_eta[j, k] = (
                         float(pp.get(name, 0.0)) - float(pm.get(name, 0.0))
                     ) / (2.0 * eps)
-            except Exception:
-                pass
+            except Exception as _vg_fd_e:
+                logger.warning(
+                    "IndividualModel %s failed at pk_callable FD (value/grad J_pk_eta col %d): %s",
+                    getattr(self, "subject_id", "?"), k, _vg_fd_e,
+                )
 
         G_i = dF_dODE @ J_pk_eta       # (n_obs, n_eta)
         ipred = A_out / V               # (n_obs,)
@@ -1484,7 +1556,11 @@ class IndividualModel:
         def _transform_or_raw(raw_params: dict[str, float]) -> dict[str, float]:
             try:
                 return apply_trans(raw_params, trans)
-            except Exception:
+            except Exception as _trans_e:
+                logger.warning(
+                    "IndividualModel %s failed at pk_param transform (TRANS=%d): %s",
+                    getattr(self, "subject_id", "?"), trans, _trans_e,
+                )
                 return raw_params
 
         self._pk_param_transformers[trans] = _transform_or_raw
@@ -2126,8 +2202,11 @@ class IndividualModel:
             try:
                 value, _grad = self.eta_objective_value_grad(eta, theta, omega, sigma, trans=trans)
                 return value
-            except Exception:
-                pass
+            except Exception as _obj_eta_e:
+                logger.warning(
+                    "IndividualModel %s failed at obj_eta kernel path: %s",
+                    getattr(self, "subject_id", "?"), _obj_eta_e,
+                )
 
         neg2ll_data = self.log_likelihood(theta, eta, sigma, trans=trans)
 
@@ -2161,15 +2240,22 @@ class IndividualModel:
                 for i, eta in enumerate(eta_arr):
                     penalties[i] = self._eta_penalty_value(eta, omega_inv, block_size)
                 return data_values + penalties
-            except Exception:
-                pass
+            except Exception as _many_kernel_e:
+                logger.warning(
+                    "IndividualModel %s failed at obj_eta_many kernel path: %s",
+                    getattr(self, "subject_id", "?"), _many_kernel_e,
+                )
 
         values = np.empty(len(eta_arr), dtype=float)
         for i, eta in enumerate(eta_arr):
             try:
                 neg2ll_data = self.log_likelihood(theta, eta, sigma, trans=trans)
                 values[i] = neg2ll_data + self._eta_penalty_value(eta, omega_inv, block_size)
-            except Exception:
+            except Exception as _many_ll_e:
+                logger.warning(
+                    "IndividualModel %s failed at obj_eta_many log_likelihood (row %d): %s",
+                    getattr(self, "subject_id", "?"), i, _many_ll_e,
+                )
                 values[i] = 1e10
         return values
 

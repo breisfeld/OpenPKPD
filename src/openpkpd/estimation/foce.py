@@ -50,8 +50,18 @@ class _CachedObjEtaEvaluator:
         self.omega = omega
         self.sigma = sigma
         self.trans = trans
-        self.cache: dict[bytes, float] = {}
-        self.grad_cache: dict[bytes, np.ndarray] = {}
+        # Include subject_id in the cache key so that if two subjects ever share
+        # an evaluator instance (defensive), byte-identical ETA arrays for
+        # different subjects cannot collide.
+        # IndividualModel stores subject_id on subject_events.
+        _subj_events = getattr(indiv, "subject_events", None)
+        self._subject_id = (
+            getattr(_subj_events, "subject_id", None)
+            if _subj_events is not None
+            else getattr(indiv, "subject_id", None)
+        )
+        self.cache: dict[tuple, float] = {}
+        self.grad_cache: dict[tuple, np.ndarray] = {}
         supports_gradient = getattr(indiv, "supports_eta_objective_gradient", None)
         self._native_value_grad = None
         if callable(supports_gradient) and bool(supports_gradient(trans=trans)):
@@ -69,7 +79,9 @@ class _CachedObjEtaEvaluator:
 
     def _evaluate_with_cache(self, eta: np.ndarray) -> tuple[float, np.ndarray | None]:
         eta_arr = np.asarray(eta, dtype=float)
-        key = eta_arr.tobytes()
+        # Include subject_id in the key: defensive guard so that byte-identical
+        # ETA arrays from different subjects never collide in a shared cache.
+        key = (self._subject_id, eta_arr.tobytes())
         cached = self.cache.get(key)
         if cached is not None:
             return cached, self.grad_cache.get(key)
@@ -113,7 +125,7 @@ class _CachedObjEtaEvaluator:
         missing_rows: list[np.ndarray] = []
 
         for i, eta in enumerate(eta_arr):
-            cached = self.cache.get(eta.tobytes())
+            cached = self.cache.get((self._subject_id, eta.tobytes()))
             if cached is None:
                 missing_indices.append(i)
                 missing_rows.append(eta.copy())
@@ -140,7 +152,7 @@ class _CachedObjEtaEvaluator:
                 missing_indices, missing_batch, missing_values, strict=False
             ):
                 val = float(value)
-                self.cache[eta.tobytes()] = val
+                self.cache[(self._subject_id, eta.tobytes())] = val
                 values[idx] = val
 
         return values
@@ -1211,7 +1223,13 @@ class FOCEMethod(EstimationMethod):
                 try:
                     _sm, log_det_M = np.linalg.slogdet(M)
                     log_det_M = float(log_det_M) if _sm > 0 else 0.0
-                    quad = float(np.sum(residuals**2 / var_obs))
+                    # Woodbury matrix identity:
+                    #   C_i^{-1} = R_i^{-1} - R_i^{-1} G M^{-1} G^T R_i^{-1}
+                    # so  r^T C_i^{-1} r  =  r^T R_i^{-1} r  -  (G^T R_i^{-1} r)^T M^{-1} (G^T R_i^{-1} r)
+                    G_T_Rinv_r = G_T_Rinv @ residuals  # (n_eta,)
+                    quad_rinv = float(np.sum(residuals**2 / var_obs))
+                    quad_woodbury = float(G_T_Rinv_r @ np.linalg.solve(M, G_T_Rinv_r))
+                    quad = quad_rinv - quad_woodbury
                     log_det_R = float(np.sum(np.log(var_obs)))
                     log_det_ci = log_det_R + log_det_omega + log_det_M
                 except np.linalg.LinAlgError:

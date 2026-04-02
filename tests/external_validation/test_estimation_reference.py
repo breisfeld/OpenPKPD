@@ -302,6 +302,113 @@ class TestFOCEOFVFormula:
 
 
 # ---------------------------------------------------------------------------
+# FOCEI OFV formula tests  (C-08 verification)
+# ---------------------------------------------------------------------------
+
+
+def _focei_expected(dv: float, omega_v: float, sigma_v: float, eta_hat: float) -> float:
+    """
+    Closed-form FOCEI OFV for the scalar Gaussian mock (G_i = 1).
+
+    Derivation
+    ----------
+    C_i = G Ω G^T + R  =  ω + σ          (G=1, one observation)
+    log|C_i|            =  log(ω + σ)
+    quad                = (y − η̂)² / (ω + σ)   [Woodbury: C_i^{-1} = 1/(ω+σ)]
+    penalty             = η̂² / ω
+
+    OFV_i = n_obs·log(2π) + log|C_i| + quad + penalty − n_eta·log(2π)
+          = (1−1)·log(2π) + log(ω+σ) + (dv−η̂)²/(ω+σ) + η̂²/ω
+          =                 log(ω+σ) + (dv−η̂)²/(ω+σ) + η̂²/ω
+    """
+    c_i = omega_v + sigma_v
+    return math.log(c_i) + (dv - eta_hat) ** 2 / c_i + eta_hat**2 / omega_v
+
+
+@pytest.mark.external_validation
+class TestFOCEIFormula:
+    """
+    Verify FOCEI outer-OFV formula against the closed-form for the scalar
+    Gaussian mock.  The n_obs·log(2π) and −n_eta·log(2π) terms cancel when
+    n_obs == n_eta == 1, leaving log(ω+σ) + quad_woodbury + penalty.
+
+    Because we pass a fixed η̂ (rather than the FOCEI-optimal MAP), this test
+    isolates the formula itself from any inner-loop optimiser behaviour.
+    """
+
+    @pytest.mark.parametrize(
+        "dv,omega_v,sigma_v",
+        [
+            (1.5, 0.4, 0.6),
+            (0.5, 0.3, 0.2),
+            (2.0, 1.0, 0.1),
+            (-1.0, 0.5, 0.5),
+            (0.0, 0.8, 0.8),
+        ],
+    )
+    def test_focei_ofv_closed_form(self, dv, omega_v, sigma_v):
+        """
+        FOCEI OFV = log(ω+σ) + (y−η̂)²/(ω+σ) + η̂²/ω  at the given η̂.
+
+        Uses the FOCE MAP η̂ = dv·ω/(ω+σ) as a convenient fixed point;
+        the expected value is computed independently via _focei_expected.
+        """
+        eta_hat = dv * omega_v / (omega_v + sigma_v)  # convenient fixed η̂
+        expected = _focei_expected(dv, omega_v, sigma_v, eta_hat)
+
+        pop = _GaussianPopulation([dv], sigma_v)
+        params = _GaussianParams(omega_v, sigma_v)
+        eta_hat_dict = {1: np.array([eta_hat])}
+
+        ofv = FOCEMethod(interaction=True, maxeval=1)._outer_ofv(pop, params, eta_hat_dict)
+        assert ofv == pytest.approx(expected, abs=1e-6), (
+            f"dv={dv}, omega={omega_v}, sigma={sigma_v}, eta_hat={eta_hat:.4f}: "
+            f"got {ofv:.8f}, expected {expected:.8f}"
+        )
+
+    def test_focei_differs_from_foce(self):
+        """
+        FOCEI and FOCE OFV must differ (interaction term changes C_i).
+        Specifically, FOCEI uses C_i = ω+σ while FOCE uses C_i = σ, so
+        the quadratic residual and log-determinant terms differ.
+        """
+        dv, omega_v, sigma_v = 1.5, 0.4, 0.6
+        eta_hat = dv * omega_v / (omega_v + sigma_v)
+
+        pop = _GaussianPopulation([dv], sigma_v)
+        params = _GaussianParams(omega_v, sigma_v)
+        eta_hat_dict = {1: np.array([eta_hat])}
+
+        ofv_foce = FOCEMethod(interaction=False, maxeval=1)._outer_ofv(pop, params, eta_hat_dict)
+        ofv_focei = FOCEMethod(interaction=True, maxeval=1)._outer_ofv(pop, params, eta_hat_dict)
+        assert ofv_foce != pytest.approx(ofv_focei, abs=1e-6), (
+            "FOCEI and FOCE OFV should differ when ω > 0 (interaction term is non-trivial)"
+        )
+
+    def test_focei_additivity_over_subjects(self):
+        """Multi-subject FOCEI OFV = Σ single-subject FOCEI OFV."""
+        dvs = [0.5, 1.0, -0.5, 1.8]
+        omega_v, sigma_v = 0.4, 0.3
+
+        pop_multi = _GaussianPopulation(dvs, sigma_v)
+        params = _GaussianParams(omega_v, sigma_v)
+        eta_hat_multi = {
+            i + 1: np.array([dvs[i] * omega_v / (omega_v + sigma_v)]) for i in range(len(dvs))
+        }
+        ofv_multi = FOCEMethod(interaction=True, maxeval=1)._outer_ofv(
+            pop_multi, params, eta_hat_multi
+        )
+
+        total = 0.0
+        for i, dv in enumerate(dvs):
+            pop_i = _GaussianPopulation([dv], sigma_v)
+            eta_i = {1: np.array([dv * omega_v / (omega_v + sigma_v)])}
+            total += FOCEMethod(interaction=True, maxeval=1)._outer_ofv(pop_i, params, eta_i)
+
+        assert ofv_multi == pytest.approx(total, abs=1e-8)
+
+
+# ---------------------------------------------------------------------------
 # IMP large-sample convergence
 # ---------------------------------------------------------------------------
 

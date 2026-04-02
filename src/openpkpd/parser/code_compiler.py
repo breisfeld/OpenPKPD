@@ -136,6 +136,17 @@ def _translate_line(line: str, intrinsics: dict[str, str]) -> str:
         line,
         flags=re.IGNORECASE,
     )
+    # Validate 1-based indexing for DADT(n) and A(n) before substitution
+    for _m in re.finditer(r"\bDADT\s*\(\s*(\d+)\s*\)", line, flags=re.IGNORECASE):
+        if int(_m.group(1)) == 0:
+            raise CompilerError(
+                "$DES uses DADT(0) — NONMEM compartments are 1-based. Did you mean DADT(1)?"
+            )
+    for _m in re.finditer(r"\bA\s*\(\s*(\d+)\s*\)", line, flags=re.IGNORECASE):
+        if int(_m.group(1)) == 0:
+            raise CompilerError(
+                "$DES uses A(0) — NONMEM compartments are 1-based. Did you mean A(1)?"
+            )
     line = re.sub(
         r"\bDADT\s*\(\s*(\d+)\s*\)",
         lambda m: f"dadt[{int(m.group(1)) - 1}]",
@@ -811,6 +822,11 @@ class CompiledDESCallable:
                     if obs_sorted[ptr] > prev_t + 1e-14:
                         seg_t.append(float(obs_sorted[ptr]))
                         seg_i.append(int(sort_idx[ptr]))
+                    else:
+                        # Observation is within floating-point tolerance of the
+                        # segment start (prev_t).  Assign the current state y
+                        # directly — identical to the t=0 guard at line 809.
+                        result[sort_idx[ptr]] = y.copy()
                     ptr += 1
                 obs_ptr = ptr
 

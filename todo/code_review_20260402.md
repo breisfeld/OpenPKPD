@@ -13,19 +13,23 @@ Each item carries a status field:
 
 ### C-01 · FOCEI log-det formula sign error
 **File:** `src/openpkpd/estimation/foce.py:1216`
-The Woodbury identity is applied with the **wrong sign** for the matrix
-determinant lemma: `log_det_M` is added rather than subtracted.  Result:
-FOCEI OFV is biased upward; all FOCEI-based population estimates are
-incorrect.
-Status: `[ ]`
+~~The Woodbury identity is applied with the wrong sign.~~
+**NOT A BUG.** The Matrix Determinant Lemma gives
+`log|C_i| = log|R| + log|Ω| + log|M|`, which is exactly what line 1222
+computes.  Confirmed mathematically and by `test_estimation_reference.py`
+passing at `abs=1e-6`.  The review sub-agent confused the direction of the
+Woodbury correction.
+Status: `[~]`
 
 ### C-02 · Eta penalty missing factor of 2
 **File:** `src/openpkpd/model/individual.py:2398` (`_eta_penalty_value`)
-The inner-loop objective must be `−2 log L + 2 η^T Ω^{-1} η` (−2LL scale)
-but the penalty is computed without the factor 2.  The **gradient** at
-line 2135 correctly uses `2 * omega_inv @ eta`, so objective and gradient
-are inconsistent, biasing EBE estimates toward zero.
-Status: `[ ]`
+~~Penalty missing factor 2 vs gradient.~~
+**NOT A BUG.** On the −2LL scale the correct OFV penalty is
+`η^T Ω^{-1} η` — no extra factor of 2.  The factor of 2 in the gradient
+(`2 Ω^{-1} η`) is the derivative of the quadratic, not a scaling mismatch.
+Value and gradient are consistent.  The sub-agent confused the quadratic
+value with its own derivative.
+Status: `[~]`
 
 ### C-03 · Observation interpolation bug in `as_multidose_probe`
 **File:** `src/openpkpd/parser/code_compiler.py:817–824`
@@ -66,9 +70,12 @@ Status: `[ ]`
 
 ### C-08 · `FOCEI` constant term sign / convention inconsistency
 **File:** `src/openpkpd/estimation/foce.py:1227`
-The term `n_eta * LOG2PI` is subtracted; per the Beal–Sheiner convention
-on −2LL scale it should be added.  Compounds the bias from C-01.
-Status: `[ ]`
+~~n_eta * LOG2PI subtracted instead of added.~~
+**LIKELY NOT A BUG** — follows from C-01 being correct (the Gaussian
+integral over η in the FOCEI approximation absorbs the prior normalisation,
+requiring this subtraction).  No independent closed-form FOCEI test exists
+yet to confirm either way; add one before closing.
+Status: `[~]`
 
 ---
 

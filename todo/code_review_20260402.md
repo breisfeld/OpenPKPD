@@ -91,10 +91,13 @@ Status: `[ ]`
 
 ### H-02 · FO residual variance double-counted for proportional error
 **File:** `src/openpkpd/estimation/fo.py:184`
-`C_i = R @ omega @ R^T + diag(var_obs)` where `var_obs` already encodes
-σ² dependence through the proportional error model.  Adding `diag(var_obs)`
-a second time inflates the residual term and biases FO OFV.
-Status: `[ ]`
+~~C_i double-counts var_obs.~~
+**NOT A BUG.** The local variable `R` in fo.py is the Jacobian G_i
+(d pred / d eta at eta=0), not the residual matrix.  `var_obs` is the
+per-observation residual variance R_i.  `C_i = G_i @ Omega @ G_i^T + R_i`
+is the correct FO marginal covariance.  The sub-agent confused the Jacobian
+variable name `R` with the residual covariance symbol R_i.
+Status: `[~]`
 
 ### H-03 · FOCEI G_i assumes diagonal R_i (no off-diagonal IIV support)
 **File:** `src/openpkpd/estimation/foce.py:1209`
@@ -102,12 +105,18 @@ Status: `[ ]`
 full residual covariance structures produce incorrect interaction terms.
 Status: `[ ]`
 
-### H-04 · F1 / ALAG not extracted in ADVAN1, ADVAN3, ADVAN5, ADVAN7, ADVAN11
-**Files:** `src/openpkpd/pk/analytical/advan1.py`, `advan3.py`, `advan5.py`,
-`advan7.py`, `advan11.py`
-Oral ADVANs 2, 4, 12 extract F1 internally; the IV/linear ADVANs rely on
-upstream application.  This hidden contract is undocumented and fragile; a
-model that bypasses `IndividualModel._apply_alag` silently receives no lag.
+### H-04 · F1 not applied upstream for ADVAN5 / ADVAN7 / ADVAN11 oral inputs
+**Files:** `src/openpkpd/pk/analytical/advan5.py`, `advan7.py`, `advan11.py`
+**ALAG is correctly applied upstream** via `IndividualModel._apply_alag`
+(called at lines 715, 869, 1024, 1221 of individual.py) for all ADVAN types,
+so the ALAG half of the original claim is a false positive.
+**F1 IS applied internally** in ADVAN2/4/12 (oral) and IS irrelevant (= 1)
+for ADVAN1/3 (pure IV bolus).  The gap: ADVAN5/7/11 are general linear
+models that accept oral inputs via compartment routing; if a user routes a
+dose into an absorption depot compartment and defines F1 in $PK, the
+bioavailability fraction is silently ignored because those ADVANs do not
+extract `pk_params["F1"]`.  Affects only non-standard usage; add a docstring
+warning and ideally upstream F1 scaling in `IndividualModel._apply_dose_f1`.
 Status: `[ ]`
 
 ### H-05 · D-literal regex misses `1.D0` and `.5D-3`
@@ -132,20 +141,28 @@ instances in `bayes.py` overwrite each other's seeds, breaking
 within-chain reproducibility.  Use `np.random.default_rng(seed)`.
 Status: `[ ]`
 
-### H-08 · Laplacian Hessian correction incomplete
-**File:** `src/openpkpd/estimation/laplacian.py:111–146`
-True Laplace approximation requires the Hessian correction w.r.t. THETA
-and OMEGA; only the ETA Hessian is computed.  When the Hessian is
-non-PD, log-det is set to 0 with no warning, silently dropping the
-correction term.
+### H-08 · Laplacian OFV missing `log|Ω|` term
+**File:** `src/openpkpd/estimation/laplacian.py:111–152`
+~~Needs THETA/OMEGA Hessians.~~  The ETA Hessian correction is the
+correct Laplace correction (integrating out η analytically); THETA/OMEGA
+Hessians are not required.  However, the real bug is different: the
+Laplacian OFV is computed as `foce_ofv_i + log|H_i|` but the full Laplace
+approximation requires `foce_ofv_i + log|Ω| + log|H_i|`.  The `log|Ω|`
+term is missing.  Since Ω changes during outer-loop OMEGA optimisation,
+this omission biases the gradient of OFV w.r.t. OMEGA parameters, leading
+to incorrect OMEGA estimates under the Laplacian method.
+The non-PD Hessian path (sets logdet_H = 0 with a logged warning) is
+intentional defensive behaviour, not a bug.
 Status: `[ ]`
 
 ### H-09 · `can_start_fit_run` does not validate `dataset_path`
 **File:** `src/openpkpd_gui/workflows/fit_workflow.py:103–109`
-The readiness check gates on `preparation.ready` and run status only.
-If the dataset file is deleted after translation succeeds, the "Run"
-button stays enabled but the fit fails immediately with a cryptic error.
-Status: `[ ]`
+~~Readiness check doesn't validate dataset_path.~~
+**NOT A BUG.** `preparation.ready` requires `translation.ok`, and the
+translation service validates the dataset_path at lines 190–197
+(`add_error("Dataset path is required.")` / `"does not exist."`), so the
+readiness check already gates on a valid path.
+Status: `[~]`
 
 ### H-10 · Silent fallback to stale dataset on CSV load failure
 **File:** `src/openpkpd_gui/workflows/data_workflow.py:691–711`
@@ -283,20 +300,26 @@ Status: `[ ]`
 
 ### L-01 · Dead code: `_eps_basis_vectors` never used
 **File:** `src/openpkpd/model/individual.py:452–454`
-Pre-computed one-hot tuples; no call site found in the codebase.  Remove.
-Status: `[ ]`
+~~No call site found.~~
+**NOT DEAD CODE.** `_eps_basis_vectors` is used at line 2022 inside
+`_eps_sensitivity_at`, which iterates over the one-hot vectors to compute
+EPS sensitivities for the error model.
+Status: `[~]`
 
 ### L-02 · `log_likelihood_normal` in `residuals.py` is dead code
 **File:** `src/openpkpd/model/residuals.py:17–25`
-Not called from the main likelihood path.  Either wire it in or remove it
-to reduce confusion about which formula is authoritative.
-Status: `[ ]`
+~~Not called from main likelihood path.~~
+**NOT DEAD CODE.** `log_likelihood_normal` is called at `individual.py:2154`
+for every non-BLQ observation in the main `log_likelihood()` path.
+Status: `[~]`
 
 ### L-03 · Redundant eigendecomposition in `_eta_penalty_structure`
-**File:** `src/openpkpd/model/individual.py:2419`
-`repair_pd()` eigen-decomposes Ω, then `np.linalg.inv()` on the repaired
-matrix eigen-decomposes again.  Invert directly from the eigenvalues:
-`omega_inv = (evecs / evals) @ evecs.T`.
+**File:** `src/openpkpd/model/individual.py:2482` (not 2419 as originally noted)
+`repair_pd(omega_arr)` internally eigendecomposes Ω to clamp eigenvalues,
+then reconstructs the matrix; `np.linalg.inv()` then performs LU
+decomposition on the result.  The inversion could reuse the eigenvalues
+already computed inside `repair_pd`:
+`omega_inv = (evecs / np.maximum(evals, eps)) @ evecs.T`.
 Status: `[ ]`
 
 ### L-04 · Parallel backend unit tests missing (Ray, Dask, MPI)
@@ -320,9 +343,11 @@ Status: `[ ]`
 
 ### L-07 · Magic object-name strings in model workflow event handlers
 **File:** `src/openpkpd_gui/workflows/model_workflow.py:1400–1500`
-`widget.objectName() == "model-theta-table"` style checks are brittle.
-Use tagged callbacks or a central dispatcher instead.
-Status: `[ ]`
+~~objectName() reads are brittle.~~
+**NOT A BUG.** Grep confirms only `setObjectName()` calls exist in
+model_workflow.py; there are no `objectName()` reads in event handlers.
+The sub-agent hallucinated this pattern.
+Status: `[~]`
 
 ### L-08 · EVID = 5 not supported or documented
 **File:** `src/openpkpd/data/event_processor.py`

@@ -101,9 +101,13 @@ Status: `[~]`
 
 ### H-03 · FOCEI G_i assumes diagonal R_i (no off-diagonal IIV support)
 **File:** `src/openpkpd/estimation/foce.py:1209`
-`G_T_Rinv @ G` is computed with `diag(1/var)` assumed; block-diagonal or
-full residual covariance structures produce incorrect interaction terms.
-Status: `[ ]`
+~~Block-diagonal or full R_i produces incorrect interaction terms.~~
+**NOT A BUG within current scope.** The framework produces one scalar
+variance per observation row and nowhere constructs a block-diagonal
+residual covariance; the diagonal-only code is correct for all currently
+supported residual structures.  If block-diagonal sigma is ever added,
+this will need revisiting.
+Status: `[~]`
 
 ### H-04 · F1 not applied upstream for ADVAN5 / ADVAN7 / ADVAN11 oral inputs
 **Files:** `src/openpkpd/pk/analytical/advan5.py`, `advan7.py`, `advan11.py`

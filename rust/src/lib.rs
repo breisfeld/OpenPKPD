@@ -181,11 +181,24 @@ fn norm_cdf(z: f64) -> f64 {
 
 /// Standard normal log-CDF:  ln Φ(z)
 ///
-/// Clamps to ln(1×10⁻³⁰⁰) to avoid −∞ in degenerate tails.
+/// For z >= -30 uses the standard erfc formula.
+/// For z < -30 uses the asymptotic expansion to avoid catastrophic
+/// cancellation and clamping errors:
+///
+///   ln Φ(z) ≈ -z²/2 - 0.5·ln(2π) - ln(-z)   for z << 0
+///
+/// This gives numerically accurate values at any depth into the tail
+/// (the old clamp v.max(1e-300) was catastrophically wrong for z < -25).
 #[inline(always)]
 fn norm_logcdf(z: f64) -> f64 {
-    let v = libm::erfc(-z / SQRT_2) * 0.5;
-    v.max(1e-300_f64).ln()
+    if z < -30.0 {
+        // Asymptotic expansion: ln Φ(z) ≈ -z²/2 - 0.5*ln(2π) - ln(-z)
+        // 0.9189385332046727 = 0.5 * ln(2π)
+        -0.5 * z * z - 0.9189385332046727 - z.abs().ln()
+    } else {
+        let v = libm::erfc(-z / SQRT_2) * 0.5;
+        v.max(1e-300_f64).ln()
+    }
 }
 
 // ── public extension function ─────────────────────────────────────────────────

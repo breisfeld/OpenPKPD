@@ -28,6 +28,10 @@ from openpkpd.utils.constants import EVID_DOSE, EVID_OBS, MDV_OBS, NONMEM_MISSIN
 from openpkpd.utils.errors import DataError
 
 
+class DatasetValidationError(ValueError):
+    """Raised when a required dataset column has an invalid dtype (e.g., strings in ID/TIME/DV)."""
+
+
 @dataclass
 class NONMEMDataset:
     """
@@ -174,6 +178,28 @@ class NONMEMDataset:
         missing_req = REQUIRED_COLUMNS - set(df.columns)
         if missing_req:
             raise DataError(f"Dataset missing required columns: {missing_req}")
+
+        # Validate that critical columns are numeric before coercion.
+        # String values in these columns (e.g., UUID IDs, "BLQ" in DV) would be
+        # silently coerced to NaN by pd.to_numeric, producing misleading results.
+        # Note: NONMEM uses "." as a standard missing-value placeholder in numeric
+        # columns (e.g., DV=. on dosing rows); replace it with NaN before checking
+        # so it is not counted as a non-numeric value.
+        _NONMEM_MISSING = "."
+        _critical_cols = [ID, TIME, DV, AMT, EVID]
+        for _col in _critical_cols:
+            if _col not in df.columns:
+                continue
+            # Replace the NONMEM missing-value placeholder before validation.
+            _col_data = df[_col].replace(_NONMEM_MISSING, np.nan)
+            _numeric_series = pd.to_numeric(_col_data, errors="coerce")
+            _n_bad = int(_numeric_series.isna().sum()) - int(_col_data.isna().sum())
+            if _n_bad > 0:
+                raise DatasetValidationError(
+                    f"Column '{_col}' must be numeric but got dtype {df[_col].dtype} "
+                    f"with {_n_bad} non-numeric value(s). "
+                    f"Non-numeric IDs (e.g., UUID strings) are not supported."
+                )
 
         # Ensure numeric types for standard columns
         numeric_cols = [ID, TIME, DV, AMT, RATE, EVID, MDV, CMT, ADDL, II, SS, "LLOQ"]

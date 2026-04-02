@@ -705,10 +705,10 @@ def build_data_workflow(
             _sync_from_project()
             _notify_project_state_changed()
             return
-        dataset_asset = (
-            project.active_dataset if result.dataset_asset is None else result.dataset_asset
-        )
-        _render(dataset_asset, result.validation)
+        # H-10: always render with None on load failure so the column/preview
+        # panels are cleared rather than showing stale data from the previously
+        # loaded dataset, which could mislead the user about what failed.
+        _render(None, result.validation)
 
     def _reload_if_path_set() -> None:
         if path_input.text().strip():

@@ -1311,6 +1311,9 @@ def build_model_workflow(
     last_synced_editor_state: dict[str, object] | None = None
     last_reported_dirty_state = False
     next_action_target = [""]
+    # H-11: track the last confirmed mode so we can revert to it if the user
+    # cancels a mode-switch when unsaved changes exist.
+    last_confirmed_mode: list[ModelSpecMode] = [ModelSpecMode.BUILDER]
 
     def _current_mode() -> ModelSpecMode:
         return ModelSpecMode.CONTROL_STREAM if mode_radio_ctl.isChecked() else ModelSpecMode.BUILDER
@@ -1453,6 +1456,9 @@ def build_model_workflow(
 
     def _apply_model_spec(new_model_spec: ModelSpec, *, mark_synced: bool = True) -> None:
         nonlocal model_spec, last_synced_project_payload, last_synced_editor_state
+        # H-11: keep last_confirmed_mode in sync when the spec is loaded
+        # programmatically so the mode-switch guard uses the correct baseline.
+        last_confirmed_mode[0] = new_model_spec.mode
         model_spec = ModelSpec.from_dict(new_model_spec.to_dict())
 
         mode_radio_group.blockSignals(True)
@@ -1857,6 +1863,27 @@ def build_model_workflow(
         _update_unsaved_indicator()
 
     def _handle_mode_changed() -> None:
+        # H-11: warn the user before discarding unsaved edits on mode switch.
+        new_mode = _current_mode()
+        if _has_unsaved_changes() and new_mode != last_confirmed_mode[0]:
+            answer = qt_widgets.QMessageBox.question(
+                root,
+                "Switch mode?",
+                "You have unsaved changes. Switch mode and discard them?",
+                qt_widgets.QMessageBox.StandardButton.Yes
+                | qt_widgets.QMessageBox.StandardButton.No,
+                qt_widgets.QMessageBox.StandardButton.No,
+            )
+            if answer != qt_widgets.QMessageBox.StandardButton.Yes:
+                # Revert the radio button without re-triggering this handler.
+                mode_radio_group.blockSignals(True)
+                if last_confirmed_mode[0] == ModelSpecMode.CONTROL_STREAM:
+                    mode_radio_ctl.setChecked(True)
+                else:
+                    mode_radio_builder.setChecked(True)
+                mode_radio_group.blockSignals(False)
+                return
+        last_confirmed_mode[0] = new_mode
         _sync_mode()
         _refresh_next_action()
 

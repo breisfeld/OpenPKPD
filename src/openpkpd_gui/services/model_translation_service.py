@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from math import inf
@@ -88,6 +89,26 @@ class ModelTranslationService:
         result.theta_count = len(theta_specs)
         result.eta_count = len(omega_matrix)
         result.eps_count = len(sigma_matrix)
+
+        # H-12: verify that the maximum ETA(n) index used in $PK does not
+        # exceed the OMEGA matrix dimension.  A mismatch means the model will
+        # silently read out-of-bounds ETAs at run-time.
+        eta_indices = [
+            int(m)
+            for m in re.findall(r"\bETA\s*\(\s*(\d+)\s*\)", model_spec.pk_code)
+        ]
+        if eta_indices:
+            max_eta = max(eta_indices)
+            if max_eta > result.eta_count:
+                result.validation.add_error(
+                    f"$PK references ETA({max_eta}) but OMEGA is "
+                    f"{result.eta_count}\u00d7{result.eta_count} "
+                    f"(\u03a9 dimension mismatch: add "
+                    f"{max_eta - result.eta_count} OMEGA row(s) or remove "
+                    f"the extra ETA call(s)).",
+                    field_name="pk_code",
+                )
+
         if not result.validation.ok or dataset_path is None:
             return result
 
@@ -132,7 +153,12 @@ class ModelTranslationService:
         try:
             control_stream = ControlStream.from_string(control_stream_text)
         except ParseError as exc:
-            result.validation.add_error(str(exc), field_name="control_stream_text")
+            # M-13: surface line number and context snippet as a clean
+            # single-line message so the GUI validation list displays it well.
+            base_msg = str(exc).split("\n")[0].strip()  # "msg (line N)"
+            ctx_snippet = exc.context.strip() if exc.context else ""
+            full_msg = f"{base_msg} \u2014 {ctx_snippet}" if ctx_snippet else base_msg
+            result.validation.add_error(full_msg, field_name="control_stream_text")
             return result
 
         result.control_stream = control_stream

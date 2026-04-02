@@ -358,59 +358,63 @@ class SAEMMethod(EstimationMethod):
             ss_omega_sum = np.zeros((n_eta, n_eta))
             adapt_scale = is_phase1 and k % 50 == 0
 
-            def _run_subject(
-                sid: int,
-                _theta=theta,
-                _omega=omega,
-                _sigma=sigma,
-            ) -> tuple[int, np.ndarray, np.ndarray, int]:
-                return self._e_step_one_subject(
-                    sid,
-                    eta_chains[sid],
-                    mh_scales[sid],
-                    individual_models[sid],
-                    _theta,
-                    _omega,
-                    _sigma,
-                    population_model.trans,
-                    n_chains,
-                    n_eta,
-                    subj_rngs[sid],
-                )
-
-            if self.n_parallel == 1 or len(subj_ids) <= 1:
-                results = [_run_subject(sid) for sid in subj_ids]
+            if n_eta == 0:
+                # No random effects: skip MH entirely — eta_chains remain zeros(n_chains, 0).
+                pass
             else:
-                with ThreadPoolExecutor(max_workers=n_workers) as pool:
-                    futures = {pool.submit(_run_subject, sid): sid for sid in subj_ids}
-                    results = [f.result() for f in as_completed(futures)]
+                def _run_subject(
+                    sid: int,
+                    _theta=theta,
+                    _omega=omega,
+                    _sigma=sigma,
+                ) -> tuple[int, np.ndarray, np.ndarray, int]:
+                    return self._e_step_one_subject(
+                        sid,
+                        eta_chains[sid],
+                        mh_scales[sid],
+                        individual_models[sid],
+                        _theta,
+                        _omega,
+                        _sigma,
+                        population_model.trans,
+                        n_chains,
+                        n_eta,
+                        subj_rngs[sid],
+                    )
 
-            for sid, new_chains, ss_omega_i, n_accepted in results:
-                eta_chains[sid] = new_chains
-                ss_omega_sum += ss_omega_i
-                accept_rate = n_accepted / n_chains
-                if adapt_scale:
-                    mh_scales[sid] *= 1.2 if accept_rate > self.mh_accept_target else 0.8
-                    mh_scales[sid] = float(np.clip(mh_scales[sid], 0.05, 5.0))
-                # MH acceptance rate extreme warnings (at most once per subject per phase)
-                if accept_rate < 0.05:
-                    if sid not in _warned_low:
-                        _warned_low.add(sid)
-                        logger.warning(
-                            "SAEM: subject %s MH acceptance rate %.1f%% is very low — "
-                            "chain may be stuck. "
-                            "Consider reducing mh_scale or increasing n_chains.",
-                            sid, accept_rate * 100,
-                        )
-                elif accept_rate > 0.95:
-                    if sid not in _warned_high:
-                        _warned_high.add(sid)
-                        logger.warning(
-                            "SAEM: subject %s MH acceptance rate %.1f%% is very high — "
-                            "proposals are too small. "
-                            "Consider increasing mh_scale.",
-                            sid, accept_rate * 100,
-                        )
+                if self.n_parallel == 1 or len(subj_ids) <= 1:
+                    results = [_run_subject(sid) for sid in subj_ids]
+                else:
+                    with ThreadPoolExecutor(max_workers=n_workers) as pool:
+                        futures = {pool.submit(_run_subject, sid): sid for sid in subj_ids}
+                        results = [f.result() for f in as_completed(futures)]
+
+                for sid, new_chains, ss_omega_i, n_accepted in results:
+                    eta_chains[sid] = new_chains
+                    ss_omega_sum += ss_omega_i
+                    accept_rate = n_accepted / n_chains
+                    if adapt_scale:
+                        mh_scales[sid] *= 1.2 if accept_rate > self.mh_accept_target else 0.8
+                        mh_scales[sid] = float(np.clip(mh_scales[sid], 0.05, 5.0))
+                    # MH acceptance rate extreme warnings (at most once per subject per phase)
+                    if accept_rate < 0.05:
+                        if sid not in _warned_low:
+                            _warned_low.add(sid)
+                            logger.warning(
+                                "SAEM: subject %s MH acceptance rate %.1f%% is very low — "
+                                "chain may be stuck. "
+                                "Consider reducing mh_scale or increasing n_chains.",
+                                sid, accept_rate * 100,
+                            )
+                    elif accept_rate > 0.95:
+                        if sid not in _warned_high:
+                            _warned_high.add(sid)
+                            logger.warning(
+                                "SAEM: subject %s MH acceptance rate %.1f%% is very high — "
+                                "proposals are too small. "
+                                "Consider increasing mh_scale.",
+                                sid, accept_rate * 100,
+                            )
 
             # M-step: update omega (closed form), theta (numerical), sigma (numerical)
             # OMEGA M-step: Ω = (1/N) Σ_i ss_omega_i  (RB-averaged over chains)
@@ -599,9 +603,13 @@ class SAEMMethod(EstimationMethod):
                 phi1 = np.concatenate([theta, np.diag(omega)])
                 ph1_param_history.append(phi1)
 
-            # Phase-2 convergence criterion: parameter stability over a window
+            # Phase-2 convergence criterion: parameter stability over a window.
+            # Include all omega lower-triangle elements and sigma diagonal so that
+            # correlated random effects and residual error are not excluded.
             if not is_phase1:
-                phi = np.concatenate([theta, np.diag(omega)])
+                n = omega.shape[0]
+                omega_lower = omega[np.tril_indices(n)]
+                phi = np.concatenate([theta, omega_lower, np.diag(sigma)])
                 ph2_param_history.append(phi)
                 W = self._PH2_WINDOW
                 converged, rel_change = self._check_phase2_convergence(

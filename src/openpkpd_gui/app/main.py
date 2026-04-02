@@ -10,6 +10,7 @@ from openpkpd_gui.domain.workspace import Workspace
 from openpkpd_gui.shell.main_window import create_main_window
 
 
+
 def configure_application_style(app) -> None:
     """Apply a conservative modern Qt-native style to the GUI."""
     from openpkpd_gui.app.theme import LIGHT, build_palette, build_stylesheet

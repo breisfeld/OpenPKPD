@@ -471,7 +471,8 @@ class NCAEngine:
             dose_mask = subj_dose_row_values == 1
             dose = float(dose_values[positions[dose_mask]].sum()) if np.any(dose_mask) else 1.0
 
-            obs_positions = positions[~dose_mask]
+            # Only EVID==0 rows are true observations; EVID=2/3/4 must not enter AUC.
+            obs_positions = positions[(~dose_mask) & (subj_dose_row_values == 0)]
             times = time_values[obs_positions]
             conc = conc_values[obs_positions]
 

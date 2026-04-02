@@ -134,6 +134,10 @@ class TestBuildTree:
     def _joint(theta, r):
         return float(_std_normal_log_prob(theta)) - 0.5 * float(np.dot(r, r))
 
+    # Fixed RNG for all tree-builder unit tests; the base case (j=0) never
+    # calls rng, so any seed is fine for determinism.
+    _rng = np.random.default_rng(0)
+
     def test_base_case_returns_nine_elements(self):
         """Base case (j=0) must return a 9-tuple."""
         result = _build_tree(
@@ -143,21 +147,14 @@ class TestBuildTree:
             log_prob=_std_normal_log_prob,
             grad_log_prob=_std_normal_grad,
             joint_log_prob=self._joint,
+            delta_max=1000.0,
+            rng=self._rng,
         )
         assert len(result) == 9, f"Expected 9-tuple, got {len(result)} elements"
 
     def test_base_case_n_prime_1_when_in_slice(self):
         """n′=1 when the new joint log-prob exceeds the slice threshold log_u."""
         # At theta=0, r=0, joint=0. With log_u=-5 (well below), n_prime should be 1.
-        *_, n_prime, s_prime, alpha_prime, n_alpha_prime = _build_tree(
-            np.array([0.0]), np.array([0.0]),
-            log_u=-5.0, v=1, j=0,
-            step_size=0.1,
-            log_prob=_std_normal_log_prob,
-            grad_log_prob=_std_normal_grad,
-            joint_log_prob=self._joint,
-        )
-        # Unpack correctly: result = (tm, rm, tp, rp, t_prime, n_prime, s_prime, alpha, n_alpha)
         result = _build_tree(
             np.array([0.0]), np.array([0.0]),
             log_u=-5.0, v=1, j=0,
@@ -165,6 +162,8 @@ class TestBuildTree:
             log_prob=_std_normal_log_prob,
             grad_log_prob=_std_normal_grad,
             joint_log_prob=self._joint,
+            delta_max=1000.0,
+            rng=self._rng,
         )
         n_prime = result[5]
         assert n_prime == 1, f"Expected n_prime=1, got {n_prime}"
@@ -189,6 +188,8 @@ class TestBuildTree:
             log_prob=_std_normal_log_prob,
             grad_log_prob=_std_normal_grad,
             joint_log_prob=self._joint,
+            delta_max=1000.0,
+            rng=self._rng,
         )
         n_prime = result[5]
         assert n_prime == 0, f"Expected n_prime=0 (outside slice), got {n_prime}"
@@ -207,6 +208,7 @@ class TestBuildTree:
             grad_log_prob=_std_normal_grad,
             joint_log_prob=self._joint,
             delta_max=0.0,  # any deviation triggers stop
+            rng=self._rng,
         )
         s_prime = result[6]
         assert s_prime == 0, f"Expected s_prime=0 (diverged), got {s_prime}"
@@ -220,6 +222,8 @@ class TestBuildTree:
             log_prob=_std_normal_log_prob,
             grad_log_prob=_std_normal_grad,
             joint_log_prob=self._joint,
+            delta_max=1000.0,
+            rng=self._rng,
         )
         alpha_prime = result[7]
         assert 0.0 <= alpha_prime <= 1.0, f"alpha_prime={alpha_prime} out of [0,1]"
@@ -233,6 +237,8 @@ class TestBuildTree:
             log_prob=_std_normal_log_prob,
             grad_log_prob=_std_normal_grad,
             joint_log_prob=self._joint,
+            delta_max=1000.0,
+            rng=self._rng,
         )
         n_alpha_prime = result[8]
         assert n_alpha_prime == 1, f"Expected n_alpha_prime=1, got {n_alpha_prime}"
@@ -246,6 +252,8 @@ class TestBuildTree:
             log_prob=_std_normal_log_prob,
             grad_log_prob=_std_normal_grad,
             joint_log_prob=self._joint,
+            delta_max=1000.0,
+            rng=self._rng,
         )
         n_alpha_prime = result[8]
         assert n_alpha_prime == 2, (
@@ -262,12 +270,16 @@ class TestBuildTree:
             log_prob=_std_normal_log_prob,
             grad_log_prob=_std_normal_grad,
             joint_log_prob=self._joint,
+            delta_max=1000.0,
+            rng=self._rng,
         )
         res_bwd = _build_tree(
             theta0, r0, log_u=-5.0, v=-1, j=0, step_size=0.2,
             log_prob=_std_normal_log_prob,
             grad_log_prob=_std_normal_grad,
             joint_log_prob=self._joint,
+            delta_max=1000.0,
+            rng=self._rng,
         )
         # For v=+1 and v=-1 with same |step|: proposed theta_prime should differ
         theta_prime_fwd = res_fwd[4]

@@ -121,7 +121,7 @@ def test_create_main_window_smoke() -> None:
     assert window.findChild(qt_gui.QAction, "file-close-action") is not None
     exit_action = window.findChild(qt_gui.QAction, "file-exit-action")
     assert exit_action is not None
-    assert exit_action.text() == "Quit"
+    assert exit_action.text() in {"Quit", "Exit"}  # "Quit" on macOS, "Exit" elsewhere
     assert window.findChild(qt_gui.QAction, "workspace-new-project-action") is not None
     assert window.findChild(qt_gui.QAction, "workspace-new-scenario-action") is not None
     assert window.findChild(qt_gui.QAction, "workspace-duplicate-project-action") is not None

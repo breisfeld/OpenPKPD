@@ -15,10 +15,12 @@ References:
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from enum import StrEnum
 
 import numpy as np
+from scipy.optimize import minimize_scalar
 
 
 class ResidualModelType(StrEnum):
@@ -51,21 +53,175 @@ class AR1ResidualResult:
     n_observations: int = 0
 
 
+def _ct_ar1_negloglik(
+    log_phi: float,
+    residuals_by_subject: list[np.ndarray],
+    times_by_subject: list[np.ndarray],
+) -> float:
+    """Negative log-likelihood for continuous-time AR(1) across subjects."""
+    phi = np.exp(log_phi)
+    if phi <= 0 or phi >= 1:
+        return 1e10
+    total_nll = 0.0
+    for resids, times in zip(residuals_by_subject, times_by_subject):
+        n = len(resids)
+        if n < 2:
+            continue
+        dt = np.abs(np.subtract.outer(times, times))
+        Sigma = phi**dt  # correlation matrix (sigma^2 factored out)
+        try:
+            L = np.linalg.cholesky(Sigma)
+            alpha = np.linalg.solve(L, resids)
+            total_nll += 0.5 * (
+                n * np.log(2 * np.pi)
+                + 2 * np.sum(np.log(np.diag(L)))
+                + np.dot(alpha, alpha)
+            )
+        except np.linalg.LinAlgError:
+            return 1e10
+    return total_nll
+
+
+def fit_ar1_residuals_ct(
+    residuals_by_subject: list[np.ndarray],
+    times_by_subject: list[np.ndarray],
+) -> tuple[float, float]:
+    """
+    Fit a continuous-time AR(1) model by MLE.
+
+    The correlation between observations at times t_i and t_j is φ^|t_i - t_j|.
+    Fit φ by maximizing the log-likelihood across all subjects.
+
+    Args:
+        residuals_by_subject:  List of per-subject residual arrays.
+        times_by_subject:      List of per-subject time arrays (same order).
+
+    Returns:
+        Tuple (phi_hat, sigma2_hat).
+    """
+    result = minimize_scalar(
+        _ct_ar1_negloglik,
+        bounds=(-10, -1e-6),
+        method="bounded",
+        args=(residuals_by_subject, times_by_subject),
+    )
+    phi_hat = float(np.exp(result.x))
+    all_resids = np.concatenate(residuals_by_subject) if residuals_by_subject else np.array([])
+    sigma2_hat = float(np.var(all_resids)) if len(all_resids) > 0 else 0.0
+    return phi_hat, sigma2_hat
+
+
+def fit_ar1_residuals_yw(
+    residuals: np.ndarray,
+    subject_ids: np.ndarray,
+    times: np.ndarray,
+) -> AR1ResidualResult:
+    """
+    Fit an AR(1) model using Yule-Walker estimation (deprecated).
+
+    .. deprecated::
+        Use :func:`fit_ar1_residuals` (continuous-time MLE) instead.
+        Yule-Walker ignores actual time differences and is only correct for
+        equally-spaced observations.
+    """
+    warnings.warn(
+        "fit_ar1_residuals_yw is deprecated; use fit_ar1_residuals (continuous-time MLE) instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return _fit_ar1_residuals_yw_impl(residuals, subject_ids, times)
+
+
+def _fit_ar1_residuals_yw_impl(
+    residuals: np.ndarray,
+    subject_ids: np.ndarray,
+    times: np.ndarray,
+) -> AR1ResidualResult:
+    """Internal Yule-Walker implementation (no deprecation warning)."""
+    residuals = np.asarray(residuals, dtype=float)
+    subject_ids = np.asarray(subject_ids)
+    times = np.asarray(times, dtype=float)
+
+    if not (residuals.shape == subject_ids.shape == times.shape):
+        raise ValueError("residuals, subject_ids, and times must have the same length.")
+
+    unique_subjects = np.unique(subject_ids)
+    n_subjects = len(unique_subjects)
+
+    sum_lag1_product = 0.0
+    sum_lag0_var = 0.0
+    innovations: list[float] = []
+    n_obs_total = 0
+
+    for subj in unique_subjects:
+        mask = subject_ids == subj
+        t_s = times[mask]
+        r_s = residuals[mask]
+        sort_idx = np.argsort(t_s)
+        t_s = t_s[sort_idx]
+        r_s = r_s[sort_idx]
+        if len(r_s) < 3:
+            continue
+        valid = np.isfinite(r_s)
+        t_s = t_s[valid]
+        r_s = r_s[valid]
+        if len(r_s) < 3:
+            continue
+        n_obs_total += len(r_s)
+        r_mean = np.mean(r_s)
+        r_centered = r_s - r_mean
+        sum_lag0_var += float(np.sum(r_centered[:-1] ** 2))
+        sum_lag1_product += float(np.sum(r_centered[:-1] * r_centered[1:]))
+
+    if sum_lag0_var > 0:
+        rho = float(np.clip(sum_lag1_product / sum_lag0_var, -0.999, 0.999))
+    else:
+        rho = 0.0
+
+    for subj in unique_subjects:
+        mask = subject_ids == subj
+        t_s = times[mask]
+        r_s = residuals[mask]
+        sort_idx = np.argsort(t_s)
+        r_s = r_s[sort_idx]
+        valid = np.isfinite(r_s)
+        r_s = r_s[valid]
+        if len(r_s) < 3:
+            continue
+        innov = r_s[1:] - rho * r_s[:-1]
+        innovations.extend(innov.tolist())
+
+    if innovations:
+        sigma2 = float(np.var(innovations, ddof=1))
+    else:
+        sigma2 = float(np.var(residuals[np.isfinite(residuals)], ddof=1))
+
+    if sigma2 > 0 and n_obs_total > 0:
+        log_lik = -0.5 * n_obs_total * np.log(2.0 * np.pi * sigma2)
+        log_lik -= 0.5 / sigma2 * float(np.sum(np.array(innovations) ** 2)) if innovations else 0.0
+    else:
+        log_lik = float("nan")
+
+    return AR1ResidualResult(
+        rho=rho,
+        sigma2=sigma2,
+        log_likelihood=float(log_lik),
+        n_subjects=n_subjects,
+        n_observations=n_obs_total,
+    )
+
+
 def fit_ar1_residuals(
     residuals: np.ndarray,
     subject_ids: np.ndarray,
     times: np.ndarray,
 ) -> AR1ResidualResult:
     """
-    Fit an AR(1) model to CWRES (or WRES) residuals per subject.
+    Fit a continuous-time AR(1) model to CWRES (or WRES) residuals per subject.
 
-    Each subject's residuals are assumed to follow:
-        e(t_j) = rho^(t_j - t_{j-1}) * e(t_{j-1}) + innovation(t_j)
-
-    where innovation ~ N(0, sigma2 * (1 - rho^2)).
-
-    Uses Yule-Walker estimation (method of moments) for rho, then estimates
-    sigma2 from the innovation variance.
+    The correlation between observations at times t_i and t_j is φ^|t_i - t_j|.
+    φ is estimated by MLE across all subjects. This correctly handles irregular
+    observation times.
 
     Args:
         residuals:    Array of residuals (CWRES or WRES), length n.
@@ -76,9 +232,10 @@ def fit_ar1_residuals(
         AR1ResidualResult with rho, sigma2, and log-likelihood.
 
     Notes:
-        - Subjects with fewer than 3 observations are skipped.
-        - rho is estimated by pooling lag-1 autocorrelation across subjects.
-        - sigma2 is estimated as the variance of the innovations.
+        - Subjects with fewer than 2 observations are skipped (single obs cannot
+          contribute to the AR(1) likelihood).
+        - phi is estimated by continuous-time MLE (accounts for irregular times).
+        - sigma2 is estimated as the pooled variance of the residuals.
     """
     residuals = np.asarray(residuals, dtype=float)
     subject_ids = np.asarray(subject_ids)
@@ -90,78 +247,48 @@ def fit_ar1_residuals(
     unique_subjects = np.unique(subject_ids)
     n_subjects = len(unique_subjects)
 
-    # Pool lag-1 products and variances across subjects
-    sum_lag1_product = 0.0
-    sum_lag0_var = 0.0
-    innovations: list[float] = []
+    # Build per-subject arrays, skipping subjects with < 2 valid observations
+    residuals_by_subject: list[np.ndarray] = []
+    times_by_subject: list[np.ndarray] = []
     n_obs_total = 0
 
     for subj in unique_subjects:
         mask = subject_ids == subj
-        t_s = times[mask]
-        r_s = residuals[mask]
-
-        # Sort by time
+        t_s = np.asarray(times[mask], dtype=float)
+        r_s = np.asarray(residuals[mask], dtype=float)
         sort_idx = np.argsort(t_s)
         t_s = t_s[sort_idx]
         r_s = r_s[sort_idx]
-
-        if len(r_s) < 3:
-            continue
-
-        # Remove NaN
         valid = np.isfinite(r_s)
         t_s = t_s[valid]
         r_s = r_s[valid]
-        if len(r_s) < 3:
+        if len(r_s) < 2:
             continue
-
+        residuals_by_subject.append(r_s)
+        times_by_subject.append(t_s)
         n_obs_total += len(r_s)
-        # Simple AR(1): rho estimated via lag-1 autocorrelation of residuals
-        # (assumes constant time spacing; for irregular times use discrete AR)
-        r_mean = np.mean(r_s)
-        r_centered = r_s - r_mean
-        # Lag-0 and lag-1 contributions
-        sum_lag0_var += float(np.sum(r_centered[:-1] ** 2))
-        sum_lag1_product += float(np.sum(r_centered[:-1] * r_centered[1:]))
 
-    # Pooled Yule-Walker estimate
-    if sum_lag0_var > 0:
-        rho = float(np.clip(sum_lag1_product / sum_lag0_var, -0.999, 0.999))
-    else:
-        rho = 0.0
+    if not residuals_by_subject:
+        return AR1ResidualResult(
+            rho=0.0,
+            sigma2=float(np.var(residuals[np.isfinite(residuals)], ddof=1))
+            if np.any(np.isfinite(residuals))
+            else 0.0,
+            log_likelihood=float("nan"),
+            n_subjects=n_subjects,
+            n_observations=n_obs_total,
+        )
 
-    # Compute innovations and estimate sigma2
-    for subj in unique_subjects:
-        mask = subject_ids == subj
-        t_s = times[mask]
-        r_s = residuals[mask]
-        sort_idx = np.argsort(t_s)
-        r_s = r_s[sort_idx]
-        valid = np.isfinite(r_s)
-        r_s = r_s[valid]
-        if len(r_s) < 3:
-            continue
-        # Innovation = e_t - rho * e_{t-1}
-        innov = r_s[1:] - rho * r_s[:-1]
-        innovations.extend(innov.tolist())
+    # Fit continuous-time AR(1) by MLE
+    phi_hat, sigma2_hat = fit_ar1_residuals_ct(residuals_by_subject, times_by_subject)
 
-    if innovations:
-        sigma2 = float(np.var(innovations, ddof=1))
-    else:
-        sigma2 = float(np.var(residuals[np.isfinite(residuals)], ddof=1))
-
-    # Log-likelihood
-    if sigma2 > 0 and n_obs_total > 0:
-        log_lik = -0.5 * n_obs_total * np.log(2.0 * np.pi * sigma2)
-        log_lik -= 0.5 / sigma2 * float(np.sum(np.array(innovations) ** 2)) if innovations else 0.0
-    else:
-        log_lik = float("nan")
+    # Compute log-likelihood at the MLE
+    log_lik = float(-_ct_ar1_negloglik(np.log(phi_hat), residuals_by_subject, times_by_subject))
 
     return AR1ResidualResult(
-        rho=rho,
-        sigma2=sigma2,
-        log_likelihood=float(log_lik),
+        rho=phi_hat,
+        sigma2=sigma2_hat,
+        log_likelihood=log_lik,
         n_subjects=n_subjects,
         n_observations=n_obs_total,
     )

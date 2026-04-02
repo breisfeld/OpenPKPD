@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import re
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, cast
+
+logger = logging.getLogger(__name__)
 
 import numpy as np
 
@@ -29,6 +32,10 @@ except Exception:  # pragma: no cover - optional dependency
 
 SYMPY_AVAILABLE = sp is not None
 _KA_K_TOL = 1e-12
+# Minimum variance floor applied to symbolic gradient variance estimates.
+# Prevents division-by-zero in normalisation when predicted variance is near zero
+# (e.g., at very early time points or for near-zero residual error models).
+# Value chosen as ~1e-10 of typical sigma^2 ≈ 0.01–0.1 in population PK.
 _VAR_FLOOR = 1e-10
 _SYMBOLIC_SOURCE_CACHE_SCHEMA = "20260316j"
 _PK_LINE_RE = re.compile(
@@ -303,29 +310,66 @@ def _common_symbolic_build_guards(
     indiv: Any, *, allow_pk_covariate_references: bool = False
 ) -> bool:
     if indiv.pk_callable is None or indiv.error_callable is None:
+        logger.debug(
+            "Symbolic gradient unavailable: pk_callable or error_callable is None "
+            "(pk_callable=%s, error_callable=%s)",
+            indiv.pk_callable,
+            indiv.error_callable,
+        )
         return False
     if (
         indiv.occasion_indices is not None
         or indiv.blq_method != BLQMethod.M1
         or indiv.lloq is not None
     ):
+        logger.debug(
+            "Symbolic gradient unavailable: IOV or non-M1 BLQ active "
+            "(occasion_indices=%s, blq_method=%s, lloq=%s)",
+            indiv.occasion_indices is not None,
+            indiv.blq_method,
+            indiv.lloq,
+        )
         return False
     if indiv.des_callable is not None or indiv._error_requires_amounts:
+        logger.debug(
+            "Symbolic gradient unavailable: des_callable or error_requires_amounts active "
+            "(des_callable=%s, error_requires_amounts=%s)",
+            indiv.des_callable is not None,
+            indiv._error_requires_amounts,
+        )
         return False
 
     pk_source = getattr(indiv.pk_callable, "_source", None)
     error_source = getattr(indiv.error_callable, "_source", None)
     if not isinstance(pk_source, str) or not isinstance(error_source, str):
+        logger.debug(
+            "Symbolic gradient unavailable: pk_callable or error_callable has no _source "
+            "(pk_source type=%s, error_source type=%s)",
+            type(pk_source).__name__,
+            type(error_source).__name__,
+        )
         return False
 
     covariate_names = _collect_covariate_names(indiv)
     if not covariate_names:
         return True
     if _source_uses_covariate_names(error_source, covariate_names):
+        logger.debug(
+            "Symbolic gradient unavailable: error_callable references covariate(s) %s",
+            covariate_names,
+        )
         return False
-    return allow_pk_covariate_references or not _source_uses_covariate_names(
+    if not allow_pk_covariate_references and _source_uses_covariate_names(
         pk_source, covariate_names
-    )
+    ):
+        logger.debug(
+            "Symbolic gradient unavailable: pk_callable references covariate(s) %s "
+            "(allow_pk_covariate_references=%s)",
+            covariate_names,
+            allow_pk_covariate_references,
+        )
+        return False
+    return True
 
 
 def _collect_covariate_names(indiv: Any) -> tuple[str, ...]:
@@ -362,7 +406,7 @@ def _static_covariate_values(indiv: Any) -> dict[str, float] | None:
             existing = values.get(key)
             if existing is None:
                 values[key] = value
-            elif not np.isclose(existing, value, rtol=0.0, atol=1e-12):
+            elif not np.isclose(existing, value, rtol=1e-8, atol=0.0):
                 return False
         return True
 
@@ -383,13 +427,13 @@ def _static_covariate_values(indiv: Any) -> dict[str, float] | None:
                 return None
             if arr.size == 0:
                 continue
-            if not np.allclose(arr, arr[0], rtol=0.0, atol=1e-12):
+            if not np.allclose(arr, arr[0], rtol=1e-8, atol=0.0):
                 return None
             key = str(column).upper()
             existing = values.get(key)
             if existing is None:
                 values[key] = float(arr[0])
-            elif not np.isclose(existing, float(arr[0]), rtol=0.0, atol=1e-12):
+            elif not np.isclose(existing, float(arr[0]), rtol=1e-8, atol=0.0):
                 return None
 
     return values

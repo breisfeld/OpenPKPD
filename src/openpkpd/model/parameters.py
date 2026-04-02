@@ -162,7 +162,7 @@ class ParameterSet:
             if not specs:
                 chol = np.linalg.cholesky(matrix)
                 return [
-                    math.log(max(float(chol[r, c]), 1e-30)) if r == c else float(chol[r, c])
+                    math.log(max(float(chol[r, c]), 1e-100)) if r == c else float(chol[r, c])
                     for r, c in self._lower_triangular_indices(matrix.shape[0])
                 ]
 
@@ -174,7 +174,7 @@ class ParameterSet:
                 chol = np.linalg.cholesky(block)
                 for r, c in self._lower_triangular_indices(block_size):
                     v = float(chol[r, c])
-                    parts.append(math.log(max(v, 1e-30)) if r == c else v)
+                    parts.append(math.log(max(v, 1e-100)) if r == c else v)
             return parts
         except np.linalg.LinAlgError as exc:
             raise NumericalError(f"{name} is not positive-definite: {exc}") from exc
@@ -247,8 +247,12 @@ class ParameterSet:
                 val = np.clip(val, lo, hi)
                 parts.append(math.log((val - spec.lower) / (spec.upper - val)))
             elif spec.lower >= 0:
-                # Log-transform lower-bounded parameter
-                parts.append(math.log(max(val, 1e-30)))
+                # Log-transform lower-bounded parameter.
+                # Use 1e-100 as the floor (instead of 1e-30) to prevent log(0)
+                # while keeping the transformed value (~-230) within any realistic
+                # optimizer bound.  1e-30 was arbitrary and could cause round-trip
+                # errors if the optimizer explores near-zero values.
+                parts.append(math.log(max(val, 1e-100)))
             else:
                 parts.append(val)
 
@@ -276,7 +280,10 @@ class ParameterSet:
             if spec.lower >= 0 and not math.isinf(spec.upper):
                 # Inverse logit — clamp raw to avoid exp overflow
                 raw_clamped = max(-_MAX_TRANSFORM_EXP_ARG, min(_MAX_TRANSFORM_EXP_ARG, raw))
-                theta[i] = spec.lower + (spec.upper - spec.lower) / (1.0 + math.exp(-raw_clamped))
+                val_logit = spec.lower + (spec.upper - spec.lower) / (1.0 + math.exp(-raw_clamped))
+                # Clip to [lower, upper] to prevent floating-point round-trip errors
+                # that could produce values infinitesimally outside the bounds.
+                theta[i] = max(spec.lower, min(spec.upper, val_logit))
             elif spec.lower >= 0:
                 theta[i] = math.exp(min(raw, _MAX_TRANSFORM_EXP_ARG))
             else:
@@ -313,8 +320,18 @@ class ParameterSet:
             if not math.isinf(spec.upper):
                 theta[i] = min(theta[i], spec.upper - 1e-10)
 
+        omega_before = self.omega.copy()
         omega = _repair_pd(self.omega)
+        omega_shift = float(np.max(np.abs(omega - omega_before))) if omega_before.size > 0 else 0.0
+        if omega_shift > 0:
+            logger.debug("apply_bounds: OMEGA repaired; max element shift = %.2e", omega_shift)
+
+        sigma_before = self.sigma.copy()
         sigma = _repair_pd(self.sigma)
+        sigma_shift = float(np.max(np.abs(sigma - sigma_before))) if sigma_before.size > 0 else 0.0
+        if sigma_shift > 0:
+            logger.debug("apply_bounds: SIGMA repaired; max element shift = %.2e", sigma_shift)
+
         return ParameterSet(
             theta=theta,
             omega=omega,
@@ -388,8 +405,22 @@ class ParameterSet:
         """
         if not self.omega_specs:
             return 1
-        same_count = sum(1 for s in self.omega_specs if s.same)
-        return same_count + 1 if same_count > 0 else 1
+        # Find the first non-SAME block; count contiguous SAMEs that follow it.
+        # This correctly handles non-contiguous patterns such as BASE, SAME, BASE, SAME
+        # where only the SAMEs immediately after the first BASE count as IOV occasions.
+        i = 0
+        while i < len(self.omega_specs) and self.omega_specs[i].same:
+            i += 1  # skip leading SAMEs (shouldn't exist but be safe)
+        if i >= len(self.omega_specs):
+            return 1
+        # Count SAMEs immediately after the first base block
+        n_same = 0
+        for spec in self.omega_specs[i + 1:]:
+            if spec.same:
+                n_same += 1
+            else:
+                break  # stop at next base block (IOV uses contiguous SAMEs)
+        return n_same + 1
 
     def has_iov(self) -> bool:
         """

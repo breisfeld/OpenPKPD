@@ -1943,8 +1943,11 @@ class TestNativeAdvan6DetectionGates:
         # The contract builder gates on "at least one template has a state probe".
         # Simulate no compiled extension by replacing the template list with an
         # empty list; the builder then returns None immediately.
-        from openpkpd.model import individual as _indiv
-        monkeypatch.setattr(_indiv, "_NATIVE_ODE_TEMPLATES", [])
+        # After the package split the name is bound in _pk_solution, which is
+        # the module that _build_native_ode_contract actually reads.
+        monkeypatch.setattr(
+            "openpkpd.model.individual._pk_solution._NATIVE_ODE_TEMPLATES", []
+        )
         model = _build_mixed_pkpd_model()
         assert model._native_ode_contract is None
 
@@ -1952,7 +1955,7 @@ class TestNativeAdvan6DetectionGates:
         # ADVAN7 is not in _NATIVE_ELIGIBLE_ADVANS; contract must be None.
         # (ADVAN2 is now eligible via the P1.3 analytical probes.)
         monkeypatch.setattr(
-            "openpkpd.model.individual._native_cvodes_transit_1cmt_pkpd_probe_rust",
+            "openpkpd.model.individual._base._native_cvodes_transit_1cmt_pkpd_probe_rust",
             lambda *a, **kw: [],
         )
         model = _build_mixed_pkpd_model(pk_subroutine=_FakeADVAN7())
@@ -1965,7 +1968,7 @@ class TestNativeAdvan6DetectionGates:
         multi-EPS pattern that doesn't match any known template is still rejected.
         """
         monkeypatch.setattr(
-            "openpkpd.model.individual._native_cvodes_transit_1cmt_pkpd_probe_rust",
+            "openpkpd.model.individual._base._native_cvodes_transit_1cmt_pkpd_probe_rust",
             lambda *a, **kw: [],
         )
         compiler = NMTRANCompiler()
@@ -1996,7 +1999,7 @@ class TestNativeAdvan6DetectionGates:
     def test_proportional_error_model_activates_native_path(self, monkeypatch) -> None:
         """After P1b: proportional error model now builds a non-None contract."""
         monkeypatch.setattr(
-            "openpkpd.model.individual._native_cvodes_transit_1cmt_pkpd_probe_rust",
+            "openpkpd.model.individual._base._native_cvodes_transit_1cmt_pkpd_probe_rust",
             lambda *a, **kw: [],
         )
         model = _build_mixed_pkpd_model(
@@ -2009,7 +2012,7 @@ class TestNativeAdvan6DetectionGates:
 
     def test_gate_occasion_indices_returns_none(self, monkeypatch) -> None:
         monkeypatch.setattr(
-            "openpkpd.model.individual._native_cvodes_transit_1cmt_pkpd_probe_rust",
+            "openpkpd.model.individual._base._native_cvodes_transit_1cmt_pkpd_probe_rust",
             lambda *a, **kw: [],
         )
         model = _build_mixed_pkpd_model(
@@ -2026,7 +2029,7 @@ class TestNativeAdvan6DetectionGates:
         """
         import pandas as pd
         monkeypatch.setattr(
-            "openpkpd.model.individual._native_cvodes_transit_1cmt_pkpd_probe_rust",
+            "openpkpd.model.individual._base._native_cvodes_transit_1cmt_pkpd_probe_rust",
             lambda *a, **kw: [],
         )
         cov_df = pd.DataFrame({"TIME": _OBS_TIMES, "DVID": [1, 1, 2, 2], "WT": [70, 70, 70, 70]})
@@ -2038,7 +2041,7 @@ class TestNativeAdvan6DetectionGates:
         """Time-varying covariates (multiple distinct values) must block the native path."""
         import pandas as pd
         monkeypatch.setattr(
-            "openpkpd.model.individual._native_cvodes_transit_1cmt_pkpd_probe_rust",
+            "openpkpd.model.individual._base._native_cvodes_transit_1cmt_pkpd_probe_rust",
             lambda *a, **kw: [],
         )
         cov_df = pd.DataFrame({"TIME": _OBS_TIMES, "DVID": [1, 1, 2, 2], "WT": [60, 65, 70, 75]})
@@ -2047,7 +2050,7 @@ class TestNativeAdvan6DetectionGates:
 
     def test_gate_zero_doses_returns_none(self, monkeypatch) -> None:
         monkeypatch.setattr(
-            "openpkpd.model.individual._native_cvodes_transit_1cmt_pkpd_probe_rust",
+            "openpkpd.model.individual._base._native_cvodes_transit_1cmt_pkpd_probe_rust",
             lambda *a, **kw: [],
         )
         model = _build_mixed_pkpd_model(dose_events=[])
@@ -2056,7 +2059,7 @@ class TestNativeAdvan6DetectionGates:
     def test_multiple_doses_activate_native_path(self, monkeypatch) -> None:
         """After P1a: multiple IV bolus doses now build a non-None contract."""
         monkeypatch.setattr(
-            "openpkpd.model.individual._native_cvodes_transit_1cmt_pkpd_probe_rust",
+            "openpkpd.model.individual._base._native_cvodes_transit_1cmt_pkpd_probe_rust",
             lambda *a, **kw: [],
         )
         two_doses = [
@@ -2088,7 +2091,7 @@ class TestNativeAdvan6DetectionGates:
     def test_late_dose_activates_native_path(self, monkeypatch) -> None:
         """After P1a: a dose at any time (not just t=0) builds a contract."""
         monkeypatch.setattr(
-            "openpkpd.model.individual._native_cvodes_transit_1cmt_pkpd_probe_rust",
+            "openpkpd.model.individual._base._native_cvodes_transit_1cmt_pkpd_probe_rust",
             lambda *a, **kw: [],
         )
         late = [DoseEvent(time=1.0, amount=100.0, compartment=1)]
@@ -2099,7 +2102,7 @@ class TestNativeAdvan6DetectionGates:
 
     def test_gate_wrong_dose_compartment_returns_none(self, monkeypatch) -> None:
         monkeypatch.setattr(
-            "openpkpd.model.individual._native_cvodes_transit_1cmt_pkpd_probe_rust",
+            "openpkpd.model.individual._base._native_cvodes_transit_1cmt_pkpd_probe_rust",
             lambda *a, **kw: [],
         )
         wrong_cmt = [DoseEvent(time=0.0, amount=100.0, compartment=2)]
@@ -2108,7 +2111,7 @@ class TestNativeAdvan6DetectionGates:
 
     def test_gate_unsorted_obs_times_returns_none(self, monkeypatch) -> None:
         monkeypatch.setattr(
-            "openpkpd.model.individual._native_cvodes_transit_1cmt_pkpd_probe_rust",
+            "openpkpd.model.individual._base._native_cvodes_transit_1cmt_pkpd_probe_rust",
             lambda *a, **kw: [],
         )
         unsorted_times = np.array([4.0, 1.0, 0.5, 24.0], dtype=float)

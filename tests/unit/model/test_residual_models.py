@@ -126,7 +126,16 @@ class TestPowerResidualVariance:
         assert var == pytest.approx(9.0)
 
     def test_zero_f_positive_theta(self):
-        """f=0 with positive theta → returns tiny positive value (not 0) to avoid downstream division by zero."""
+        """f=0 with positive theta → returns a small but continuous positive value.
+
+        Before the M-04 fix, the function snapped to np.finfo(float).tiny at
+        exactly f=0, creating a discontinuity.  After the fix it uses a smooth
+        floor of _POWER_VAR_FLOOR = 1e-6, so var = sigma^2 * floor^(2*theta).
+        """
+        from openpkpd.model.residual_models import _POWER_VAR_FLOOR
+
         var = power_residual_variance(f=0.0, sigma=1.0, theta=1.0)
         assert var > 0.0
-        assert var <= np.finfo(float).tiny * 2
+        # Smooth floor: sigma^2 * floor^(2*1) = 1.0 * 1e-12
+        expected = 1.0 * _POWER_VAR_FLOOR ** (2 * 1.0)
+        assert var == pytest.approx(expected, rel=1e-9)

@@ -96,10 +96,16 @@ def _oral_bolus_response(
     b_vec = np.array([dose * ka, 0.0, 0.0])
     c_p_unscaled = P_inv @ b_vec  # shape (3,)
 
-    # Avoid division by zero when ka ≈ lam_j
+    # Avoid division by zero when ka ≈ lam_j.
+    # Use a *relative* tolerance so the threshold scales with the magnitude of
+    # the eigenvalues.  An absolute 1e-8 is too tight for large rates (e.g. ka
+    # or lam on the order of 1e3 min⁻¹) and too loose for tiny rates (e.g.
+    # flip-flop models with lam ~ 1e-5 h⁻¹).
+    _rtol = 1e-8
+    _tol = _rtol * max(float(np.max(np.abs(lam))), 1.0)
     lam_diff = lam - ka  # shape (3,)
-    small = np.abs(lam_diff) < 1e-8
-    safe_diff = np.where(small, 1e-8, lam_diff)
+    small = np.abs(lam_diff) < _tol
+    safe_diff = np.where(small, _tol, lam_diff)
 
     c_p = c_p_unscaled / safe_diff  # shape (3,)
 

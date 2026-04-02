@@ -323,6 +323,16 @@ def log_normal_log_likelihood(
     return float(ell)
 
 
+_POWER_VAR_FLOOR: float = 1e-6
+"""Minimum |f| used in power-variance to prevent a hard discontinuity at f=0.
+
+Without a floor the function is discontinuous: for theta>0 the limit as
+|f|→0 is 0, but the old implementation snapped to ``np.finfo(float).tiny``
+exactly at f=0, creating a step-change of ~2e-308 vs ~0.  The floor makes the
+variance a smooth function of f for all f with |f| < ``_POWER_VAR_FLOOR``.
+"""
+
+
 def power_residual_variance(
     f: float,
     sigma: float,
@@ -331,7 +341,12 @@ def power_residual_variance(
     """
     Compute the power-model residual variance.
 
-    var(Y) = sigma² * f^(2*theta)
+    var(Y) = sigma² * max(|f|, floor)^(2*theta)
+
+    A small floor (``_POWER_VAR_FLOOR`` = 1e-6) is applied to ``|f|`` when
+    ``theta > 0`` to keep the variance function continuous and strictly
+    positive near f = 0, avoiding both division-by-zero in downstream
+    likelihood calculations and a discontinuous jump at the boundary.
 
     Args:
         f:      Model prediction (IPRED).
@@ -339,8 +354,9 @@ def power_residual_variance(
         theta:  Power exponent.
 
     Returns:
-        Variance as a float. Returns 0 if f <= 0 and theta > 0.
+        Variance as a float; always > 0 when sigma > 0 and theta >= 0.
     """
-    if f <= 0 and theta > 0:
-        return np.finfo(float).tiny
-    return float(sigma**2 * abs(f) ** (2.0 * theta))
+    f_abs = abs(f)
+    if theta > 0:
+        f_abs = max(f_abs, _POWER_VAR_FLOOR)
+    return float(sigma**2 * f_abs ** (2.0 * theta))

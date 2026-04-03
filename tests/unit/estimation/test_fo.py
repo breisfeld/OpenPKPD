@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import io
+import logging
 from types import SimpleNamespace
 
 import numpy as np
+import pandas as pd
 import pytest
 
+from openpkpd import ModelBuilder
+from openpkpd.data.dataset import NONMEMDataset
 from openpkpd.estimation import get_estimation_method
 from openpkpd.estimation.fo import FOMethod
 from openpkpd.model.parameters import OmegaSpec, ParameterSet, SigmaSpec, ThetaSpec
@@ -192,3 +197,53 @@ def test_get_estimation_method_fo_kwargs_are_forwarded() -> None:
     assert isinstance(method, FOMethod)
     assert method.maxeval == 123
     assert method.print_interval == 17
+
+
+def test_fo_fit_penalizes_invalid_transform_proposals_without_transform_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    ds = NONMEMDataset.from_dataframe(
+        pd.read_csv(
+            io.StringIO(
+                """ID,TIME,AMT,DV,EVID,MDV
+1,0,4.02,0,1,1
+1,1.02,0,7.91,0,0
+1,3.5,0,8.33,0,0
+1,7.03,0,6.08,0,0
+1,12.05,0,4.55,0,0
+1,24.37,0,1.25,0,0
+2,0,4.4,0,1,1
+2,1.07,0,4.71,0,0
+2,3.5,0,9.02,0,0
+2,7.02,0,5.68,0,0
+2,12.1,0,3.01,0,0
+2,25.0,0,0.9,0,0
+"""
+            )
+        )
+    )
+    built = (
+        ModelBuilder()
+        .problem("Theophylline FO transform guard")
+        .dataset(ds)
+        .subroutines(advan=2, trans=2)
+        .pk(
+            """
+KA = THETA(1)*EXP(ETA(1))
+CL = THETA(2)*EXP(ETA(2))
+V  = THETA(3)*EXP(ETA(3))
+"""
+        )
+        .error("Y = F*(1 + EPS(1))")
+        .theta([1.5, 0.08, 30.0])
+        .omega([0.3, 0.2, 0.2])
+        .sigma(0.1)
+        .estimation(method="FO", maxeval=200)
+        .build()
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = built.fit()
+
+    assert np.isfinite(result.ofv)
+    assert "failed at pk_param transform" not in caplog.text

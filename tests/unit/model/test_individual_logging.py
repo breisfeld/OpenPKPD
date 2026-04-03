@@ -43,6 +43,25 @@ class _ConstantPK(PKSubroutine):
         return dict(raw_params)
 
 
+class _TransformFailPK(PKSubroutine):
+    """PK subroutine whose TRANS mapping fails before solve is entered."""
+
+    advan = 1
+    n_compartments = 1
+
+    def __init__(self) -> None:
+        self.solve_calls = 0
+
+    def solve(self, pk_params, dose_events, obs_times, pk_callable=None, des_callable=None, **kw):
+        self.solve_calls += 1
+        times = np.asarray(obs_times, dtype=float)
+        ipred = np.ones(len(times), dtype=float)
+        return PKSolution(times=times, amounts=ipred[:, None], ipred=ipred, f=ipred.copy())
+
+    def apply_trans(self, raw_params, trans):
+        raise RuntimeError("TRANS2: V must be > 0, got V=-1.0")
+
+
 def _make_subject(n_obs: int = 3, subject_id: int = 1) -> SubjectEvents:
     times = np.arange(1, n_obs + 1, dtype=float)
     return SubjectEvents(
@@ -162,3 +181,14 @@ def test_sentinel_consistency():
 
     # All calls should return the same value
     assert all(r == results[0] for r in results)
+
+
+def test_transform_failure_raises_pkerror_without_raw_fallback() -> None:
+    """Invalid TRANS parameters should fail fast instead of solving on raw params."""
+    pk = _TransformFailPK()
+    indiv = _make_individual(pk)
+
+    with pytest.raises(PKError, match="PK parameter transform failed"):
+        indiv.evaluate_observation_model(THETA, ETA, SIGMA, trans=2)
+
+    assert pk.solve_calls == 0

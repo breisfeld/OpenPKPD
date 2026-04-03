@@ -202,6 +202,25 @@ def test_pk_subroutines_notebook_reports_solver_options() -> None:
     ("notebook", "expected_texts"),
     [
         (
+            "00_index.py",
+            [
+                "OpenPKPD — Notebook Library",
+                "OpenPKPD version:",
+                "Quick Start",
+                "Advanced Topics",
+            ],
+        ),
+        (
+            "02_data_handling.py",
+            [
+                "Subjects: 3",
+                "Observations: 18",
+                "Covariates: ['WT', 'AGE', 'SEX']",
+                "BLQ",
+                "Occasion Variability",
+            ],
+        ),
+        (
             "01_quickstart.py",
             [
                 "Method: FO",
@@ -211,8 +230,15 @@ def test_pk_subroutines_notebook_reports_solver_options() -> None:
         (
             "04_simulation_vpc_npde.py",
             [
+                "Method: FOCEI",
+                "OFV: 117.2815",
+                "Converged: True",
                 "VPC summary",
+                "Observed bins: 8",
+                "Simulated replicates: 200",
                 "NPDE Summary",
+                "Mean NPDE : +0.1388",
+                "Observed within PI:   97.5%",
                 "Numerical Predictive Check",
             ],
         ),
@@ -255,6 +281,8 @@ def test_pk_subroutines_notebook_reports_solver_options() -> None:
             [
                 "Prior specification:",
                 "FIM trace (sum of diagonal):",
+                "FIM trace (sum of diagonal): 0.143",
+                "FIM det (D-criterion): 6.6788e-07",
                 "Report HTML length:",
             ],
         ),

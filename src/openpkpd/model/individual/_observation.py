@@ -238,12 +238,12 @@ class ObservationModelMixin:
         def _transform_or_raw(raw_params: dict[str, float]) -> dict[str, float]:
             try:
                 return apply_trans(raw_params, trans)
-            except Exception as _trans_e:
-                logger.warning(
-                    "IndividualModel %s failed at pk_param transform (TRANS=%d): %s",
-                    getattr(self, "subject_id", "?"), trans, _trans_e,
-                )
-                return raw_params
+            except Exception as exc:
+                subject_id = getattr(self.subject_events, "subject_id", getattr(self, "subject_id", "?"))
+                raise PKError(
+                    f"PK parameter transform failed for subject {subject_id} "
+                    f"(TRANS={trans}): {exc}"
+                ) from exc
 
         self._pk_param_transformers[trans] = _transform_or_raw
         return _transform_or_raw
@@ -740,5 +740,4 @@ class ObservationModelMixin:
             sensitivities[j] = self._extract_error_prediction(error_out, ipred_i) - mean_pred
 
         return max(float(sensitivities @ sigma @ sensitivities), 1e-10)
-
 

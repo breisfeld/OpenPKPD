@@ -35,7 +35,10 @@ CONTRACT_TIMEOUTS = {
     6: 120,
     12: 120,
     14: 180,
+    15: 120,
     20: 180,
+    22: 120,
+    23: 120,
     25: 120,
     26: 120,
     27: 120,
@@ -181,6 +184,25 @@ def test_example_14_contract(tmp_path: Path) -> None:
 
 @pytest.mark.integration
 @pytest.mark.slow
+def test_example_15_contract(tmp_path: Path) -> None:
+    result = _run_example(15, tmp_path, timeout=CONTRACT_TIMEOUTS[15])
+    _assert_example_passed(15, result)
+
+    stdout = result.stdout
+    assert "Example 15: Bayesian Estimation via MAP and Laplace Posterior Approximation" in stdout
+    assert "Dataset: 12 subjects, 132 rows" in stdout
+    assert "Backend used: laplace" in stdout
+    assert "THETA(1) [KA (hr⁻¹)] = 1.4792" in stdout
+    assert "THETA(2) [CL (L/hr)] = 2.7181" in stdout
+    assert "THETA(3) [V (L)] = 32.4609" in stdout
+    assert "THETA(1)       1.7134" in stdout
+    assert "THETA(2)       2.8306" in stdout
+    assert "THETA(3)      33.2099" in stdout
+    assert "Laplace Approximation Diagnostics" not in stdout
+
+
+@pytest.mark.integration
+@pytest.mark.slow
 def test_example_20_contract(tmp_path: Path) -> None:
     result = _run_example(20, tmp_path, timeout=CONTRACT_TIMEOUTS[20])
     _assert_example_passed(20, result)
@@ -195,6 +217,44 @@ def test_example_20_contract(tmp_path: Path) -> None:
     assert "OFV  FOCE =" in stdout
     assert "OFV  SAEM =" in stdout
     assert (output_dir / "20_saem_convergence.png").exists()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_example_22_contract(tmp_path: Path) -> None:
+    result = _run_example(22, tmp_path, timeout=CONTRACT_TIMEOUTS[22])
+    _assert_example_passed(22, result)
+
+    stdout = result.stdout
+    output_dir = tmp_path / "example_22_output"
+    assert "Example 22: PBPK Model — 5-Organ Human Template" in stdout
+    assert "Compartments: ['lung', 'liver', 'kidney', 'gut', 'central']" in stdout
+    assert "Output compartment: 'central' (index 5)" in stdout
+    assert "0.25             1.5935" in stdout
+    assert "0.25       1.5935       8.0686       4.6843" in stdout
+    assert (output_dir / "22_pbpk.png").exists()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_example_23_contract(tmp_path: Path) -> None:
+    result = _run_example(23, tmp_path, timeout=CONTRACT_TIMEOUTS[23])
+    _assert_example_passed(23, result)
+
+    stdout = result.stdout
+    output_dir = tmp_path / "example_23_output"
+    assert "Example 23: Inter-Occasion Variability (IOV) Modelling" in stdout
+    assert "Dataset: 8 subjects, 2 occasions, 128 rows" in stdout
+    assert "OCC column present: True" in stdout
+    assert "Fitting BSV-only model (1 ETA on CL, FO method)..." in stdout
+    assert "Fitting BSV+IOV model (BSV on CL + per-occasion IOV, FO method)..." in stdout
+    assert "ΔOFV =" in stdout
+    assert "(df=2)" in stdout
+    assert "-> BSV-only model not significantly improved by adding IOV" in stdout
+    assert "ω²_IOV_occ1 =" in stdout
+    assert "ω²_IOV_occ2 =" in stdout
+    assert "True ω²_BSV_CL ≈ 0.0400  True ω²_IOV_CL ≈ 0.0225" in stdout
+    assert (output_dir / "23_iov_etas.png").exists()
 
 
 @pytest.mark.integration

@@ -247,7 +247,11 @@ def test_pk_subroutines_notebook_reports_solver_options() -> None:
             [
                 "NCA Parameters",
                 "Average Bioequivalence — AUC",
-                "Required N per sequence",
+                "Status:       BIOEQUIVALENT",
+                "GMR:          1.0595",
+                "Average Bioequivalence — Cmax",
+                "GMR:          1.0412",
+                "Required N per sequence (CV=25%): 12",
             ],
         ),
         (
@@ -261,11 +265,11 @@ def test_pk_subroutines_notebook_reports_solver_options() -> None:
         (
             "09_covariate_modeling.py",
             [
-                "Base model OFV:",
+                "Base model OFV: -10.138",
                 "Candidate relationships: 4",
                 "Stepwise Covariate Modeling (SCM) Summary",
-                "Retained relationship count:",
-                "Top SCM signal:",
+                "Retained relationship count: 0",
+                "Retained: none",
             ],
         ),
         (

@@ -8,7 +8,8 @@ Demonstrates:
   - Comparing FOCE (MAP) and Bayesian (Laplace) estimates side by side
   - Note on enabling true MCMC sampling via the built-in NUTS backend or PyMC
 
-Dataset: Embedded theophylline-like data (3 subjects, simulated).
+Dataset: Deterministic synthetic oral-PK data (12 subjects) generated from
+         known population means KA=1.5, CL=2.8, V=32.9.
 
 The Bayesian method implemented here:
   1. Runs FOCE to obtain the MAP (maximum a posteriori) estimate.
@@ -27,7 +28,6 @@ Optional external backend:
 
 from __future__ import annotations
 
-import io
 import math
 
 import numpy as np
@@ -39,45 +39,99 @@ from openpkpd.estimation.bayes import BAYESMethod, BayesianResult
 from openpkpd.estimation.foce import FOCEMethod
 
 
+def _print_laplace_boundary_diagnostics(
+    theta_samples: np.ndarray | None,
+    theta_specs: list[object],
+    param_names: list[str],
+) -> None:
+    """Highlight when Laplace samples collapse onto parameter bounds."""
+    if theta_samples is None or theta_samples.ndim != 2:
+        return
+
+    lines: list[str] = []
+    for k, (name, spec) in enumerate(zip(param_names, theta_specs)):
+        if k >= theta_samples.shape[1]:
+            continue
+        values = theta_samples[:, k]
+        at_lower = float(np.mean(np.isclose(values, spec.lower, atol=1e-6, rtol=0.0)))
+        at_upper = float(
+            np.mean(
+                np.isclose(values, spec.upper, atol=1e-6, rtol=0.0),
+            )
+        ) if math.isfinite(spec.upper) else 0.0
+        if at_lower >= 0.05 or at_upper >= 0.05:
+            lines.append(
+                f"  - {name}: {at_lower:.1%} at lower bound, {at_upper:.1%} at upper bound"
+            )
+
+    if not lines:
+        return
+
+    print("\n" + "=" * 70)
+    print("Laplace Approximation Diagnostics")
+    print("=" * 70)
+    print("  Posterior samples are saturating one or more parameter bounds.")
+    print("  On this tiny dataset, treat those intervals as support-limited diagnostics,")
+    print("  not as trustworthy posterior uncertainty.")
+    print("  Prefer the NUTS/PyMC backends or a richer dataset for Bayesian inference.")
+    for line in lines:
+        print(line)
+
+
 # ---------------------------------------------------------------------------
-# Embedded theophylline-like dataset (3 subjects)
+# Deterministic oral-PK dataset (12 subjects)
 # ---------------------------------------------------------------------------
-THEO_DATA = """\
-ID,TIME,AMT,DV,EVID,MDV,WT
-1,0,4.02,0,1,1,79.6
-1,0.27,0,0.74,0,0,79.6
-1,0.57,0,1.72,0,0,79.6
-1,1.02,0,7.91,0,0,79.6
-1,1.92,0,8.31,0,0,79.6
-1,3.5,0,8.33,0,0,79.6
-1,5.02,0,6.85,0,0,79.6
-1,7.03,0,6.08,0,0,79.6
-1,9.0,0,5.4,0,0,79.6
-1,12.05,0,4.55,0,0,79.6
-1,24.37,0,1.25,0,0,79.6
-2,0,4.4,0,1,1,72.4
-2,0.35,0,0.96,0,0,72.4
-2,0.6,0,2.33,0,0,72.4
-2,1.07,0,4.71,0,0,72.4
-2,2.13,0,8.33,0,0,72.4
-2,3.5,0,9.02,0,0,72.4
-2,5.02,0,7.14,0,0,72.4
-2,7.02,0,5.68,0,0,72.4
-2,9.1,0,4.55,0,0,72.4
-2,12.1,0,3.01,0,0,72.4
-2,25.0,0,0.9,0,0,72.4
-3,0,4.95,0,1,1,70.5
-3,0.27,0,0.64,0,0,70.5
-3,0.58,0,1.92,0,0,70.5
-3,1.02,0,4.44,0,0,70.5
-3,1.92,0,7.03,0,0,70.5
-3,3.5,0,9.07,0,0,70.5
-3,5.02,0,7.56,0,0,70.5
-3,7.02,0,6.59,0,0,70.5
-3,9.0,0,5.88,0,0,70.5
-3,12.15,0,4.73,0,0,70.5
-3,24.17,0,1.25,0,0,70.5
-"""
+def _build_dataset() -> NONMEMDataset:
+    rng = np.random.default_rng(42)
+    ka_pop, cl_pop, v_pop = 1.5, 2.8, 32.9
+    dose = 320.0
+    obs_times = np.array([0.25, 0.5, 1.0, 2.0, 3.5, 5.0, 7.0, 9.0, 12.0, 24.0])
+
+    rows = []
+    for sid in range(1, 13):
+        ka = ka_pop * math.exp(rng.normal(0, 0.3))
+        cl = cl_pop * math.exp(rng.normal(0, 0.25))
+        v = v_pop * math.exp(rng.normal(0, 0.15))
+        k = cl / v
+
+        rows.append(
+            {
+                "ID": sid,
+                "TIME": 0.0,
+                "AMT": dose,
+                "DV": 0.0,
+                "EVID": 1,
+                "MDV": 1,
+                "CMT": 1,
+                "RATE": 0.0,
+                "ADDL": 0,
+                "II": 0,
+                "SS": 0,
+            }
+        )
+        for t in obs_times:
+            if abs(ka - k) < 1e-6:
+                conc = dose * ka / v * t * math.exp(-k * t)
+            else:
+                conc = dose * ka / (v * (ka - k)) * (math.exp(-k * t) - math.exp(-ka * t))
+            dv = max(conc * (1 + rng.normal(0, 0.1)), 0.01)
+            rows.append(
+                {
+                    "ID": sid,
+                    "TIME": t,
+                    "AMT": 0.0,
+                    "DV": dv,
+                    "EVID": 0,
+                    "MDV": 0,
+                    "CMT": 1,
+                    "RATE": 0.0,
+                    "ADDL": 0,
+                    "II": 0,
+                    "SS": 0,
+                }
+            )
+
+    return NONMEMDataset.from_dataframe(pd.DataFrame(rows))
 
 
 def main() -> None:
@@ -88,12 +142,11 @@ def main() -> None:
     # -----------------------------------------------------------------------
     # 1. Load dataset and build model
     # -----------------------------------------------------------------------
-    df = pd.read_csv(io.StringIO(THEO_DATA))
-    ds = NONMEMDataset.from_dataframe(df)
+    ds = _build_dataset()
 
     built = (
         ModelBuilder()
-        .problem("Theophylline 1-cmt oral — Bayesian")
+        .problem("Synthetic 1-cmt oral PK — Bayesian")
         .dataset(ds)
         .subroutines(advan=2, trans=2)
         .pk("""
@@ -102,9 +155,9 @@ CL = THETA(2)*EXP(ETA(2))
 V  = THETA(3)*EXP(ETA(3))
 """)
         .error("Y = F*(1 + EPS(1))")
-        .theta([(0.01, 1.5, 20), (0.001, 0.08, 5), (0.1, 30, 500)])
-        .omega([0.5, 0.3, 0.3])
-        .sigma(0.1)
+        .theta([(0.3, 1.5, 8.0), (0.5, 3.0, 15.0), (10.0, 35.0, 80.0)])
+        .omega([0.09, 0.06, 0.04])
+        .sigma(0.02)
         .estimation(method="FOCE", maxeval=500)
         .build()
     )
@@ -113,6 +166,7 @@ V  = THETA(3)*EXP(ETA(3))
     init_params = built.params
 
     param_names = ["KA (hr⁻¹)", "CL (L/hr)", "V (L)"]
+    print(f"\nDataset: {len(ds.subject_ids())} subjects, {len(ds.df)} rows")
 
     # -----------------------------------------------------------------------
     # 2. FOCE estimation (MAP estimate)
@@ -187,6 +241,12 @@ V  = THETA(3)*EXP(ETA(3))
                 print(f"  {name:<20}  {foce_val:>10.4f}  (no samples)")
     else:
         print("  No posterior samples available.")
+
+    _print_laplace_boundary_diagnostics(
+        theta_samples,
+        init_params.theta_specs,
+        param_names,
+    )
 
     # -----------------------------------------------------------------------
     # 6. OMEGA and SIGMA

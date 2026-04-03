@@ -904,14 +904,13 @@ class BAYESMethod(EstimationMethod):
         covariance_diagnostics = dict(self._last_laplace_covariance_diagnostics)
 
         # Draw approximate posterior samples
-        try:
-            approx_samples = rng.multivariate_normal(theta_map, hess_cov, size=self.n_samples)
-        except np.linalg.LinAlgError:
-            # Degenerate covariance: use diagonal approximation
-            diag_cov = np.diag(hess_cov)
-            approx_samples = theta_map + rng.standard_normal((self.n_samples, n_theta)) * np.sqrt(
-                np.maximum(diag_cov, 1e-8)
-            )
+        approx_samples = self._draw_laplace_theta_samples(
+            rng=rng,
+            theta_map=theta_map,
+            hess_cov=hess_cov,
+            covariance_source=covariance_source,
+            init_params=init_params,
+        )
 
         ci_lo, ci_hi = self._compute_posterior_summary(approx_samples, ci=0.95)
         elapsed = time.time() - t0
@@ -941,6 +940,153 @@ class BAYESMethod(EstimationMethod):
                 }
             },
         )
+
+    def _draw_laplace_theta_samples(
+        self,
+        rng: np.random.Generator,
+        theta_map: np.ndarray,
+        hess_cov: np.ndarray,
+        covariance_source: str,
+        init_params: Any,
+    ) -> np.ndarray:
+        """Draw Laplace posterior samples while respecting THETA support."""
+        theta_map = np.asarray(theta_map, dtype=float)
+        hess_cov = np.asarray(hess_cov, dtype=float)
+
+        try:
+            transformed_mean, transformed_cov = self._laplace_theta_gaussian_parameters(
+                theta_map,
+                hess_cov,
+                covariance_source,
+                init_params,
+            )
+            transformed_cov = self._stabilize_laplace_gaussian_covariance(transformed_cov)
+            raw_samples = rng.multivariate_normal(
+                transformed_mean,
+                transformed_cov,
+                size=self.n_samples,
+            )
+        except np.linalg.LinAlgError:
+            diag_cov = np.diag(hess_cov)
+            transformed_mean, transformed_cov = self._laplace_theta_gaussian_parameters(
+                theta_map,
+                np.diag(np.maximum(diag_cov, 1e-8)),
+                covariance_source,
+                init_params,
+            )
+            transformed_cov = self._stabilize_laplace_gaussian_covariance(transformed_cov)
+            raw_samples = transformed_mean + rng.standard_normal(
+                (self.n_samples, len(theta_map))
+            ) * np.sqrt(np.maximum(np.diag(transformed_cov), 1e-8))
+
+        return self._inverse_laplace_theta_transform(raw_samples, init_params)
+
+    def _laplace_theta_gaussian_parameters(
+        self,
+        theta_map: np.ndarray,
+        hess_cov: np.ndarray,
+        covariance_source: str,
+        init_params: Any,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Map raw-theta covariance into the transformed sampling space."""
+        theta_map = np.asarray(theta_map, dtype=float)
+        hess_cov = np.asarray(hess_cov, dtype=float)
+        transformed_mean = self._forward_laplace_theta_transform(theta_map, init_params)
+        if covariance_source == "optimizer_inverse_hessian":
+            transformed_cov = hess_cov
+        else:
+            jacobian_inv = np.diag(self._laplace_inverse_transform_jacobian(theta_map, init_params))
+            transformed_cov = jacobian_inv @ hess_cov @ jacobian_inv
+        transformed_cov = 0.5 * (transformed_cov + transformed_cov.T)
+        return transformed_mean, transformed_cov
+
+    def _stabilize_laplace_gaussian_covariance(self, covariance: np.ndarray) -> np.ndarray:
+        """Project a symmetric covariance matrix onto a numerically safe PSD approximation."""
+        covariance = np.asarray(covariance, dtype=float)
+        covariance = 0.5 * (covariance + covariance.T)
+        eigvals, eigvecs = np.linalg.eigh(covariance)
+        floor = 1e-8
+        eigvals = np.maximum(eigvals, floor)
+        stabilized = eigvecs @ np.diag(eigvals) @ eigvecs.T
+        return 0.5 * (stabilized + stabilized.T)
+
+    def _forward_laplace_theta_transform(
+        self,
+        theta: np.ndarray,
+        init_params: Any,
+    ) -> np.ndarray:
+        """Transform THETA into an unconstrained Gaussian approximation space."""
+        theta = np.asarray(theta, dtype=float)
+        theta_specs = list(getattr(init_params, "theta_specs", []))
+        if not theta_specs:
+            return theta.copy()
+
+        transformed = theta.copy()
+        for i, spec in enumerate(theta_specs):
+            value = float(theta[i])
+            if spec.lower >= 0 and not np.isinf(spec.upper):
+                lo = float(spec.lower)
+                hi = float(spec.upper)
+                value = float(np.clip(value, lo + 1e-10, hi - 1e-10))
+                transformed[i] = np.log((value - lo) / (hi - value))
+            elif spec.lower >= 0:
+                transformed[i] = np.log(max(value, 1e-100))
+            else:
+                transformed[i] = value
+        return transformed
+
+    def _inverse_laplace_theta_transform(
+        self,
+        transformed_theta: np.ndarray,
+        init_params: Any,
+    ) -> np.ndarray:
+        """Map transformed Laplace samples back to THETA space."""
+        samples = np.asarray(transformed_theta, dtype=float)
+        squeeze = samples.ndim == 1
+        if squeeze:
+            samples = samples[np.newaxis, :]
+
+        theta_specs = list(getattr(init_params, "theta_specs", []))
+        if not theta_specs:
+            return samples[0] if squeeze else samples
+
+        theta = samples.copy()
+        for i, spec in enumerate(theta_specs):
+            raw = theta[:, i]
+            if spec.lower >= 0 and not np.isinf(spec.upper):
+                raw = np.clip(raw, -500.0, 500.0)
+                exp_neg = np.exp(-raw)
+                theta[:, i] = spec.lower + (spec.upper - spec.lower) / (1.0 + exp_neg)
+            elif spec.lower >= 0:
+                theta[:, i] = np.exp(np.clip(raw, None, 500.0))
+            else:
+                theta[:, i] = raw
+        return theta[0] if squeeze else theta
+
+    def _laplace_inverse_transform_jacobian(
+        self,
+        theta: np.ndarray,
+        init_params: Any,
+    ) -> np.ndarray:
+        """Return diagonal d(raw)/d(theta) at the MAP for Laplace delta mapping."""
+        theta = np.asarray(theta, dtype=float)
+        theta_specs = list(getattr(init_params, "theta_specs", []))
+        if not theta_specs:
+            return np.ones_like(theta)
+
+        jacobian = np.ones_like(theta, dtype=float)
+        for i, spec in enumerate(theta_specs):
+            value = float(theta[i])
+            if spec.lower >= 0 and not np.isinf(spec.upper):
+                lo = float(spec.lower)
+                hi = float(spec.upper)
+                value = float(np.clip(value, lo + 1e-10, hi - 1e-10))
+                jacobian[i] = (hi - lo) / ((value - lo) * (hi - value))
+            elif spec.lower >= 0:
+                jacobian[i] = 1.0 / max(value, 1e-100)
+            else:
+                jacobian[i] = 1.0
+        return jacobian
 
     # ------------------------------------------------------------------
     # Internal helpers

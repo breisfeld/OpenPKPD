@@ -16,7 +16,7 @@ import pytest
 
 from openpkpd.estimation.base import EstimationResult
 from openpkpd.estimation.bayes import BayesianResult, BAYESMethod
-from openpkpd.model.parameters import ParameterSet
+from openpkpd.model.parameters import ParameterSet, ThetaSpec
 from openpkpd.utils.errors import EstimationError
 
 # ---------------------------------------------------------------------------
@@ -613,6 +613,82 @@ def test_laplace_uses_foce_inverse_hessian_when_available(
     assert result.backend_used == "laplace"
     assert result.posterior_samples["theta"].shape == (8, 2)
     assert result.diagnostics["laplace"]["covariance_source"] == "optimizer_inverse_hessian"
+
+
+def test_laplace_respects_positive_theta_support(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import openpkpd.estimation.foce as foce_module
+
+    class _DummyFOCE:
+        def __init__(self, **kwargs: object) -> None:
+            pass
+
+        def estimate(self, population_model, init_params):
+            return EstimationResult(
+                theta_final=np.array([0.2, 0.05, 0.1]),
+                omega_final=np.eye(1),
+                sigma_final=np.eye(1),
+                ofv=12.0,
+                converged=True,
+                diagnostics={
+                    "optimizer": {
+                        "inverse_hessian": np.diag([0.5, 0.25, 2.0]),
+                    }
+                },
+            )
+
+    monkeypatch.setattr(foce_module, "FOCEMethod", _DummyFOCE)
+
+    init_params = ParameterSet(
+        theta=np.array([1.5, 0.08, 30.0]),
+        omega=np.eye(1),
+        sigma=np.eye(1),
+        theta_specs=[
+            ThetaSpec(init=1.5, lower=0.01, upper=20.0),
+            ThetaSpec(init=0.08, lower=0.001, upper=5.0),
+            ThetaSpec(init=30.0, lower=0.1, upper=500.0),
+        ],
+    )
+    method = BAYESMethod(
+        backend="laplace",
+        n_samples=256,
+        prior_sd_theta=1e8,
+        seed=0,
+    )
+
+    result = method._estimate_laplace(population_model=None, init_params=init_params)
+
+    samples = result.posterior_samples["theta"]
+    assert samples.shape == (256, 3)
+    assert np.all(samples[:, 0] >= 0.01)
+    assert np.all(samples[:, 0] <= 20.0)
+    assert np.all(samples[:, 1] >= 0.001)
+    assert np.all(samples[:, 1] <= 5.0)
+    assert np.all(samples[:, 2] >= 0.1)
+    assert np.all(samples[:, 2] <= 500.0)
+    assert np.all(np.isfinite(samples))
+
+
+def test_laplace_theta_transform_round_trips_positive_and_bounded_support() -> None:
+    method = BAYESMethod(backend="laplace")
+    init_params = ParameterSet(
+        theta=np.array([1.5, 0.08, 30.0, -2.0]),
+        omega=np.eye(1),
+        sigma=np.eye(1),
+        theta_specs=[
+            ThetaSpec(init=1.5, lower=0.01, upper=20.0),
+            ThetaSpec(init=0.08, lower=0.001, upper=5.0),
+            ThetaSpec(init=30.0, lower=0.1, upper=float("inf")),
+            ThetaSpec(init=-2.0, lower=-float("inf"), upper=float("inf")),
+        ],
+    )
+    theta = np.array([0.2, 0.05, 10.0, -1.5])
+
+    transformed = method._forward_laplace_theta_transform(theta, init_params)
+    round_trip = method._inverse_laplace_theta_transform(transformed, init_params)
+
+    np.testing.assert_allclose(round_trip, theta, rtol=1e-10, atol=1e-10)
 
 
 def test_covariance_from_foce_inverse_hessian_scales_ofv_curvature() -> None:

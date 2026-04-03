@@ -152,6 +152,11 @@ class PFIMEngine:
       3. Individual information M_i = G_i^T * V_i^{-1} * G_i.
       4. Population FIM = sum_i M_i (summed over n_subjects identical subjects).
 
+    Current residual-error support is intentionally narrow: only a scalar
+    residual variance is supported in the PFIM path. Multi-endpoint,
+    heteroscedastic, and correlated residual structures are rejected
+    explicitly rather than being silently reduced to ``sigma[0, 0]``.
+
     When population_model is None (e.g. in unit tests), only the structural
     methods can be used; compute_fim and optimize_design require a non-None
     population_model.
@@ -180,6 +185,41 @@ class PFIMEngine:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _scalar_sigma_variance(sigma: np.ndarray) -> float:
+        """Return the supported scalar residual variance or raise clearly."""
+        sigma_mat = np.asarray(sigma, dtype=float)
+        if sigma_mat.size == 0:
+            return 1.0
+        if sigma_mat.ndim != 2 or sigma_mat.shape[0] != sigma_mat.shape[1]:
+            raise ValueError(
+                "PFIMEngine.compute_fim currently supports only square SIGMA matrices "
+                "representing a scalar residual variance."
+            )
+        if sigma_mat.shape == (1, 1):
+            sigma_var = float(sigma_mat[0, 0])
+            if not np.isfinite(sigma_var) or sigma_var <= 0.0:
+                raise ValueError(
+                    "PFIMEngine.compute_fim requires a finite positive scalar residual "
+                    "variance in SIGMA."
+                )
+            return sigma_var
+        non_scalar_terms = sigma_mat.copy()
+        non_scalar_terms[0, 0] = 0.0
+        if np.allclose(non_scalar_terms, 0.0, atol=1e-12, rtol=1e-12):
+            sigma_var = float(sigma_mat[0, 0])
+            if not np.isfinite(sigma_var) or sigma_var <= 0.0:
+                raise ValueError(
+                    "PFIMEngine.compute_fim requires a finite positive scalar residual "
+                    "variance in SIGMA."
+                )
+            return sigma_var
+        raise ValueError(
+            "PFIMEngine.compute_fim currently supports only scalar residual variance "
+            "(1x1 SIGMA or numerically equivalent). Multi-endpoint, heteroscedastic, "
+            "and correlated residual structures are not yet implemented."
+        )
 
     def compute_fim(
         self,
@@ -219,7 +259,7 @@ class PFIMEngine:
 
         omega_mat = omega if omega is not None else self.init_params.omega
         sigma_mat = sigma if sigma is not None else self.init_params.sigma
-        sigma_diag = float(sigma_mat[0, 0]) if sigma_mat.size > 0 else 1.0
+        sigma_diag = self._scalar_sigma_variance(sigma_mat)
         n_times = len(sampling_times)
 
         if n_times == 0:

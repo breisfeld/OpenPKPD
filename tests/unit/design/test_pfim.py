@@ -431,6 +431,49 @@ def test_compute_fim_scales_inversely_with_sigma() -> None:
     np.testing.assert_allclose(fim_large_sigma, 0.25 * fim_small_sigma, rtol=1e-5)
 
 
+def test_compute_fim_rejects_multi_endpoint_diagonal_sigma() -> None:
+    engine, times, _ = _make_linear_gaussian_pfim_engine()
+
+    with pytest.raises(ValueError, match="scalar residual variance"):
+        engine.compute_fim(times, sigma=np.diag([2.0, 3.0]))
+
+
+def test_compute_fim_rejects_correlated_sigma() -> None:
+    engine, times, _ = _make_linear_gaussian_pfim_engine()
+
+    with pytest.raises(ValueError, match="correlated residual structures"):
+        engine.compute_fim(times, sigma=np.array([[2.0, 0.5], [0.5, 2.0]]))
+
+
+def test_compute_fim_accepts_sigma_with_only_leading_scalar_term() -> None:
+    engine, times, _ = _make_linear_gaussian_pfim_engine()
+
+    fim_reference = engine.compute_fim(times, sigma=np.array([[2.0]]))
+    fim_with_trailing_zeros = engine.compute_fim(
+        times,
+        sigma=np.array([[2.0, 0.0], [0.0, 0.0]]),
+    )
+
+    np.testing.assert_allclose(fim_with_trailing_zeros, fim_reference, rtol=1e-10, atol=1e-12)
+
+
+def test_compute_fim_rejects_non_square_sigma() -> None:
+    engine, times, _ = _make_linear_gaussian_pfim_engine()
+
+    with pytest.raises(ValueError, match="square SIGMA matrices"):
+        engine.compute_fim(times, sigma=np.array([[2.0, 0.0]]))
+
+
+@pytest.mark.parametrize("bad_sigma", [np.array([[0.0]]), np.array([[-1.0]]), np.array([[np.nan]])])
+def test_compute_fim_rejects_nonpositive_or_nonfinite_scalar_sigma(
+    bad_sigma: np.ndarray,
+) -> None:
+    engine, times, _ = _make_linear_gaussian_pfim_engine()
+
+    with pytest.raises(ValueError, match="finite positive scalar residual variance"):
+        engine.compute_fim(times, sigma=bad_sigma)
+
+
 def test_compute_fim_matches_closed_form_with_random_effect_variance() -> None:
     engine, times, theta0, omega0, sigma0 = _make_eta_rank_one_pfim_engine()
 

@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from openpkpd.estimation import BayesianResult
 from openpkpd_gui.domain.artifact import ArtifactRecord
 from openpkpd_gui.domain.dataset_asset import DatasetAsset
 from openpkpd_gui.domain.model_spec import ModelSpec, ModelSpecMode
@@ -521,6 +522,131 @@ def test_generate_output_artifacts_includes_tables_and_additional_plot_types(
     assert captured_provenance["Environment"]["openpkpd_version"]
 
 
+@pytest.mark.unit
+def test_generate_output_artifacts_includes_bayesian_tables_and_plots(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    matplotlib = pytest.importorskip("matplotlib")
+    matplotlib.use("Agg", force=True)
+    import matplotlib.pyplot as plt
+
+    service = FitService()
+    workspace = Workspace(
+        name="Bayes artifact demo", root_path=str(tmp_path), workspace_id="bayes-artifact-demo"
+    )
+    dataset_path = tmp_path / "bayes-artifact-demo.csv"
+    _write_dataset(dataset_path)
+    workspace.active_dataset = DatasetAsset(
+        source_path=str(dataset_path),
+        display_name="bayes-artifact-demo.csv",
+        columns=["ID", "TIME", "AMT", "DV", "EVID"],
+        row_count=2,
+        subject_count=1,
+        observation_count=1,
+    )
+    workspace.active_model_spec = ModelSpec(
+        problem_title="Bayes artifact demo",
+        dataset_path=str(dataset_path),
+        pk_code="CL = THETA(1) * EXP(ETA(1))",
+        error_code="Y = F * (1 + EPS(1))",
+        theta_rows=[{"init": 1.0, "lower": 0.0, "upper": 10.0}],
+        omega_values=[[0.2]],
+        sigma_values=[[0.1]],
+    )
+
+    def _make_figure():
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        ax.plot([0, 1], [0, 1])
+        return fig
+
+    monkeypatch.setattr(
+        "openpkpd_gui.services.fit_service.write_html_report",
+        lambda path, *_a, **_k: Path(path).write_text("<html></html>", encoding="utf-8"),
+    )
+    monkeypatch.setattr("openpkpd_gui.services.fit_service.compute_diagnostics", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        "openpkpd_gui.services.fit_service.ofv_history", lambda *_a, **_k: _make_figure()
+    )
+    monkeypatch.setattr(
+        "openpkpd_gui.services.fit_service.parameter_uncertainty_plot",
+        lambda *_a, **_k: _make_figure(),
+    )
+    monkeypatch.setattr(
+        "openpkpd_gui.services.fit_service.mcmc_trace_by_chain_plot",
+        lambda *_a, **_k: _make_figure(),
+    )
+    monkeypatch.setattr(
+        "openpkpd_gui.services.fit_service.rhat_plot", lambda *_a, **_k: _make_figure()
+    )
+    monkeypatch.setattr(
+        "openpkpd_gui.services.fit_service.ess_plot", lambda *_a, **_k: _make_figure()
+    )
+    monkeypatch.setattr(
+        "openpkpd_gui.services.fit_service.posterior_density_plot",
+        lambda *_a, **_k: _make_figure(),
+    )
+    monkeypatch.setattr(
+        "openpkpd_gui.services.fit_service.posterior_forest_plot",
+        lambda *_a, **_k: _make_figure(),
+    )
+
+    theta_by_chain = np.array(
+        [
+            [[1.0, 2.0], [1.1, 2.1], [1.2, 2.2]],
+            [[0.9, 1.9], [1.05, 2.05], [1.15, 2.15]],
+        ]
+    )
+    theta_samples = theta_by_chain.reshape(-1, theta_by_chain.shape[-1])
+    result = BayesianResult(
+        theta_final=np.array([1.05, 2.05]),
+        omega_final=np.array([[0.2]]),
+        sigma_final=np.array([[0.1]]),
+        ofv=12.34,
+        converged=True,
+        method="BAYES(NUTS)",
+        posterior_samples={"theta": theta_samples},
+        posterior_samples_by_chain={"theta": theta_by_chain},
+        r_hat=np.array([1.01, 1.02]),
+        n_effective=np.array([5.0, 6.0]),
+        posterior_ci_lo=np.array([0.9, 1.9]),
+        posterior_ci_hi=np.array([1.2, 2.2]),
+        backend_used="nuts",
+    )
+
+    artifacts = service._generate_output_artifacts(
+        JobContext(lambda *_args: None),
+        workspace,
+        "Bayes artifact demo",
+        "BAYES",
+        result,
+        object(),
+        run_id="run-bayes",
+        project_id=workspace.active_project.project_id,
+        scenario_id=workspace.active_scenario.scenario_id,
+        dataset_path=str(dataset_path),
+        population_model=object(),
+    )
+
+    table_roles = {
+        artifact.metadata.get("artifact_role") for artifact in artifacts if artifact.kind == "table"
+    }
+    plot_types = {
+        artifact.metadata.get("plot_type") for artifact in artifacts if artifact.kind == "plot"
+    }
+
+    assert {"posterior_summary_table", "mcmc_rhat_table", "mcmc_ess_table"} <= table_roles
+    assert {
+        "mcmc_trace_by_chain",
+        "rhat_plot",
+        "ess_plot",
+        "posterior_density",
+        "posterior_forest",
+    } <= plot_types
+    assert all(Path(artifact.path or "").exists() for artifact in artifacts)
+
+
 def test_restore_fit_context_records_error_when_scenario_missing() -> None:
     service = FitService()
     workspace = Workspace(name="Demo")
@@ -648,6 +774,79 @@ def test_restore_fit_context_payloads_enables_reuse_after_round_trip(
     assert restored_context is not None
     assert restored_context.fit_run_id == fit_run.run_id
     assert restored_context.population_model is restored_model
+
+
+@pytest.mark.unit
+def test_restore_fit_context_payloads_preserves_bayesian_result_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_service = FitService()
+    workspace = Workspace(name="Bayesian context round trip")
+    fit_run = RunRecord(workflow="fit", run_id="fit-run-bayes", status=RunStatus.SUCCEEDED)
+    workspace.runs = [fit_run]
+    theta_by_chain = np.array(
+        [
+            [[1.0, 2.0], [1.1, 2.1], [1.2, 2.2]],
+            [[0.9, 1.9], [1.05, 2.05], [1.15, 2.15]],
+        ]
+    )
+    theta_samples = theta_by_chain.reshape(-1, theta_by_chain.shape[-1])
+    bayes_result = BayesianResult(
+        theta_final=np.array([1.05, 2.05]),
+        omega_final=np.array([[0.2]]),
+        sigma_final=np.array([[0.1]]),
+        ofv=12.34,
+        converged=True,
+        ofv_history=[12.34],
+        warnings=[],
+        n_function_evals=1,
+        elapsed_time=0.1,
+        method="BAYES(NUTS)",
+        message="ok",
+        n_observations=1,
+        n_subjects=1,
+        posterior_samples={"theta": theta_samples},
+        posterior_samples_by_chain={"theta": theta_by_chain},
+        r_hat=np.array([1.01, 1.02]),
+        n_effective=np.array([5.0, 6.0]),
+        posterior_ci_lo=np.array([0.9, 1.9]),
+        posterior_ci_hi=np.array([1.2, 2.2]),
+        backend_used="nuts",
+    )
+
+    monkeypatch.setattr(source_service, "_generate_output_artifacts", lambda *_a, **_k: [])
+    source_service._fit_run_result_from_estimation(
+        JobContext(lambda *_args: None),
+        workspace,
+        "Bayesian context demo",
+        bayes_result,
+        "BAYES",
+        None,
+        fit_run.run_id,
+        project_id=workspace.active_project.project_id,
+        scenario_id=workspace.active_scenario.scenario_id,
+        dataset_path="/tmp/theo.csv",
+        population_model=object(),
+    )
+
+    payloads = source_service.all_fit_context_payloads(workspace)
+    target_service = FitService()
+    restored_model = object()
+    monkeypatch.setattr(target_service, "_rebuild_population_model", lambda *_a, **_k: restored_model)
+
+    restored_count, warnings = target_service.restore_fit_context_payloads(workspace, payloads)
+
+    assert restored_count == 1
+    assert warnings == []
+    restored_context = target_service.latest_fit_context(workspace)
+    assert restored_context is not None
+    assert isinstance(restored_context.estimation_result, BayesianResult)
+    restored_result = restored_context.estimation_result
+    assert restored_result.backend_used == "nuts"
+    assert restored_result.posterior_samples["theta"].shape == theta_samples.shape
+    assert restored_result.posterior_samples_by_chain["theta"].shape == theta_by_chain.shape
+    np.testing.assert_allclose(restored_result.r_hat, np.array([1.01, 1.02]))
+    np.testing.assert_allclose(restored_result.n_effective, np.array([5.0, 6.0]))
 
 
 @pytest.mark.unit

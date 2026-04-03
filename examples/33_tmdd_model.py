@@ -82,9 +82,9 @@ print("Full TMDD  peak C:", f"{sol_full.ipred.max():.3f} nmol/L")
 print("QSSA       peak C:", f"{sol_qssa.ipred.max():.3f} nmol/L")
 print("MM         peak C:", f"{sol_mm.ipred.max():.3f} nmol/L")
 print()
-print("Full TMDD  AUC(0-168h) ≈", f"{np.trapz(sol_full.ipred, TIMES):.1f} nmol·h/L")
-print("QSSA       AUC(0-168h) ≈", f"{np.trapz(sol_qssa.ipred, TIMES):.1f} nmol·h/L")
-print("MM         AUC(0-168h) ≈", f"{np.trapz(sol_mm.ipred, TIMES):.1f} nmol·h/L")
+print("Full TMDD  AUC(0-168h) ≈", f"{np.trapezoid(sol_full.ipred, TIMES):.1f} nmol·h/L")
+print("QSSA       AUC(0-168h) ≈", f"{np.trapezoid(sol_qssa.ipred, TIMES):.1f} nmol·h/L")
+print("MM         AUC(0-168h) ≈", f"{np.trapezoid(sol_mm.ipred, TIMES):.1f} nmol·h/L")
 
 # ---------------------------------------------------------------------------
 # Optional plot

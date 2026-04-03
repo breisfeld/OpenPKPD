@@ -427,6 +427,35 @@ def test_fit_review_helpers_summarize_curated_groups_and_tables() -> None:
     assert "Diagnostics table" in summary
 
 
+def test_fit_review_helpers_include_bayesian_groups_and_tables() -> None:
+    bayes_plot = ArtifactRecord(
+        kind="plot",
+        label="Posterior density",
+        path="/tmp/posterior-density.png",
+        metadata={"artifact_role": "plot", "plot_type": "posterior_density", "media_type": "image/png"},
+    )
+    posterior_table = ArtifactRecord(
+        kind="table",
+        label="Posterior summary",
+        path="/tmp/posterior-summary.csv",
+        metadata={"artifact_role": "posterior_summary_table", "media_type": "text/csv"},
+    )
+    rhat_table = ArtifactRecord(
+        kind="table",
+        label="R-hat table",
+        path="/tmp/rhat.csv",
+        metadata={"artifact_role": "mcmc_rhat_table", "media_type": "text/csv"},
+    )
+
+    assert latest_artifact_for_plot_group([bayes_plot], "bayesian") is bayes_plot
+
+    summary = format_fit_review_summary([bayes_plot, posterior_table, rhat_table])
+
+    assert "Bayesian" in summary
+    assert "Posterior summary" in summary
+    assert "R-hat table" in summary
+
+
 def test_artifact_friendly_type_maps_plot_type_to_readable_label() -> None:
     gof = ArtifactRecord(
         kind="plot",
@@ -445,6 +474,24 @@ def test_artifact_friendly_type_maps_role_to_readable_label() -> None:
         metadata={"artifact_role": "nca_summary"},
     )
     assert artifact_friendly_type(report) == "NCA summary (CSV)"
+
+
+def test_artifact_friendly_type_maps_bayesian_types_to_readable_labels() -> None:
+    bayes_plot = ArtifactRecord(
+        kind="plot",
+        label="Posterior forest",
+        path="/tmp/posterior-forest.png",
+        metadata={"plot_type": "posterior_forest"},
+    )
+    bayes_table = ArtifactRecord(
+        kind="table",
+        label="Posterior summary",
+        path="/tmp/posterior-summary.csv",
+        metadata={"artifact_role": "posterior_summary_table"},
+    )
+
+    assert artifact_friendly_type(bayes_plot) == "Bayesian — Posterior forest"
+    assert artifact_friendly_type(bayes_table) == "Posterior summary (CSV)"
 
 
 def test_artifact_friendly_type_falls_back_gracefully() -> None:
@@ -473,6 +520,27 @@ def test_artifact_friendly_type_options_starts_with_all_types() -> None:
     assert "HTML Report" in options
 
 
+def test_artifact_friendly_type_options_include_bayesian_labels() -> None:
+    bayes_plot = ArtifactRecord(
+        kind="plot",
+        label="Trace",
+        path="/tmp/trace.png",
+        metadata={"plot_type": "mcmc_trace_by_chain"},
+    )
+    bayes_table = ArtifactRecord(
+        kind="table",
+        label="ESS",
+        path="/tmp/ess.csv",
+        metadata={"artifact_role": "mcmc_ess_table"},
+    )
+
+    options = artifact_friendly_type_options([bayes_plot, bayes_table])
+
+    assert options[0] == ARTIFACT_TYPE_FILTER_ALL
+    assert "Bayesian — Trace by chain" in options
+    assert "ESS table (CSV)" in options
+
+
 def test_filter_artifacts_by_type_filter() -> None:
     gof = ArtifactRecord(
         kind="plot", label="GOF", path="/tmp/g.png", metadata={"plot_type": "gof_panel"}
@@ -482,6 +550,76 @@ def test_filter_artifacts_by_type_filter() -> None:
     )
     result = filter_artifacts([gof, ofv], type_filter="GOF panel")
     assert result == [gof]
+
+
+@pytest.mark.unit
+def test_results_workflow_enables_bayesian_review_and_lists_bayesian_outputs() -> None:
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+
+    _, _, qt_widgets = load_qt_modules()
+    app = qt_widgets.QApplication.instance() or qt_widgets.QApplication(
+        ["test", "-platform", "offscreen"]
+    )
+    workspace = Workspace(name="Bayesian results workflow")
+    run = RunRecord(workflow="fit", run_id="fit-bayes-1", status=RunStatus.SUCCEEDED)
+    workspace.active_scenario.runs = [run]
+    workspace.active_scenario.artifacts = [
+        ArtifactRecord(
+            kind="plot",
+            label="Posterior density",
+            path="/tmp/posterior-density.png",
+            source_run_id=run.run_id,
+            metadata={"artifact_role": "plot", "plot_type": "posterior_density", "media_type": "image/png"},
+        ),
+        ArtifactRecord(
+            kind="table",
+            label="Posterior summary",
+            path="/tmp/posterior-summary.csv",
+            source_run_id=run.run_id,
+            metadata={"artifact_role": "posterior_summary_table", "media_type": "text/csv"},
+        ),
+        ArtifactRecord(
+            kind="table",
+            label="R-hat table",
+            path="/tmp/rhat.csv",
+            source_run_id=run.run_id,
+            metadata={"artifact_role": "mcmc_rhat_table", "media_type": "text/csv"},
+        ),
+    ]
+    for artifact in workspace.active_scenario.artifacts:
+        run.artifact_ids.append(artifact.artifact_id)
+
+    widget = build_results_workflow(workspace)
+
+    try:
+        widget.show()
+        app.processEvents()
+
+        review_button = widget.findChild(qt_widgets.QToolButton, "results-review-menu-button")
+        bayesian_action = widget.findChild(qt_widgets.QAction, "results-open-bayesian-review-button")
+        analysis_combo = widget.findChild(qt_widgets.QComboBox, "results-analysis-filter")
+        artifact_list = widget.findChild(qt_widgets.QListWidget, "results-artifacts-list")
+        artifact_summary = widget.findChild(qt_widgets.QLabel, "results-artifact-summary-label")
+
+        assert review_button is not None
+        assert bayesian_action is not None
+        assert analysis_combo is not None
+        assert artifact_list is not None
+        assert artifact_summary is not None
+        assert review_button.isEnabled() is True
+        assert bayesian_action.isEnabled() is True
+        assert analysis_combo.currentText() == "Fit"
+        assert artifact_summary.text().startswith("3 outputs")
+
+        labels = [artifact_list.item(i).text() for i in range(artifact_list.count())]
+        assert any("Bayesian — Posterior densities" in label for label in labels)
+        assert any("Posterior summary (CSV)" in label for label in labels)
+        assert any("R-hat table (CSV)" in label for label in labels)
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()
 
 
 @pytest.mark.unit

@@ -21,12 +21,19 @@ import numpy as np
 from openpkpd import __version__ as OPENPKPD_VERSION
 from openpkpd.covariance.sandwich import SandwichCovariance
 from openpkpd.data.dataset import NONMEMDataset
-from openpkpd.estimation import get_estimation_method
+from openpkpd.estimation import BayesianResult, get_estimation_method
 from openpkpd.estimation.base import EstimationResult
 from openpkpd.model.parameters import ParameterSet
 from openpkpd.model.problem import Problem
 from openpkpd.output.report import write_html_report
 from openpkpd.parser.control_stream import ControlStream
+from openpkpd.plots import (
+    ess_plot,
+    mcmc_trace_by_chain_plot,
+    posterior_density_plot,
+    posterior_forest_plot,
+    rhat_plot,
+)
 from openpkpd.plots.diagnostics import compute_diagnostics
 from openpkpd.plots.eta import eta_histograms, eta_pairs
 from openpkpd.plots.gof import (
@@ -366,28 +373,7 @@ class FitService:
         self._last_context_error = None
         try:
             er_data = payload["estimation_result"]
-            estimation_result = EstimationResult(
-                theta_final=np.array(er_data["theta_final"], dtype=float),
-                omega_final=np.array(er_data["omega_final"], dtype=float),
-                sigma_final=np.array(er_data["sigma_final"], dtype=float),
-                ofv=float(er_data["ofv"]),
-                converged=bool(er_data["converged"]),
-                condition_number=er_data.get("condition_number"),
-                eta_shrinkage=np.array(er_data.get("eta_shrinkage", []), dtype=float),
-                eps_shrinkage=np.array(er_data.get("eps_shrinkage", []), dtype=float),
-                post_hoc_etas={
-                    int(k): np.array(v, dtype=float)
-                    for k, v in er_data.get("post_hoc_etas", {}).items()
-                },
-                ofv_history=list(er_data.get("ofv_history", [])),
-                warnings=list(er_data.get("warnings", [])),
-                n_function_evals=int(er_data.get("n_function_evals", 0)),
-                elapsed_time=float(er_data.get("elapsed_time", 0.0)),
-                method=str(er_data.get("method", "")),
-                message=str(er_data.get("message", "")),
-                n_observations=int(er_data.get("n_observations", 0)),
-                n_subjects=int(er_data.get("n_subjects", 0)),
-            )
+            estimation_result = self._estimation_result_from_dict(er_data)
             proj_id = str(payload["project_id"])
             scen_id = str(payload["scenario_id"])
             match = workspace.find_scenario(scen_id, project_id=proj_id)
@@ -422,6 +408,64 @@ class FitService:
             self._last_context_error = f"Could not restore fit context: {exc}"
             logger.warning("%s", self._last_context_error, exc_info=True)
             return False
+
+    @staticmethod
+    def _estimation_result_from_dict(payload: Mapping[str, object]) -> EstimationResult:
+        base_kwargs = {
+            "theta_final": np.array(payload["theta_final"], dtype=float),
+            "omega_final": np.array(payload["omega_final"], dtype=float),
+            "sigma_final": np.array(payload["sigma_final"], dtype=float),
+            "ofv": float(payload["ofv"]),
+            "converged": bool(payload["converged"]),
+            "condition_number": payload.get("condition_number"),
+            "eta_shrinkage": np.array(payload.get("eta_shrinkage", []), dtype=float),
+            "eps_shrinkage": np.array(payload.get("eps_shrinkage", []), dtype=float),
+            "post_hoc_etas": {
+                int(k): np.array(v, dtype=float)
+                for k, v in payload.get("post_hoc_etas", {}).items()
+            },
+            "ofv_history": list(payload.get("ofv_history", [])),
+            "warnings": list(payload.get("warnings", [])),
+            "n_function_evals": int(payload.get("n_function_evals", 0)),
+            "elapsed_time": float(payload.get("elapsed_time", 0.0)),
+            "method": str(payload.get("method", "")),
+            "message": str(payload.get("message", "")),
+            "n_observations": int(payload.get("n_observations", 0)),
+            "n_subjects": int(payload.get("n_subjects", 0)),
+        }
+        if int(payload.get("n_parameters", 0)) > 0:
+            base_kwargs["_n_parameters"] = int(payload["n_parameters"])
+
+        if payload.get("result_type") == "bayesian" or any(
+            key in payload
+            for key in (
+                "posterior_samples",
+                "posterior_samples_by_chain",
+                "r_hat",
+                "n_effective",
+                "posterior_ci_lo",
+                "posterior_ci_hi",
+                "backend_used",
+            )
+        ):
+            return BayesianResult(
+                **base_kwargs,
+                posterior_samples={
+                    str(k): np.array(v, dtype=float)
+                    for k, v in payload.get("posterior_samples", {}).items()
+                },
+                posterior_samples_by_chain={
+                    str(k): np.array(v, dtype=float)
+                    for k, v in payload.get("posterior_samples_by_chain", {}).items()
+                },
+                r_hat=np.array(payload.get("r_hat", []), dtype=float),
+                n_effective=np.array(payload.get("n_effective", []), dtype=float),
+                posterior_ci_lo=np.array(payload.get("posterior_ci_lo", []), dtype=float),
+                posterior_ci_hi=np.array(payload.get("posterior_ci_hi", []), dtype=float),
+                backend_used=str(payload.get("backend_used", "")),
+            )
+
+        return EstimationResult(**base_kwargs)
 
     def restore_fit_context_payloads(
         self,
@@ -493,6 +537,49 @@ class FitService:
         """Serialize a FitContext to a JSON-serializable dict."""
         try:
             result = context.estimation_result
+            estimation_result_payload: dict[str, object] = {
+                "theta_final": result.theta_final.tolist(),
+                "omega_final": result.omega_final.tolist(),
+                "sigma_final": result.sigma_final.tolist(),
+                "ofv": float(result.ofv),
+                "converged": bool(result.converged),
+                "condition_number": result.condition_number,
+                "eta_shrinkage": result.eta_shrinkage.tolist(),
+                "eps_shrinkage": result.eps_shrinkage.tolist(),
+                "post_hoc_etas": {str(k): v.tolist() for k, v in result.post_hoc_etas.items()},
+                "ofv_history": list(result.ofv_history),
+                "warnings": list(result.warnings),
+                "n_function_evals": int(result.n_function_evals),
+                "elapsed_time": float(result.elapsed_time),
+                "method": str(result.method),
+                "message": str(result.message),
+                "n_observations": int(result.n_observations),
+                "n_subjects": int(result.n_subjects),
+                "n_parameters": int(getattr(result, "n_parameters", 0) or 0),
+            }
+            if isinstance(result, BayesianResult):
+                estimation_result_payload.update(
+                    {
+                        "result_type": "bayesian",
+                        "posterior_samples": {
+                            str(k): np.asarray(v, dtype=float).tolist()
+                            for k, v in result.posterior_samples.items()
+                        },
+                        "posterior_samples_by_chain": {
+                            str(k): np.asarray(v, dtype=float).tolist()
+                            for k, v in result.posterior_samples_by_chain.items()
+                        },
+                        "r_hat": np.asarray(result.r_hat, dtype=float).tolist(),
+                        "n_effective": np.asarray(result.n_effective, dtype=float).tolist(),
+                        "posterior_ci_lo": np.asarray(
+                            result.posterior_ci_lo, dtype=float
+                        ).tolist(),
+                        "posterior_ci_hi": np.asarray(
+                            result.posterior_ci_hi, dtype=float
+                        ).tolist(),
+                        "backend_used": str(result.backend_used),
+                    }
+                )
             return {
                 "format_version": 1,
                 "workspace_id": context.workspace_id,
@@ -502,28 +589,92 @@ class FitService:
                 "problem_title": context.problem_title,
                 "estimation_method": context.estimation_method,
                 "dataset_path": context.dataset_path,
-                "estimation_result": {
-                    "theta_final": result.theta_final.tolist(),
-                    "omega_final": result.omega_final.tolist(),
-                    "sigma_final": result.sigma_final.tolist(),
-                    "ofv": float(result.ofv),
-                    "converged": bool(result.converged),
-                    "condition_number": result.condition_number,
-                    "eta_shrinkage": result.eta_shrinkage.tolist(),
-                    "eps_shrinkage": result.eps_shrinkage.tolist(),
-                    "post_hoc_etas": {str(k): v.tolist() for k, v in result.post_hoc_etas.items()},
-                    "ofv_history": list(result.ofv_history),
-                    "warnings": list(result.warnings),
-                    "n_function_evals": int(result.n_function_evals),
-                    "elapsed_time": float(result.elapsed_time),
-                    "method": str(result.method),
-                    "message": str(result.message),
-                    "n_observations": int(result.n_observations),
-                    "n_subjects": int(result.n_subjects),
-                },
+                "estimation_result": estimation_result_payload,
             }
         except Exception:
             return None
+
+    @staticmethod
+    def _theta_param_names(estimation_result: EstimationResult) -> list[str]:
+        n_theta = int(np.asarray(getattr(estimation_result, "theta_final", [])).size)
+        return [f"THETA({index})" for index in range(1, n_theta + 1)]
+
+    @classmethod
+    def _bayesian_tables(
+        cls,
+        estimation_result: BayesianResult,
+    ) -> list[tuple[object, str, str, str]]:
+        try:
+            import pandas as pd
+        except Exception:
+            return []
+
+        param_names = cls._theta_param_names(estimation_result)
+        tables: list[tuple[object, str, str, str]] = []
+        theta_samples = np.asarray(estimation_result.posterior_samples.get("theta", []), dtype=float)
+
+        if theta_samples.ndim == 2 and theta_samples.shape[0] > 0 and theta_samples.shape[1] > 0:
+            summary_rows: list[dict[str, float | str]] = []
+            for index, name in enumerate(param_names[: theta_samples.shape[1]]):
+                samples = theta_samples[:, index]
+                summary_rows.append(
+                    {
+                        "parameter": name,
+                        "mean": float(np.mean(samples)),
+                        "sd": float(np.std(samples, ddof=1)) if samples.shape[0] > 1 else 0.0,
+                        "median": float(np.median(samples)),
+                        "ci_lo": float(np.quantile(samples, 0.025)),
+                        "ci_hi": float(np.quantile(samples, 0.975)),
+                        "map_estimate": float(np.asarray(estimation_result.theta_final)[index]),
+                        "r_hat": float(estimation_result.r_hat[index])
+                        if index < len(estimation_result.r_hat)
+                        else float("nan"),
+                        "n_effective": float(estimation_result.n_effective[index])
+                        if index < len(estimation_result.n_effective)
+                        else float("nan"),
+                        "backend": str(estimation_result.backend_used),
+                    }
+                )
+            tables.append(
+                (
+                    pd.DataFrame(summary_rows),
+                    "posterior-summary",
+                    "Posterior summary",
+                    "posterior_summary_table",
+                )
+            )
+
+        if len(estimation_result.r_hat) > 0:
+            tables.append(
+                (
+                    pd.DataFrame(
+                        {
+                            "parameter": param_names[: len(estimation_result.r_hat)],
+                            "r_hat": np.asarray(estimation_result.r_hat, dtype=float),
+                        }
+                    ),
+                    "mcmc-rhat",
+                    "R-hat table",
+                    "mcmc_rhat_table",
+                )
+            )
+
+        if len(estimation_result.n_effective) > 0:
+            tables.append(
+                (
+                    pd.DataFrame(
+                        {
+                            "parameter": param_names[: len(estimation_result.n_effective)],
+                            "n_effective": np.asarray(estimation_result.n_effective, dtype=float),
+                        }
+                    ),
+                    "mcmc-ess",
+                    "ESS table",
+                    "mcmc_ess_table",
+                )
+            )
+
+        return tables
 
     def _cache_fit_context(
         self,
@@ -1234,17 +1385,26 @@ class FitService:
             except Exception:
                 diag_df = None
 
-        if diag_df is not None:
-            try:
-                ctx.check_cancelled()
-                _append_table(
+            if diag_df is not None:
+                try:
+                    ctx.check_cancelled()
+                    _append_table(
                     diag_df,
                     "diagnostics",
                     f"{title} diagnostics table",
                     "diagnostics_table",
                 )
-            except Exception:
-                pass
+                except Exception:
+                    pass
+
+        bayesian_result = (
+            estimation_result if isinstance(estimation_result, BayesianResult) else None
+        )
+        if bayesian_result is not None:
+            for table_df, suffix, label, role in self._bayesian_tables(bayesian_result):
+                with contextlib.suppress(Exception):
+                    ctx.check_cancelled()
+                    _append_table(table_df, suffix, f"{title} {label.lower()}", role)
 
         # 2. Generate plots, collect (section_title, path) for report ─────
         report_plots: list[tuple[str, str]] = []
@@ -1406,6 +1566,94 @@ class FitService:
                             f"{title} ETA pairs",
                             "eta_pairs",
                             "ETA Pairs",
+                        )
+
+            if bayesian_result is not None:
+                theta_samples = np.asarray(
+                    bayesian_result.posterior_samples.get("theta", []), dtype=float
+                )
+                theta_by_chain = np.asarray(
+                    bayesian_result.posterior_samples_by_chain.get("theta", []), dtype=float
+                )
+                theta_names = self._theta_param_names(bayesian_result)
+                ctx.check_cancelled()
+                ctx.emit("Rendering Bayesian plots", progress=0.91)
+
+                if theta_by_chain.ndim == 3 and theta_by_chain.size > 0:
+                    with contextlib.suppress(Exception):
+                        _append_plot(
+                            mcmc_trace_by_chain_plot(
+                                theta_by_chain,
+                                param_names=theta_names[: theta_by_chain.shape[2]],
+                                title=f"{title} — MCMC traces by chain",
+                            ),
+                            "mcmc-trace-by-chain",
+                            f"{title} MCMC trace by chain",
+                            "mcmc_trace_by_chain",
+                            "Bayesian Trace by Chain",
+                        )
+
+                if len(bayesian_result.r_hat) > 0:
+                    with contextlib.suppress(Exception):
+                        _append_plot(
+                            rhat_plot(
+                                np.asarray(bayesian_result.r_hat, dtype=float),
+                                param_names=theta_names[: len(bayesian_result.r_hat)],
+                                title=f"{title} — R-hat",
+                            ),
+                            "rhat",
+                            f"{title} R-hat",
+                            "rhat_plot",
+                            "Bayesian R-hat",
+                        )
+
+                n_total = 0
+                if theta_by_chain.ndim == 3 and theta_by_chain.size > 0:
+                    n_total = int(theta_by_chain.shape[0] * theta_by_chain.shape[1])
+                elif theta_samples.ndim == 2 and theta_samples.size > 0:
+                    n_total = int(theta_samples.shape[0])
+                if len(bayesian_result.n_effective) > 0 and n_total > 0:
+                    with contextlib.suppress(Exception):
+                        _append_plot(
+                            ess_plot(
+                                np.asarray(bayesian_result.n_effective, dtype=float),
+                                n_total=n_total,
+                                param_names=theta_names[: len(bayesian_result.n_effective)],
+                                title=f"{title} — Effective sample size",
+                            ),
+                            "ess",
+                            f"{title} effective sample size",
+                            "ess_plot",
+                            "Bayesian ESS",
+                        )
+
+                if theta_samples.ndim == 2 and theta_samples.shape[0] > 0 and theta_samples.shape[1] > 0:
+                    with contextlib.suppress(Exception):
+                        _append_plot(
+                            posterior_density_plot(
+                                theta_samples,
+                                param_names=theta_names[: theta_samples.shape[1]],
+                                point_estimate=np.asarray(
+                                    bayesian_result.theta_final, dtype=float
+                                ),
+                                title=f"{title} — Posterior densities",
+                            ),
+                            "posterior-density",
+                            f"{title} posterior densities",
+                            "posterior_density",
+                            "Posterior Densities",
+                        )
+                    with contextlib.suppress(Exception):
+                        _append_plot(
+                            posterior_forest_plot(
+                                theta_samples,
+                                param_names=theta_names[: theta_samples.shape[1]],
+                                title=f"{title} — Posterior forest",
+                            ),
+                            "posterior-forest",
+                            f"{title} posterior forest",
+                            "posterior_forest",
+                            "Posterior Forest",
                         )
         except Exception:
             pass

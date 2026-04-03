@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
+import warnings
 
 from openpkpd.api.model_builder import ModelBuilder
 
 
-def _build(method: str):
+def _build():
     dataset_path = Path("examples/shared_data/warfarin/warfarin.csv")
     return (
         ModelBuilder()
@@ -26,20 +28,31 @@ def _build(method: str):
         .theta([(0.01, 0.9, 20.0), (0.001, 0.13, 5.0), (0.1, 8.7, 200.0)])
         .omega([0.4, 0.3, 0.3])
         .sigma(0.05)
-        .estimation(method=method, isample=60, maxeval=6, seed=42)
+        .estimation(method="IMPMAP", isample=20, maxeval=1, seed=42)
         .build()
     )
 
 
 def main() -> None:
-    imp_result = _build("IMP").fit()
-    impmap_result = _build("IMPMAP").fit()
+    logging.getLogger("openpkpd.estimation.imp").setLevel(logging.ERROR)
 
-    print("IMP theta:", imp_result.theta_final)
-    print("IMP diagnostics:", imp_result.diagnostics)
-    print()
-    print("IMPMAP theta:", impmap_result.theta_final)
-    print("IMPMAP diagnostics:", impmap_result.diagnostics)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        warnings.simplefilter("ignore", category=UserWarning)
+        result = _build().fit()
+    warm_start = result.diagnostics.get("warm_start", {})
+
+    print("Example 31: IMPMAP warm-start diagnostics on warfarin PK")
+    print(f"Method: {result.method}")
+    print(f"Short-run converged: {result.converged}")
+    print(f"Short-run OFV: {result.ofv:.4f}")
+    print("Short-run THETA:", result.theta_final)
+    print("Warm start used:", warm_start.get("used"))
+    print("Warm start method:", warm_start.get("method"))
+    print("Warm start converged:", warm_start.get("converged"))
+    print("Warm start OFV:", warm_start.get("ofv"))
+    print("Warm start message:", warm_start.get("message"))
+    print(f"Recorded OFV evaluations: {len(result.ofv_history or [])}")
 
 
 if __name__ == "__main__":

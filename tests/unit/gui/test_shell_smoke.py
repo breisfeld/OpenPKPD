@@ -3086,6 +3086,89 @@ def test_results_workflow_saves_latest_plot_copy_from_page(tmp_path: Path, monke
 
 
 @pytest.mark.unit
+def test_results_workflow_opens_latest_bayesian_plot_from_review_menu(
+    tmp_path: Path, monkeypatch
+) -> None:
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+
+    trace_path = tmp_path / "results-bayesian-trace.png"
+    trace_path.write_bytes(b"not-a-real-png-but-good-enough-for-bayesian-open")
+    older_plot_path = tmp_path / "results-older-gof.png"
+    older_plot_path.write_bytes(b"older-gof")
+
+    _, qt_gui, qt_widgets = load_qt_modules()
+    app = qt_widgets.QApplication.instance() or qt_widgets.QApplication(
+        ["test", "-platform", "offscreen"]
+    )
+    project = Workspace(name="Results Bayesian review")
+    project_service = ProjectService()
+    run = RunRecord(workflow="fit", status=RunStatus.SUCCEEDED, summary_text="Bayesian fit finished")
+    gof_artifact = ArtifactRecord(
+        kind="plot",
+        label="Older GOF panel",
+        path=str(older_plot_path),
+        source_run_id=run.run_id,
+        metadata={"artifact_role": "plot", "media_type": "image/png", "plot_type": "gof_panel"},
+    )
+    bayes_artifact = ArtifactRecord(
+        kind="plot",
+        label="Bayesian trace",
+        path=str(trace_path),
+        source_run_id=run.run_id,
+        metadata={
+            "artifact_role": "plot",
+            "media_type": "image/png",
+            "plot_type": "mcmc_trace_by_chain",
+        },
+    )
+    posterior_table = ArtifactRecord(
+        kind="table",
+        label="Posterior summary",
+        path=str(tmp_path / "posterior-summary.csv"),
+        source_run_id=run.run_id,
+        metadata={"artifact_role": "posterior_summary_table", "media_type": "text/csv"},
+    )
+    Path(posterior_table.path).write_text("parameter,mean\nTHETA(1),1.0\n", encoding="utf-8")
+    for artifact in (gof_artifact, bayes_artifact, posterior_table):
+        run.artifact_ids.append(artifact.artifact_id)
+        project_service.add_artifact(project, artifact)
+    project_service.add_run(project, run)
+
+    opened_paths: list[str] = []
+    monkeypatch.setattr(
+        qt_gui.QDesktopServices,
+        "openUrl",
+        lambda url: opened_paths.append(url.toLocalFile()) or True,
+    )
+
+    window = create_main_window(project)
+    nav = window.findChild(qt_widgets.QTreeWidget, "workflow-nav")
+    review_button = window.findChild(qt_widgets.QToolButton, "results-review-menu-button")
+    bayesian_action = window.findChild(qt_gui.QAction, "results-open-bayesian-review-button")
+    artifact_list = window.findChild(qt_widgets.QListWidget, "results-artifacts-list")
+
+    assert nav is not None
+    assert review_button is not None
+    assert bayesian_action is not None
+    assert artifact_list is not None
+
+    _select_nav_path(nav, *_scenario_workflow_path(project, "Results"))
+    app.processEvents()
+
+    assert review_button.isEnabled() is True
+    assert bayesian_action.isEnabled() is True
+    labels = [artifact_list.item(i).text() for i in range(artifact_list.count())]
+    assert any("Bayesian — Trace by chain" in label for label in labels)
+    assert any("Posterior summary (CSV)" in label for label in labels)
+
+    bayesian_action.trigger()
+    app.processEvents()
+
+    assert opened_paths == [str(trace_path)]
+
+
+@pytest.mark.unit
 def test_diagnostics_workflow_opens_selected_artifact_from_list_activation(
     tmp_path: Path, monkeypatch
 ) -> None:

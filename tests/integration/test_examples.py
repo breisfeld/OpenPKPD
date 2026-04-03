@@ -42,6 +42,10 @@ CONTRACT_TIMEOUTS = {
     28: 120,
     29: 120,
     30: 180,
+    31: 120,
+    32: 120,
+    33: 120,
+    34: 120,
 }
 
 
@@ -275,3 +279,73 @@ def test_example_30_contract(tmp_path: Path) -> None:
     assert "Fitting ADVAN5 (N=4) via FOCE" in stdout
     assert "Max |ΔIPRED|" in stdout
     assert "Done." in stdout
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_example_31_contract(tmp_path: Path) -> None:
+    result = _run_example(31, tmp_path, timeout=CONTRACT_TIMEOUTS[31])
+    _assert_example_passed(31, result)
+
+    stdout = result.stdout
+    assert "Example 31: IMPMAP warm-start diagnostics on warfarin PK" in stdout
+    assert "Method: IMPMAP" in stdout
+    assert "Short-run converged: False" in stdout
+    assert "Warm start used: True" in stdout
+    assert "Warm start method: FOCEI" in stdout
+    assert "Warm start converged: True" in stdout
+    assert "Recorded OFV evaluations:" in stdout
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_example_32_contract(tmp_path: Path) -> None:
+    result = _run_example(32, tmp_path, timeout=CONTRACT_TIMEOUTS[32])
+    _assert_example_passed(32, result)
+
+    stdout = result.stdout
+    assert "Example 32: Nonparametric support-point estimation" in stdout
+    assert "Synthetic dataset: 12 subjects, 1 ETA on CL, seed=42." in stdout
+    assert "Method: NONPARAMETRIC" in stdout
+    assert "n_support_points: 12" in stdout
+    assert "rank=1 weight=0.4992 eta=[-0.07807372]" in stdout
+    assert "mean ETA:     [-0.0046]" in stdout
+    assert "variance ETA: [0.0159]" in stdout
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_example_33_contract(tmp_path: Path) -> None:
+    result = _run_example(33, tmp_path, timeout=CONTRACT_TIMEOUTS[33])
+    _assert_example_passed(33, result)
+
+    stdout = result.stdout
+    output_dir = tmp_path / "example_33_output"
+    assert "Full TMDD  peak C: 0.989 nmol/L" in stdout
+    assert "QSSA       peak C: 0.994 nmol/L" in stdout
+    assert "MM         peak C: 1.000 nmol/L" in stdout
+    assert "Full TMDD  AUC(0-168h) ≈ 1.6 nmol·h/L" in stdout
+    assert "QSSA       AUC(0-168h) ≈ 1.4 nmol·h/L" in stdout
+    assert "MM         AUC(0-168h) ≈ 15.0 nmol·h/L" in stdout
+    assert (output_dir / "33_tmdd_model.png").exists()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_example_34_contract(tmp_path: Path) -> None:
+    result = _run_example(34, tmp_path, timeout=CONTRACT_TIMEOUTS[34])
+    _assert_example_passed(34, result)
+
+    stdout = result.stdout
+    output_dir = tmp_path / "example_34_output"
+    assert "Single-dose NCA" in stdout
+    assert "Cmax     = 5.572 mg/L" in stdout
+    assert "AUC(0-∞) = 53.18 mg·h/L" in stdout
+    assert "Steady-state NCA (SS=1, tau=12 h)" in stdout
+    assert "Ctrough  = 1.697 mg/L" in stdout
+    assert "Cpeak_ss = 6.830 mg/L" in stdout
+    assert "Cavg_ss  = 4.141 mg/L" in stdout
+    assert "AUCtau   = 49.69 mg·h/L" in stdout
+    assert "R_ac     = 0.934" in stdout
+    assert "%%Fluct  = 123.9%%" in stdout
+    assert (output_dir / "34_multidose_ss_nca.png").exists()

@@ -29,3 +29,8 @@ This is a good starting point if you want to understand:
 - `PFIMEngine.compute_fim(...)`
 - `PFIMEngine.optimize_design(...)`
 - `PFIMEngine.efficiency(...)`
+
+Current support boundary:
+
+- The current PFIM implementation assumes a scalar residual variance.
+- Multi-endpoint, heteroscedastic, and correlated residual-error structures are not yet implemented in this design path and now fail explicitly instead of being silently approximated.

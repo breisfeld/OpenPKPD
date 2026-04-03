@@ -2,7 +2,8 @@
 
 Selected documentation pages for the example suite. The repository currently
 ships 34 self-contained example scripts covering common population PK/PD
-workflows. All scripts can
+workflows, while the docs below cover a curated subset of those scripts in
+worked-example form. All shipped scripts can
 be run directly:
 
 ```bash

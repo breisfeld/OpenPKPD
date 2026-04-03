@@ -502,7 +502,7 @@ message.  Selecting a row populates the detail and artifact panels.
 | **Open residual review** | Open CWRES / residual trends |
 | **Open ETA review** | Open ETA histogram/pairs plots |
 | **Open profile review** | Open profile-likelihood plots |
-| **Open Bayesian review** | Open Bayesian posterior plots |
+| **Open Bayesian review** | Open Bayesian posterior artifacts from the latest Bayesian-capable run |
 
 **Quick actions**:
 
@@ -657,6 +657,14 @@ The Design tab exposes optimal-design controls:
 | **Restarts** spinbox | Number of random restarts |
 
 **Run design** generates summary, metrics, schedule, FIM, and expected-SE artifacts.
+
+Current scope note:
+- the GUI fronts the currently implemented PFIM engine rather than a full
+  multi-endpoint design workbench,
+- residual-error support follows the scalar-variance PFIM boundary documented in
+  the optimal-design example and validation docs,
+- users needing broader design experimentation should prefer the Python API and
+  validate assumptions explicitly.
 
 #### Artifacts tab
 

@@ -20,7 +20,7 @@ NONMEM-style control-stream support, a CLI, and a Qt desktop GUI.
 - **Covariate workflows**: manual covariate coding, imputation helpers, and stepwise SCM
 - **Data/output**: NONMEM-compatible `.lst/.ext/.phi/.cov/.cor` outputs, `$TABLE`, HTML reports, and NCA exports
 - **Advanced integrations**: SBML import, sparse-sampling NCA, built-in multi-core parallelism for estimation and simulation
-- **Examples and tests**: 34 example scripts plus extensive unit/integration/regression coverage
+- **Examples and tests**: 34 shipped example scripts, a smaller curated set of annotated docs pages, and extensive unit/integration/regression coverage
 
 ## Installation
 
@@ -90,9 +90,9 @@ Notable GUI pages and recent improvements:
 - **Dashboard** summarizes scenario readiness, recommended next steps, recent activity, and available follow-on workflows
 - **Model** supports two input modes selectable via radio buttons: **Builder** (form-based ADVAN/TRANS/parameter editor) and **Control stream** (plain-text `.ctl` editor).  When a control stream is opened, its `$DATA` CSV is loaded onto the **Data** screen automatically.  A dataset loaded on the **Data** screen takes priority over the control stream's `$DATA` path at fit time.  Bundled example control streams are listed in a searchable dropdown (visible in Control stream mode).  Every control group has a **?** button showing an informative tooltip.
 - **Fit** shows a **"Fit in progress"** status while an estimation job is running, preventing ambiguity with "Ready to start fit".
-- **Results** keeps common actions visible and places secondary actions under **More actions** menus.  CSV artifacts are now displayed as a rendered interactive table rather than raw text, and the page can jump directly to a strong sibling comparison scenario.
+- **Results** keeps common actions visible and places secondary actions under **More actions** menus.  CSV artifacts are now displayed as a rendered interactive table rather than raw text, and the page can jump directly to a strong sibling comparison scenario.  Bayesian review actions are shown when the current run produced Bayesian posterior artifacts.
 - **Plots** and **Diagnostics** provide focused artifact browsers and preview panes
-- **Advanced** provides **VPC**, **Bootstrap**, **Design**, and **Artifacts** tabs, with secondary settings/log/preview panels hidden behind collapsible sections by default
+- **Advanced** provides **VPC**, **Bootstrap**, **Design**, and **Artifacts** tabs, with secondary settings/log/preview panels hidden behind collapsible sections by default.  The current **Design** tab fronts the implemented PFIM path, whose support boundary is intentionally narrower than the broadest residual-error structures advertised by some external tools; see the validation matrix and optimal-design example docs for the current envelope.
 
 ## Architecture
 
@@ -193,7 +193,10 @@ print("THETA:", result.theta_final)
 See `examples/` for 34 runnable examples covering FO/FOCE, control streams,
 FOCEI optimizer controls, VPC, NCA, optimal design, Bayesian estimation,
 SBML import, DDE, IOV, PBPK, advanced PD, IMP/IMPMAP warm-start comparison,
-nonparametric support-point estimation, and phenobarbital population PK.
+nonparametric support-point estimation, TMDD, multidose steady-state NCA, and
+phenobarbital population PK. The Sphinx example section documents a curated
+subset of those scripts in more detail; shipped examples outnumber annotated
+worked-example pages.
 
 The repository also ships a marimo notebook library under `notebooks/`; install
 `openpkpd[notebooks]` to run them locally.
@@ -377,6 +380,8 @@ sol = dde.solve({"CL": 2.0, "V": 10.0, "TAU": 0.5},
 | 30 | Four-compartment ADVAN5 (micro-rate) model |
 | 31 | IMP vs IMPMAP warm-start comparison on warfarin PK |
 | 32 | Nonparametric support-point estimation on phenobarbital |
+| 33 | TMDD / QSSA / Michaelis-Menten approximation comparison |
+| 34 | Multi-dose steady-state NCA |
 
 ## Comparison with Other Tools
 

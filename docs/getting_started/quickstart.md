@@ -97,7 +97,10 @@ session, the fastest path is usually:
 5. review outputs in **Overview**, **Results**, **Plots**, and **Diagnostics**
 
 The **Advanced** workflow adds tabbed post-fit tools for **VPC**,
-**Bootstrap**, **Design**, and **Artifacts**.
+**Bootstrap**, **Design**, and **Artifacts**. Treat that page as the current
+GUI-facing subset of the broader analysis surface in the Python API; in
+particular, optimal design follows the currently implemented PFIM support
+boundary documented in the examples and validation docs.
 
 ## Diagnostic plots
 

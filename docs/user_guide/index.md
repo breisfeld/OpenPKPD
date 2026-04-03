@@ -8,6 +8,12 @@ audit. Some advanced capabilities are still covered more deeply in `examples/`
 and API docstrings than in narrative documentation, especially for PBPK, DDE,
 Bayesian workflows, bootstrap, and IOV-heavy models.
 
+Use the guide with the validation matrix in mind:
+- the Python API is the broadest surface,
+- the CLI/control-stream workflow tracks a large subset of that surface,
+- the desktop GUI intentionally fronts a narrower, more curated workflow layer,
+- the examples directory is larger than the annotated worked-example section.
+
 ## What this guide covers
 
 - dataset expectations and NONMEM-style inputs

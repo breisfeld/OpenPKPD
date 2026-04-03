@@ -338,19 +338,12 @@ build:
     uv build
 
 # Build a manylinux_2_28 wheel + sdist using the maturin Docker image.
-# Requires Docker. Matches what the CI pipeline produces for Linux.
-# native-cvodes is included: SUNDIALS is compiled inside the container and bundled.
-# Note: entrypoint is overridden to pin cmake<4 before building — CMake 4.0 broke
-# the sundials-sys vendor POSIX-timers test (cmake_minimum_required < 3.5 removed).
+# Requires Docker. See scripts/build_manylinux_wheel.sh for details on the
+# cmake/libclang/BINDGEN workarounds needed inside the container.
 build-manylinux:
     rm -rf dist/
-    docker run --rm -v "$(pwd)":/io --entrypoint /bin/bash ghcr.io/pyo3/maturin \
-        -c "pip install -q 'cmake<4' libclang && \
-            export LIBCLANG_PATH=\$(find / -maxdepth 12 -name 'libclang.so' 2>/dev/null | head -1 | xargs dirname) && \
-            export GCC_INCDIR=\$(/opt/rh/devtoolset-10/root/usr/bin/gcc -print-file-name=include) && \
-            export BINDGEN_EXTRA_CLANG_ARGS=\"-I\$GCC_INCDIR -I/usr/include\" && \
-            echo \"LIBCLANG_PATH=\$LIBCLANG_PATH  GCC_INCDIR=\$GCC_INCDIR\" && \
-            maturin build --release --features native-cvodes --compatibility manylinux_2_28 -i python3.12 --out dist/"
+    docker run --rm -v "$(pwd)":/io --entrypoint bash ghcr.io/pyo3/maturin \
+        /io/scripts/build_manylinux_wheel.sh
     env -u CONDA_PREFIX uv run maturin sdist --out dist/
 
 # Build all PyPI release artefacts: manylinux_2_28 + Windows (cross-compiled) + sdist.
@@ -358,13 +351,8 @@ build-manylinux:
 # Leaves dist/ containing exactly the files to upload.
 build-release-wheels:
     rm -rf dist/
-    docker run --rm -v "$(pwd)":/io --entrypoint /bin/bash ghcr.io/pyo3/maturin \
-        -c "pip install -q 'cmake<4' libclang && \
-            export LIBCLANG_PATH=\$(find / -maxdepth 12 -name 'libclang.so' 2>/dev/null | head -1 | xargs dirname) && \
-            export GCC_INCDIR=\$(/opt/rh/devtoolset-10/root/usr/bin/gcc -print-file-name=include) && \
-            export BINDGEN_EXTRA_CLANG_ARGS=\"-I\$GCC_INCDIR -I/usr/include\" && \
-            echo \"LIBCLANG_PATH=\$LIBCLANG_PATH  GCC_INCDIR=\$GCC_INCDIR\" && \
-            maturin build --release --features native-cvodes --compatibility manylinux_2_28 -i python3.12 --out dist/"
+    docker run --rm -v "$(pwd)":/io --entrypoint bash ghcr.io/pyo3/maturin \
+        /io/scripts/build_manylinux_wheel.sh
     env -u CONDA_PREFIX CARGO_TARGET_DIR=rust/target/windows-wheel CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-gcc CXX_x86_64_pc_windows_gnu=x86_64-w64-mingw32-g++ PYO3_CROSS_PYTHON_VERSION=3.12 uv run maturin build --release --target x86_64-pc-windows-gnu --features native-cvodes -i python3.12 --out dist/
     env -u CONDA_PREFIX uv run maturin sdist --out dist/
 

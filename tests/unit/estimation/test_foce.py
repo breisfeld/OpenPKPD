@@ -649,7 +649,7 @@ def test_estimate_reuses_parallel_worker_pool_across_outer_iterations(
             self.shutdown_calls = 0
             executors.append(self)
 
-        def submit(self, fn, sid, indiv, eta0, theta, omega, sigma, trans, maxiter):
+        def submit(self, fn, sid, indiv, eta0, eta_bounds, theta, omega, sigma, trans, maxiter):
             return _FakeFuture((sid, np.asarray(eta0, dtype=float)))
 
         def shutdown(self, wait: bool = True) -> None:

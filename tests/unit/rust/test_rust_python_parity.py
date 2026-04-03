@@ -11,6 +11,7 @@ from openpkpd._native import import_core_symbol
 from openpkpd.data.event_processor import DoseEvent, SubjectEvents
 from openpkpd.model.individual import IndividualModel
 from openpkpd.model.individual import _likelihood as likelihood_mod
+from openpkpd.pk.analytical.advan1 import ADVAN1
 from openpkpd.pk.analytical.advan2 import ADVAN2
 
 
@@ -112,9 +113,18 @@ def _build_advan2_individual() -> IndividualModel:
 
 
 def _build_advan1_infusion_individual() -> IndividualModel:
+    _advan1_impl = ADVAN1()
+
     class _Advan1Inf:
         advan = 1
         n_compartments = 1
+
+        def solve(self, pk_params, dose_events, times, **kwargs):
+            kwargs.pop("return_amounts", None)
+            return _advan1_impl.solve(pk_params, dose_events, times, **kwargs)
+
+        def apply_trans(self, pk_params, trans):
+            return _advan1_impl.apply_trans(pk_params, trans)
 
     obs_times = np.array([0.5, 1.0, 2.0, 4.0, 8.0, 12.0, 24.0], dtype=float)
     events = SubjectEvents(
@@ -153,6 +163,12 @@ def _build_native_2cmt_individual() -> IndividualModel:
     class _Advan6TwoCmt:
         advan = 6
         n_compartments = 2
+
+        def solve(self, pk_params, dose_events, times, **kwargs):  # pragma: no cover
+            raise NotImplementedError("native path should be used")
+
+        def apply_trans(self, pk_params, trans):  # pragma: no cover
+            return pk_params
 
     obs_times = np.array([0.5, 1.0, 2.0, 4.0, 8.0, 12.0, 24.0], dtype=float)
     events = SubjectEvents(

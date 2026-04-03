@@ -192,6 +192,13 @@ def test_pk_subroutines_notebook_reports_solver_options() -> None:
     _assert_notebook_output_contains(result, html, notebook, "ODE solver options")
     _assert_notebook_output_contains(result, html, notebook, "ADVAN6 method=RK45")
     _assert_notebook_output_contains(result, html, notebook, "ADVAN8 method=Radau")
+    _assert_notebook_output_contains(result, html, notebook, "ADVAN3 Analytical")
+    _assert_notebook_output_contains(
+        result,
+        html,
+        notebook,
+        "ODE solver options vs ADVAN3 analytical",
+    )
 
 
 @skip_no_marimo
@@ -224,7 +231,10 @@ def test_pk_subroutines_notebook_reports_solver_options() -> None:
             "01_quickstart.py",
             [
                 "Method: FO",
+                "OFV: 153.7938",
                 "Converged: True",
+                "Population and Individual Predictions",
+                "Spaghetti Plot",
             ],
         ),
         (

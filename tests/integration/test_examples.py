@@ -32,11 +32,13 @@ SMOKE_TIMEOUTS = {
 
 CONTRACT_TIMEOUTS = {
     1: 120,
+    7: 120,
     6: 120,
     12: 120,
     13: 120,
     14: 180,
     15: 120,
+    16: 120,
     20: 180,
     21: 180,
     22: 120,
@@ -151,6 +153,30 @@ def test_example_06_contract(tmp_path: Path) -> None:
 
 @pytest.mark.integration
 @pytest.mark.slow
+def test_example_07_contract(tmp_path: Path) -> None:
+    result = _run_example(7, tmp_path, timeout=CONTRACT_TIMEOUTS[7])
+    _assert_example_passed(7, result)
+
+    stdout = result.stdout
+    stderr = result.stderr
+    output_dir = tmp_path / "example_07_output"
+    assert "Running FOCE..." in stdout
+    assert "Method: FOCEI" in stdout
+    assert "OFV: 75.9816" in stdout
+    assert "Converged: True" in stdout
+    assert "Created 14 figures." in stdout
+    assert "Figures saved to" in stdout
+    assert "Near-singular Omega" in stdout
+    assert "ETA3 shrinkage is 99.8% (>30%)" in stdout
+    assert "divide by zero encountered in divide" not in stderr
+    assert (output_dir / "07_gof_panel.png").exists()
+    assert (output_dir / "07_cwres_qq.png").exists()
+    assert (output_dir / "07_eta_hist.png").exists()
+    assert (output_dir / "07_ofv_history.png").exists()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
 def test_example_12_contract(tmp_path: Path) -> None:
     result = _run_example(12, tmp_path, timeout=CONTRACT_TIMEOUTS[12])
     _assert_example_passed(12, result)
@@ -225,6 +251,23 @@ def test_example_15_contract(tmp_path: Path) -> None:
     assert "THETA(2)       2.8306" in stdout
     assert "THETA(3)      33.2099" in stdout
     assert "Laplace Approximation Diagnostics" not in stdout
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_example_16_contract(tmp_path: Path) -> None:
+    result = _run_example(16, tmp_path, timeout=CONTRACT_TIMEOUTS[16])
+    _assert_example_passed(16, result)
+
+    stdout = result.stdout
+    output_dir = tmp_path / "example_16_output"
+    assert "Example 16: Delay Differential Equation (DDE) PK model" in stdout
+    assert "0.10            9.8020            9.8000        9.8020" in stdout
+    assert "1.31            7.6948            7.5105        7.6948" in stdout
+    assert "Max ODE vs analytical error: 2.63e-06  (should be < 1e-4)" in stdout
+    assert "Max DDE vs ODE difference:  3.88e-01  (should be > 0 with tau=0.5)" in stdout
+    assert "DDE model with tau=0.5 h produces delayed elimination — as expected." in stdout
+    assert (output_dir / "16_dde_model.png").exists()
 
 
 @pytest.mark.integration

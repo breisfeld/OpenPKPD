@@ -526,6 +526,50 @@ def _eta_data_objective_values_from_predictions(
     return np.sum(obs_term, axis=1, dtype=float)
 
 
+def _safe_obs_term_df(
+    fn,
+    f: np.ndarray,
+    dv: np.ndarray,
+    var_a: float,
+    var_b: float,
+    var_c: float,
+    raw_var: np.ndarray,
+) -> np.ndarray:
+    f_arr = np.asarray(f, dtype=float)
+    dv_arr = np.asarray(dv, dtype=float)
+    mask = np.asarray(raw_var > _VAR_FLOOR, dtype=bool)
+    out = np.empty_like(f_arr, dtype=float)
+    out[~mask] = 2.0 * (f_arr[~mask] - dv_arr[~mask]) / _VAR_FLOOR
+    if np.any(mask):
+        out[mask] = np.asarray(
+            fn(f_arr[mask], dv_arr[mask], var_a, var_b, var_c),
+            dtype=float,
+        )
+    return out
+
+
+def _safe_obs_term_d2f(
+    fn,
+    f: np.ndarray,
+    dv: np.ndarray,
+    var_a: float,
+    var_b: float,
+    var_c: float,
+    raw_var: np.ndarray,
+) -> np.ndarray:
+    f_arr = np.asarray(f, dtype=float)
+    dv_arr = np.asarray(dv, dtype=float)
+    mask = np.asarray(raw_var > _VAR_FLOOR, dtype=bool)
+    out = np.empty_like(f_arr, dtype=float)
+    out[~mask] = 2.0 / _VAR_FLOOR
+    if np.any(mask):
+        out[mask] = np.asarray(
+            fn(f_arr[mask], dv_arr[mask], var_a, var_b, var_c),
+            dtype=float,
+        )
+    return out
+
+
 def _symbolic_cache_dir() -> Path:
     override = os.getenv("OPENPKPD_SYMBOLIC_CACHE_DIR")
     if override:
@@ -1392,15 +1436,11 @@ class SympyAdvan2Trans2Objective(BaseSubjectDerivativeKernel):
         f, df, d2f = self._prediction_mean_and_partials(theta, eta, include_second=True)
         assert d2f is not None
         raw_var = var_a + var_b * f + var_c * (f**2)
-        dterm_df = np.where(
-            raw_var > _VAR_FLOOR,
-            np.asarray(terms["obs_term_df"](f, self.dv, var_a, var_b, var_c), dtype=float),
-            2.0 * (f - self.dv) / _VAR_FLOOR,
+        dterm_df = _safe_obs_term_df(
+            terms["obs_term_df"], f, self.dv, var_a, var_b, var_c, raw_var
         )
-        d2term_df2 = np.where(
-            raw_var > _VAR_FLOOR,
-            np.asarray(hess_terms["obs_term_d2f"](f, self.dv, var_a, var_b, var_c), dtype=float),
-            np.full_like(f, 2.0 / _VAR_FLOOR),
+        d2term_df2 = _safe_obs_term_d2f(
+            hess_terms["obs_term_d2f"], f, self.dv, var_a, var_b, var_c, raw_var
         )
         used_hess = np.einsum("o,oi,oj->ij", d2term_df2, df, df) + np.einsum(
             "o,oij->ij", dterm_df, d2f
@@ -1425,11 +1465,7 @@ class SympyAdvan2Trans2Objective(BaseSubjectDerivativeKernel):
         raw_var = var_a + var_b * f + var_c * (f**2)
         var = np.where(raw_var > _VAR_FLOOR, raw_var, _VAR_FLOOR)
         obs_term = LOG2PI + np.log(var) + (self.dv - f) ** 2 / var
-        dterm_df = np.where(
-            raw_var > _VAR_FLOOR,
-            np.asarray(terms["obs_term_df"](f, self.dv, var_a, var_b, var_c), dtype=float),
-            2.0 * (f - self.dv) / _VAR_FLOOR,
-        )
+        dterm_df = _safe_obs_term_df(terms["obs_term_df"], f, self.dv, var_a, var_b, var_c, raw_var)
         eta_grad_used = df.T @ dterm_df
         for pos, value in zip(self.eta_idx, eta_grad_used, strict=False):
             eta_grad[pos] = float(value)
@@ -1453,11 +1489,7 @@ class SympyAdvan2Trans2Objective(BaseSubjectDerivativeKernel):
         f, _df, _d2f = self._prediction_mean_and_partials(theta, eta)
         theta_jac = self.prediction_theta_jacobian(theta, eta, sigma)
         raw_var = var_a + var_b * f + var_c * (f**2)
-        dterm_df = np.where(
-            raw_var > _VAR_FLOOR,
-            np.asarray(terms["obs_term_df"](f, self.dv, var_a, var_b, var_c), dtype=float),
-            2.0 * (f - self.dv) / _VAR_FLOOR,
-        )
+        dterm_df = _safe_obs_term_df(terms["obs_term_df"], f, self.dv, var_a, var_b, var_c, raw_var)
         return theta_jac.T @ dterm_df
 
     def eta_data_objective_values(
@@ -1690,15 +1722,11 @@ class SympyAdvan1Trans2Objective(BaseSubjectDerivativeKernel):
         f, df, d2f = self._prediction_mean_and_partials(theta, eta, include_second=True)
         assert d2f is not None
         raw_var = var_a + var_b * f + var_c * (f**2)
-        dterm_df = np.where(
-            raw_var > _VAR_FLOOR,
-            np.asarray(terms["obs_term_df"](f, self.dv, var_a, var_b, var_c), dtype=float),
-            2.0 * (f - self.dv) / _VAR_FLOOR,
+        dterm_df = _safe_obs_term_df(
+            terms["obs_term_df"], f, self.dv, var_a, var_b, var_c, raw_var
         )
-        d2term_df2 = np.where(
-            raw_var > _VAR_FLOOR,
-            np.asarray(hess_terms["obs_term_d2f"](f, self.dv, var_a, var_b, var_c), dtype=float),
-            np.full_like(f, 2.0 / _VAR_FLOOR),
+        d2term_df2 = _safe_obs_term_d2f(
+            hess_terms["obs_term_d2f"], f, self.dv, var_a, var_b, var_c, raw_var
         )
         used_hess = np.einsum("o,oi,oj->ij", d2term_df2, df, df) + np.einsum(
             "o,oij->ij", dterm_df, d2f
@@ -1723,11 +1751,7 @@ class SympyAdvan1Trans2Objective(BaseSubjectDerivativeKernel):
         raw_var = var_a + var_b * f + var_c * (f**2)
         var = np.where(raw_var > _VAR_FLOOR, raw_var, _VAR_FLOOR)
         obs_term = LOG2PI + np.log(var) + (self.dv - f) ** 2 / var
-        dterm_df = np.where(
-            raw_var > _VAR_FLOOR,
-            np.asarray(terms["obs_term_df"](f, self.dv, var_a, var_b, var_c), dtype=float),
-            2.0 * (f - self.dv) / _VAR_FLOOR,
-        )
+        dterm_df = _safe_obs_term_df(terms["obs_term_df"], f, self.dv, var_a, var_b, var_c, raw_var)
         eta_grad_used = df.T @ dterm_df
         for pos, value in zip(self.eta_idx, eta_grad_used, strict=False):
             eta_grad[pos] = float(value)
@@ -1751,11 +1775,7 @@ class SympyAdvan1Trans2Objective(BaseSubjectDerivativeKernel):
         f, _df, _d2f = self._prediction_mean_and_partials(theta, eta)
         theta_jac = self.prediction_theta_jacobian(theta, eta, sigma)
         raw_var = var_a + var_b * f + var_c * (f**2)
-        dterm_df = np.where(
-            raw_var > _VAR_FLOOR,
-            np.asarray(terms["obs_term_df"](f, self.dv, var_a, var_b, var_c), dtype=float),
-            2.0 * (f - self.dv) / _VAR_FLOOR,
-        )
+        dterm_df = _safe_obs_term_df(terms["obs_term_df"], f, self.dv, var_a, var_b, var_c, raw_var)
         return theta_jac.T @ dterm_df
 
     def eta_data_objective_values(
@@ -2053,15 +2073,11 @@ class SympyAdvan3Trans4Objective(BaseSubjectDerivativeKernel):
         f, df_full, d2f_full = self._prediction_mean_and_partials(theta, eta, include_second=True)
         assert d2f_full is not None
         raw_var = var_a + var_b * f + var_c * (f**2)
-        dterm_df = np.where(
-            raw_var > _VAR_FLOOR,
-            np.asarray(terms["obs_term_df"](f, self.dv, var_a, var_b, var_c), dtype=float),
-            2.0 * (f - self.dv) / _VAR_FLOOR,
+        dterm_df = _safe_obs_term_df(
+            terms["obs_term_df"], f, self.dv, var_a, var_b, var_c, raw_var
         )
-        d2term_df2 = np.where(
-            raw_var > _VAR_FLOOR,
-            np.asarray(hess_terms["obs_term_d2f"](f, self.dv, var_a, var_b, var_c), dtype=float),
-            np.full_like(f, 2.0 / _VAR_FLOOR),
+        d2term_df2 = _safe_obs_term_d2f(
+            hess_terms["obs_term_d2f"], f, self.dv, var_a, var_b, var_c, raw_var
         )
         full_hess = np.einsum("o,oi,oj->ij", d2term_df2, df_full, df_full) + np.einsum(
             "o,oij->ij", dterm_df, d2f_full
@@ -2087,11 +2103,7 @@ class SympyAdvan3Trans4Objective(BaseSubjectDerivativeKernel):
         raw_var = var_a + var_b * f + var_c * (f**2)
         var = np.where(raw_var > _VAR_FLOOR, raw_var, _VAR_FLOOR)
         obs_term = LOG2PI + np.log(var) + (self.dv - f) ** 2 / var
-        dterm_df = np.where(
-            raw_var > _VAR_FLOOR,
-            np.asarray(terms["obs_term_df"](f, self.dv, var_a, var_b, var_c), dtype=float),
-            2.0 * (f - self.dv) / _VAR_FLOOR,
-        )
+        dterm_df = _safe_obs_term_df(terms["obs_term_df"], f, self.dv, var_a, var_b, var_c, raw_var)
         full_grad = df_full.T @ dterm_df
         for col, pos in enumerate(self.eta_idx):
             if pos is not None:
@@ -2136,11 +2148,7 @@ class SympyAdvan3Trans4Objective(BaseSubjectDerivativeKernel):
         f, _df, _d2f = self._prediction_mean_and_partials(theta, eta)
         theta_jac = self.prediction_theta_jacobian(theta, eta, sigma)
         raw_var = var_a + var_b * f + var_c * (f**2)
-        dterm_df = np.where(
-            raw_var > _VAR_FLOOR,
-            np.asarray(terms["obs_term_df"](f, self.dv, var_a, var_b, var_c), dtype=float),
-            2.0 * (f - self.dv) / _VAR_FLOOR,
-        )
+        dterm_df = _safe_obs_term_df(terms["obs_term_df"], f, self.dv, var_a, var_b, var_c, raw_var)
         return theta_jac.T @ dterm_df
 
     def eta_data_objective_values(
@@ -2424,15 +2432,11 @@ class SympyAdvan4Trans1Objective(BaseSubjectDerivativeKernel):
         f, df, d2f = self._prediction_mean_and_partials(theta, eta, include_second=True)
         assert d2f is not None
         raw_var = var_a + var_b * f + var_c * (f**2)
-        dterm_df = np.where(
-            raw_var > _VAR_FLOOR,
-            np.asarray(terms["obs_term_df"](f, self.dv, var_a, var_b, var_c), dtype=float),
-            2.0 * (f - self.dv) / _VAR_FLOOR,
+        dterm_df = _safe_obs_term_df(
+            terms["obs_term_df"], f, self.dv, var_a, var_b, var_c, raw_var
         )
-        d2term_df2 = np.where(
-            raw_var > _VAR_FLOOR,
-            np.asarray(hess_terms["obs_term_d2f"](f, self.dv, var_a, var_b, var_c), dtype=float),
-            np.full_like(f, 2.0 / _VAR_FLOOR),
+        d2term_df2 = _safe_obs_term_d2f(
+            hess_terms["obs_term_d2f"], f, self.dv, var_a, var_b, var_c, raw_var
         )
         used_hess = np.einsum("o,oi,oj->ij", d2term_df2, df, df) + np.einsum(
             "o,oij->ij", dterm_df, d2f
@@ -2457,11 +2461,7 @@ class SympyAdvan4Trans1Objective(BaseSubjectDerivativeKernel):
         raw_var = var_a + var_b * f + var_c * (f**2)
         var = np.where(raw_var > _VAR_FLOOR, raw_var, _VAR_FLOOR)
         obs_term = LOG2PI + np.log(var) + (self.dv - f) ** 2 / var
-        dterm_df = np.where(
-            raw_var > _VAR_FLOOR,
-            np.asarray(terms["obs_term_df"](f, self.dv, var_a, var_b, var_c), dtype=float),
-            2.0 * (f - self.dv) / _VAR_FLOOR,
-        )
+        dterm_df = _safe_obs_term_df(terms["obs_term_df"], f, self.dv, var_a, var_b, var_c, raw_var)
         eta_grad_used = df.T @ dterm_df
         for pos, value in zip(self.eta_idx, eta_grad_used, strict=False):
             eta_grad[pos] = float(value)
@@ -2521,11 +2521,7 @@ class SympyAdvan4Trans1Objective(BaseSubjectDerivativeKernel):
         f, _df, _d2f = self._prediction_mean_and_partials(theta, eta)
         theta_jac = self.prediction_theta_jacobian(theta, eta, sigma)
         raw_var = var_a + var_b * f + var_c * (f**2)
-        dterm_df = np.where(
-            raw_var > _VAR_FLOOR,
-            np.asarray(terms["obs_term_df"](f, self.dv, var_a, var_b, var_c), dtype=float),
-            2.0 * (f - self.dv) / _VAR_FLOOR,
-        )
+        dterm_df = _safe_obs_term_df(terms["obs_term_df"], f, self.dv, var_a, var_b, var_c, raw_var)
         return theta_jac.T @ dterm_df
 
     def eta_data_objective_values(

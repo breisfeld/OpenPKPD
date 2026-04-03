@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -270,6 +272,30 @@ def test_symbolic_advan2_theta_gradient_matches_finite_difference() -> None:
             expected[i] = (vp - vm) / (2.0 * eps)
 
         np.testing.assert_allclose(analytic, expected, rtol=1e-4, atol=1e-5)
+    finally:
+        _clear_symbolic_caches()
+
+
+def test_symbolic_advan2_zero_variance_floor_avoids_runtime_warning() -> None:
+    pytest.importorskip("sympy")
+    _clear_symbolic_caches()
+    try:
+        model = _make_symbolic_advan2_model()
+        kernel = model.get_subject_derivative_kernel(2)
+        assert kernel is not None
+
+        theta = np.array([1.4, 10.5, 24.0], dtype=float)
+        eta = np.array([0.0, 0.0, 0.0], dtype=float)
+        sigma = np.array([[0.0]], dtype=float)
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            value, grad = kernel.eta_data_objective_value_grad(theta, eta, sigma)
+            hess = kernel.eta_data_objective_hessian(theta, eta, sigma)
+
+        assert np.isfinite(value)
+        assert np.all(np.isfinite(grad))
+        assert np.all(np.isfinite(hess))
     finally:
         _clear_symbolic_caches()
 

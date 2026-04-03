@@ -340,9 +340,12 @@ build:
 # Build a manylinux_2_28 wheel + sdist using the maturin Docker image.
 # Requires Docker. Matches what the CI pipeline produces for Linux.
 # native-cvodes is included: SUNDIALS is compiled inside the container and bundled.
+# Note: entrypoint is overridden to pin cmake<4 before building — CMake 4.0 broke
+# the sundials-sys vendor POSIX-timers test (cmake_minimum_required < 3.5 removed).
 build-manylinux:
     rm -rf dist/
-    docker run --rm -v "$(pwd)":/io ghcr.io/pyo3/maturin build --release --features native-cvodes --compatibility manylinux_2_28 --out dist/
+    docker run --rm -v "$(pwd)":/io --entrypoint /bin/bash ghcr.io/pyo3/maturin \
+        -c "pip install -q 'cmake<4' && maturin build --release --features native-cvodes --compatibility manylinux_2_28 -i python3.12 --out dist/"
     env -u CONDA_PREFIX uv run maturin sdist --out dist/
 
 # Build all PyPI release artefacts: manylinux_2_28 + Windows (cross-compiled) + sdist.
@@ -350,7 +353,8 @@ build-manylinux:
 # Leaves dist/ containing exactly the files to upload.
 build-release-wheels:
     rm -rf dist/
-    docker run --rm -v "$(pwd)":/io ghcr.io/pyo3/maturin build --release --features native-cvodes --compatibility manylinux_2_28 --out dist/
+    docker run --rm -v "$(pwd)":/io --entrypoint /bin/bash ghcr.io/pyo3/maturin \
+        -c "pip install -q 'cmake<4' && maturin build --release --features native-cvodes --compatibility manylinux_2_28 -i python3.12 --out dist/"
     env -u CONDA_PREFIX CARGO_TARGET_DIR=rust/target/windows-wheel CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-gcc CXX_x86_64_pc_windows_gnu=x86_64-w64-mingw32-g++ PYO3_CROSS_PYTHON_VERSION=3.12 uv run maturin build --release --target x86_64-pc-windows-gnu --features native-cvodes -i python3.12 --out dist/
     env -u CONDA_PREFIX uv run maturin sdist --out dist/
 

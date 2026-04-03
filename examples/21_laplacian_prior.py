@@ -193,7 +193,7 @@ def main():
         if out_dir:
             fig.savefig(os.path.join(out_dir, "21_prior_shrinkage.png"), dpi=120)
             print(f"Figure saved to {out_dir}")
-        elif os.environ.get("DISPLAY") or os.name == "nt":
+        elif (os.environ.get("DISPLAY") or os.name == "nt") and "agg" not in matplotlib.get_backend().lower():
             plt.show()
         else:
             print("Figure created (no display available).")

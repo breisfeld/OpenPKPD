@@ -35,6 +35,8 @@ from openpkpd.utils.logging import get_logger
 
 logger = get_logger("estimation.foce")
 
+_ETA_OPTIM_FALLBACK_ABS_BOUND = 10.0
+
 
 class _CachedObjEtaEvaluator:
     def __init__(
@@ -177,6 +179,7 @@ def _make_cached_obj_eta(
 def _optimize_eta_lbfgsb(
     obj_eta: _CachedObjEtaEvaluator,
     eta0: np.ndarray,
+    bounds: list[tuple[float, float]],
     maxiter: int,
 ) -> Any:
     """
@@ -189,6 +192,7 @@ def _optimize_eta_lbfgsb(
         obj_eta,
         eta0,
         method="L-BFGS-B",
+        bounds=bounds,
         jac=obj_eta.gradient if obj_eta.has_native_gradient else "2-point",
         options=(
             {"maxiter": maxiter, "ftol": 1e-10, "eps": 1e-5}
@@ -196,6 +200,47 @@ def _optimize_eta_lbfgsb(
             else {"maxiter": maxiter, "ftol": 1e-10, "eps": 1e-5, "workers": obj_eta.workers}
         ),
     )
+
+
+def _eta_optimizer_bounds(params: ParameterSet) -> list[tuple[float, float]]:
+    """
+    Return finite ETA optimizer bounds derived from current THETA support when possible.
+
+    For common log-normal PK parameterisations, ETA enters as ``theta * exp(eta)``.
+    When the ETA index aligns with a THETA index, use the corresponding
+    ``ThetaSpec`` bounds to keep subject-specific parameters inside a numerically
+    sane region. Fall back to a wide symmetric bound for ETAs that cannot be
+    mapped cleanly.
+    """
+    n_eta = params.n_eta()
+    theta = np.asarray(params.theta, dtype=float)
+    theta_specs = list(getattr(params, "theta_specs", []))
+    bounds: list[tuple[float, float]] = []
+    eps = 1e-12
+
+    for k in range(n_eta):
+        lower = -_ETA_OPTIM_FALLBACK_ABS_BOUND
+        upper = _ETA_OPTIM_FALLBACK_ABS_BOUND
+
+        if k < len(theta_specs) and k < len(theta):
+            spec = theta_specs[k]
+            theta_k = float(theta[k])
+            if theta_k > 0.0:
+                if spec.lower > 0.0:
+                    lower = max(lower, float(np.log(max(spec.lower / theta_k, eps))))
+                if np.isfinite(spec.upper) and spec.upper > 0.0:
+                    upper = min(upper, float(np.log(max(spec.upper / theta_k, eps))))
+
+        if not np.isfinite(lower):
+            lower = -_ETA_OPTIM_FALLBACK_ABS_BOUND
+        if not np.isfinite(upper):
+            upper = _ETA_OPTIM_FALLBACK_ABS_BOUND
+        if lower >= upper:
+            lower = -_ETA_OPTIM_FALLBACK_ABS_BOUND
+            upper = _ETA_OPTIM_FALLBACK_ABS_BOUND
+        bounds.append((lower, upper))
+
+    return bounds
 
 
 def _can_skip_eta_optimization(params: ParameterSet, *, zero_tol: float = 1e-8) -> bool:
@@ -222,6 +267,7 @@ def _worker_optimize_eta(
     subject_id: int,
     indiv: Any,
     eta0: np.ndarray,
+    eta_bounds: list[tuple[float, float]],
     theta: np.ndarray,
     omega: np.ndarray,
     sigma: np.ndarray,
@@ -236,7 +282,7 @@ def _worker_optimize_eta(
     returns (subject_id, eta_hat).
     """
     obj_eta = _make_cached_obj_eta(indiv, theta, omega, sigma, trans)
-    result = _optimize_eta_lbfgsb(obj_eta, eta0, maxiter)
+    result = _optimize_eta_lbfgsb(obj_eta, eta0, eta_bounds, maxiter)
     return subject_id, result.x
 
 
@@ -1120,6 +1166,7 @@ class FOCEMethod(EstimationMethod):
         if _can_skip_eta_optimization(params):
             zero_eta = np.zeros(n_eta, dtype=float)
             return {sid: zero_eta.copy() for sid in subject_ids}
+        eta_bounds = _eta_optimizer_bounds(params)
 
         # Serial path (default)
         if self.n_parallel == 1 or len(subject_ids) <= 1:
@@ -1135,7 +1182,7 @@ class FOCEMethod(EstimationMethod):
                     population_model.trans,
                 )
 
-                res = _optimize_eta_lbfgsb(obj_eta, eta0, self.inner_maxiter)
+                res = _optimize_eta_lbfgsb(obj_eta, eta0, eta_bounds, self.inner_maxiter)
                 eta_hat[sid] = res.x
             return eta_hat
 
@@ -1155,6 +1202,7 @@ class FOCEMethod(EstimationMethod):
                     sid,
                     indiv,
                     eta0,
+                    eta_bounds,
                     params.theta,
                     params.omega,
                     params.sigma,

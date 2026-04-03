@@ -258,8 +258,15 @@ def test_pk_subroutines_notebook_reports_solver_options() -> None:
             "07_pkpd_models.py",
             [
                 "Direct Emax Model",
+                "Emax and Sigmoid Emax Models",
+                "Inhibitory Emax Model (Hill=1.5)",
                 "Indirect Response Model",
+                "Baseline",
                 "Effect Compartment (Ce) Model",
+                "Plasma vs Effect-Site Concentration",
+                "PopulationPDModel",
+                "TMDDModel",
+                "OrdinalLogisticModel",
             ],
         ),
         (

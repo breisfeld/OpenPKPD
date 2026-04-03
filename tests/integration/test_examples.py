@@ -34,11 +34,14 @@ CONTRACT_TIMEOUTS = {
     1: 120,
     6: 120,
     12: 120,
+    13: 120,
     14: 180,
     15: 120,
     20: 180,
+    21: 180,
     22: 120,
     23: 120,
+    24: 120,
     25: 120,
     26: 120,
     27: 120,
@@ -165,6 +168,29 @@ def test_example_12_contract(tmp_path: Path) -> None:
 
 @pytest.mark.integration
 @pytest.mark.slow
+def test_example_13_contract(tmp_path: Path) -> None:
+    result = _run_example(13, tmp_path, timeout=CONTRACT_TIMEOUTS[13])
+    _assert_example_passed(13, result)
+
+    stdout = result.stdout
+    assert "Example 13: Covariate Search — Theophylline PK" in stdout
+    assert "Dataset: NONMEMDataset(n_subjects=6, n_rows=64" in stdout
+    assert "Fitting base model (FOCE, maxeval=80)..." in stdout
+    assert "OFV: -109.7020" in stdout
+    assert "Converged: True" in stdout
+    assert "Manual LRT: WT (power) on CL" in stdout
+    assert "ΔOFV              : 0.0038" in stdout
+    assert "p-value (LRT, 1df): 0.9506" in stdout
+    assert "THETA(4) [WT→CL]  : 0.0212" in stdout
+    assert ">>> WT (power) on CL is NOT significant at 5% level." in stdout
+    assert "SCMEngine: Automatic Stepwise Covariate Search" in stdout
+    assert "Final OFV : -109.7020" in stdout
+    assert "No covariate relationships were accepted." in stdout
+    assert "Example 13 complete." in stdout
+
+
+@pytest.mark.integration
+@pytest.mark.slow
 def test_example_14_contract(tmp_path: Path) -> None:
     result = _run_example(14, tmp_path, timeout=CONTRACT_TIMEOUTS[14])
     _assert_example_passed(14, result)
@@ -221,6 +247,29 @@ def test_example_20_contract(tmp_path: Path) -> None:
 
 @pytest.mark.integration
 @pytest.mark.slow
+def test_example_21_contract(tmp_path: Path) -> None:
+    result = _run_example(21, tmp_path, timeout=CONTRACT_TIMEOUTS[21])
+    _assert_example_passed(21, result)
+
+    stdout = result.stdout
+    output_dir = tmp_path / "example_21_output"
+    assert "Example 21: Laplacian Estimation with Prior Augmentation" in stdout
+    assert "Running FOCE (baseline)..." in stdout
+    assert "FOCE OFV = -58.7740" in stdout
+    assert "Running Laplacian (no prior)..." in stdout
+    assert "Laplacian OFV = -116.8088" in stdout
+    assert "Running Laplacian + prior" in stdout
+    assert "Laplacian+Prior OFV = -101.3085" in stdout
+    assert "KA (hr⁻¹)         0.9000     0.5363       0.5528       0.5510" in stdout
+    assert "CL (L/hr)         0.1300     0.2794       0.2676       0.2667" in stdout
+    assert "V (L)             8.7000    11.4485      11.9031      11.8525" in stdout
+    assert "These OFVs are not directly comparable across methods." in stdout
+    assert "ADVAN2 requires KA > 0" not in stdout
+    assert (output_dir / "21_prior_shrinkage.png").exists()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
 def test_example_22_contract(tmp_path: Path) -> None:
     result = _run_example(22, tmp_path, timeout=CONTRACT_TIMEOUTS[22])
     _assert_example_passed(22, result)
@@ -255,6 +304,31 @@ def test_example_23_contract(tmp_path: Path) -> None:
     assert "ω²_IOV_occ2 =" in stdout
     assert "True ω²_BSV_CL ≈ 0.0400  True ω²_IOV_CL ≈ 0.0225" in stdout
     assert (output_dir / "23_iov_etas.png").exists()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_example_24_contract(tmp_path: Path) -> None:
+    result = _run_example(24, tmp_path, timeout=CONTRACT_TIMEOUTS[24])
+    _assert_example_passed(24, result)
+
+    stdout = result.stdout
+    assert "Example 24: Advanced PD Models" in stdout
+    assert "1. Effect Compartment Model (biophase, Hill equation)" in stdout
+    assert "Ke0  = 0.499  (true: 0.8)" in stdout
+    assert "Emax = 80.07  (true: 90.0)" in stdout
+    assert "OFV  = 181.29  AIC = 189.29  converged = True" in stdout
+    assert "2. Turnover Model (production stimulation, IDR type 1)" in stdout
+    assert "Kin     = 2.051  (true: 2.0)" in stdout
+    assert "OFV = -110.84  AIC = -102.84  converged = True" in stdout
+    assert "3. Tumor Growth Inhibition (Simeoni 2004)" in stdout
+    assert "lambda0 = 0.3007  (true: 0.25)" in stdout
+    assert "OFV = 42.27  AIC = 54.27  converged = True" in stdout
+    assert "4. Placebo Response Model (disease progression)" in stdout
+    assert "E0       = 60.51  (true: 60.0)" in stdout
+    assert "OFV = 31.16  AIC = 39.16  converged = True" in stdout
+    assert "--- Model AIC summary ---" in stdout
+    assert "Turnover             AIC = -102.84  (converged=True)" in stdout
 
 
 @pytest.mark.integration

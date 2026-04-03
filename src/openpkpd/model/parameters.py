@@ -206,7 +206,7 @@ class ParameterSet:
             try:
                 np.linalg.cholesky(result)
             except np.linalg.LinAlgError:
-                logger.warning("_unpack_covariance_blocks: reconstructed matrix is not PD")
+                logger.debug("_unpack_covariance_blocks: reconstructed matrix is not PD")
             return result, idx
 
         matrix = np.zeros_like(template_matrix)
@@ -226,7 +226,7 @@ class ParameterSet:
             try:
                 np.linalg.cholesky(block_result)
             except np.linalg.LinAlgError:
-                logger.warning(
+                logger.debug(
                     "_unpack_covariance_blocks: reconstructed block at offset %d is not PD",
                     offset,
                 )

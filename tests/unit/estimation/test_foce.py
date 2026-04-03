@@ -10,6 +10,7 @@ from openpkpd.estimation.foce import (
     _compute_G_i,
     _compute_G_i_via_sensitivity,
     _can_skip_eta_optimization,
+    _eta_optimizer_bounds,
     _estimate_gradient_norm,
 )
 from openpkpd.model.derivative_kernels import DerivativeKernelCapabilities
@@ -735,6 +736,47 @@ def test_inner_loop_uses_symbolic_jac_when_available(
     assert 1 in eta_hat
     np.testing.assert_allclose(eta_hat[1], [0.25])
     assert population._indiv.value_grad_calls == 1
+
+
+def test_inner_loop_passes_finite_eta_bounds_to_scipy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    population = _DummyPopulationModel()
+    params = _PositiveOmegaParams()
+    expected_bounds = _eta_optimizer_bounds(params)
+
+    def fake_minimize(fun, x0, *args, **kwargs):
+        bounds = kwargs.get("bounds")
+        assert bounds == expected_bounds
+        return SimpleNamespace(x=np.asarray(x0, dtype=float), success=True, message="ok")
+
+    monkeypatch.setattr("openpkpd.estimation.foce.minimize", fake_minimize)
+
+    eta_hat = FOCEMethod(maxeval=1)._inner_loop(population, params)
+
+    assert 1 in eta_hat
+
+
+def test_eta_optimizer_bounds_use_theta_support_when_available() -> None:
+    params = ParameterSet.from_specs(
+        [
+            ThetaSpec(init=1.5, lower=0.3, upper=8.0),
+            ThetaSpec(init=3.0, lower=0.5, upper=15.0),
+            ThetaSpec(init=35.0, lower=10.0, upper=80.0),
+        ],
+        [OmegaSpec(block_size=1, values=[0.1])] * 3,
+        [SigmaSpec(block_size=1, values=[0.1])],
+    )
+
+    bounds = _eta_optimizer_bounds(params)
+
+    assert len(bounds) == 3
+    assert bounds[0][0] == pytest.approx(np.log(0.3 / 1.5))
+    assert bounds[0][1] == pytest.approx(np.log(8.0 / 1.5))
+    assert bounds[1][0] == pytest.approx(np.log(0.5 / 3.0))
+    assert bounds[1][1] == pytest.approx(np.log(15.0 / 3.0))
+    assert bounds[2][0] == pytest.approx(np.log(10.0 / 35.0))
+    assert bounds[2][1] == pytest.approx(np.log(80.0 / 35.0))
 
 
 def test_multistart_returns_best_ofv(monkeypatch: pytest.MonkeyPatch) -> None:

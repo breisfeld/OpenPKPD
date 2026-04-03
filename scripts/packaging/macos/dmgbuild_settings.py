@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 
 app_path = os.environ.get("OPENPKPD_APP_PATH", "dist/pyinstaller/OpenPKPD/OpenPKPD-gui.app")
-version  = os.environ.get("OPENPKPD_VERSION", "0.2.4")
+version  = os.environ.get("OPENPKPD_VERSION", "0.2.7")
 
 # Volume appearance
 application = app_path

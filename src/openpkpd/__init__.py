@@ -41,7 +41,7 @@ from openpkpd.output.report import (
 )
 from openpkpd.parser.control_stream import ControlStream
 
-__version__ = "0.2.4"
+__version__ = "0.2.7"
 
 # ── Optional / progressive imports ──────────────────────────────────────────
 # These use try/except so the package can be imported even if sub-modules

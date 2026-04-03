@@ -271,9 +271,13 @@ def test_pk_subroutines_notebook_reports_solver_options() -> None:
         (
             "10_inference_bootstrap.py",
             [
-                "1-cmt FO   OFV =",
-                "1-cmt FO+WT OFV =",
-                "1-cmt FOCE OFV =",
+                "1-cmt FO   OFV = 64.952",
+                "1-cmt FO+WT OFV = 50000000000.000",
+                "1-cmt FOCE OFV = -15.826",
+                "Degrees of freedom:",
+                "p-value:",
+                "Akaike Weights:",
+                "95% CI",
             ],
         ),
         (

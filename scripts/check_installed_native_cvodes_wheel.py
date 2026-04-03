@@ -25,7 +25,6 @@ from pathlib import Path
 
 
 REQUIRED_NATIVE_CVODES_SYMBOLS = (
-    "native_cvodes_linear_probe",
     "native_cvodes_transit_1cmt_pkpd_probe",
     "native_cvodes_transit_1cmt_pkpd_probe_multidose",
 )

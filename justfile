@@ -356,12 +356,38 @@ build-release-wheels:
     env -u CONDA_PREFIX CARGO_TARGET_DIR=rust/target/windows-wheel CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-gcc CXX_x86_64_pc_windows_gnu=x86_64-w64-mingw32-g++ PYO3_CROSS_PYTHON_VERSION=3.12 uv run maturin build --release --target x86_64-pc-windows-gnu --features native-cvodes -i python3.12 --out dist/
     env -u CONDA_PREFIX uv run maturin sdist --out dist/
 
-# Publish to TestPyPI (reads PYPI_TEST_API_TOKEN from .env)
-publish-to-pypi-test: build-release-wheels
+# Build macOS release artefacts: universal2 wheel (x86_64 + arm64) + sdist.
+# Requires: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+build-release-wheels-macos:
+    rm -rf dist/
+    env -u CONDA_PREFIX MACOSX_DEPLOYMENT_TARGET=11.0 CARGO_TARGET_DIR=rust/target/macos-universal2-wheel uv run maturin build --release --target universal2-apple-darwin --features native-cvodes --out dist/
+    {{uv_dev}} python scripts/check_installed_native_cvodes_wheel.py --require-native-cvodes --wheel "$(ls -t dist/openpkpd-*-macosx*universal2*.whl | head -1)"
+    env -u CONDA_PREFIX uv run maturin sdist --out dist/
+
+# Publish to TestPyPI (reads PYPI_TEST_API_TOKEN from .env).
+# On Linux: builds manylinux_2_28 + Windows wheels + sdist.
+# On macOS: builds universal2 wheel + sdist.
+publish-to-pypi-test:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ "{{os()}}" == "macos" ]]; then
+        just build-release-wheels-macos
+    else
+        just build-release-wheels
+    fi
     uv publish --publish-url https://test.pypi.org/legacy/ --token "$PYPI_TEST_API_TOKEN"
 
-# Publish to PyPI (reads PYPI_API_TOKEN from .env)
-publish-to-pypi: build-release-wheels
+# Publish to PyPI (reads PYPI_API_TOKEN from .env).
+# On Linux: builds manylinux_2_28 + Windows wheels + sdist.
+# On macOS: builds universal2 wheel + sdist.
+publish-to-pypi:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ "{{os()}}" == "macos" ]]; then
+        just build-release-wheels-macos
+    else
+        just build-release-wheels
+    fi
     uv publish --token "$PYPI_API_TOKEN"
 
 # ---------------------------------------------------------------------------

@@ -433,9 +433,59 @@ def test_estimate_laplace_forwards_foce_control_kwargs(
     assert captured_kwargs["interaction"] is True
     assert captured_kwargs["inner_maxiter"] == 11
     assert captured_kwargs["n_parallel"] == 3
+    assert result.diagnostics["laplace"]["foce_interaction_used"] is True
+    assert result.diagnostics["laplace"]["sampling_space"] == "transformed_theta"
     assert result.diagnostics["laplace"]["covariance_source"] == "finite_difference_hessian"
     assert result.diagnostics["laplace"]["ofv_evaluations"] == 9
     assert result.diagnostics["laplace"]["exact_cache_hits"] == 2
+
+
+def test_estimate_laplace_uses_explicit_optimizer_inverse_hessian_policy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import openpkpd.estimation.foce as foce_module
+
+    class _DummyFOCE:
+        def __init__(self, **kwargs: object) -> None:
+            pass
+
+        def estimate(self, population_model, init_params):
+            return EstimationResult(
+                theta_final=np.array([1.0, 2.0]),
+                omega_final=np.eye(1),
+                sigma_final=np.eye(1),
+                ofv=12.0,
+                converged=True,
+                diagnostics={"optimizer": {"inverse_hessian": np.eye(2)}},
+            )
+
+    monkeypatch.setattr(foce_module, "FOCEMethod", _DummyFOCE)
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("finite-difference Hessian path should not be used")
+
+    monkeypatch.setattr(BAYESMethod, "_approx_hessian_covariance", _boom)
+
+    method = BAYESMethod(
+        backend="laplace",
+        n_samples=4,
+        prior_sd_theta=1e8,
+        laplace_covariance="optimizer_inverse_hessian",
+        seed=0,
+    )
+    init_params = ParameterSet(theta=np.array([1.0, 2.0]), omega=np.eye(1), sigma=np.eye(1))
+
+    result = method._estimate_laplace(population_model=None, init_params=init_params)
+
+    assert result.diagnostics["laplace"]["covariance_request"] == "optimizer_inverse_hessian"
+    assert result.diagnostics["laplace"]["covariance_source"] == "optimizer_inverse_hessian"
+
+
+def test_laplace_covariance_policy_rejects_unknown_value() -> None:
+    method = BAYESMethod(backend="laplace", laplace_covariance="unknown_mode")
+
+    with pytest.raises(EstimationError, match="Unsupported laplace_covariance"):
+        method._laplace_covariance_preference()
 
 
 def test_approx_hessian_covariance_forwards_foce_control_kwargs(
@@ -757,6 +807,16 @@ def test_get_estimation_method_bayes_kwargs() -> None:
     assert isinstance(m, BAYESMethod)
     assert m.n_samples == 200
     assert m.backend == "laplace"
+
+
+def test_get_estimation_method_bayes_preserves_interaction_flag() -> None:
+    """Explicit interaction=True must reach BAYES so Laplace can run FOCEI internally."""
+    from openpkpd.estimation import get_estimation_method
+
+    m = get_estimation_method("BAYES", backend="laplace", interaction=True)
+
+    assert isinstance(m, BAYESMethod)
+    assert m._extra_kwargs["interaction"] is True
 
 
 

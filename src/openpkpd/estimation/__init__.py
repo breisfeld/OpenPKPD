@@ -59,6 +59,7 @@ def get_estimation_method(
     elif m == Method.BAYES:
         kwargs.pop("n_parallel", None)
         kwargs.pop("iteration_callback", None)
+        kwargs["interaction"] = interaction
         return BAYESMethod(**kwargs)
     elif m in (Method.NONPARAMETRIC, "NONPARM", "NP"):
         kwargs.pop("n_parallel", None)

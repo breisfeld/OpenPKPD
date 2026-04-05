@@ -64,8 +64,8 @@ class CovariateRelationship:
         covariate:   Covariate column name in the dataset (e.g., 'WT', 'AGE', 'SEX').
         effect:      The functional form linking covariate to parameter.
         reference:   Reference value for the covariate (used for centering).
-                     For categorical covariates this is the reference category label.
-        categories:  For CATEGORICAL effects: ordered list of category labels.
+                     For categorical covariates this is the reference category code.
+        categories:  For CATEGORICAL effects: ordered list of integer category codes.
                      The first category is the reference (multiplier = 1.0).
     """
 
@@ -73,7 +73,7 @@ class CovariateRelationship:
     covariate: str
     effect: CovariateEffect
     reference: float = 70.0
-    categories: list[str] | None = None
+    categories: list[int] | None = None
 
     def __post_init__(self) -> None:
         if self.effect == CovariateEffect.CATEGORICAL and self.categories:
@@ -134,8 +134,8 @@ class CovariateRelationship:
     def apply_categorical(
         self,
         base_value: float,
-        category: str,
-        theta_per_category: dict[str, float],
+        category: int,
+        theta_per_category: dict[int, float],
     ) -> float:
         """
         Apply a categorical effect using per-category theta multipliers.
@@ -145,8 +145,8 @@ class CovariateRelationship:
 
         Args:
             base_value:          The un-adjusted parameter value.
-            category:            The individual's category label.
-            theta_per_category:  Dict mapping category label → theta multiplier.
+            category:            The individual's integer-coded category.
+            theta_per_category:  Dict mapping category code → theta multiplier.
                                  The reference category need not be present.
 
         Returns:

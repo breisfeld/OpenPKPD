@@ -126,9 +126,9 @@ class TestCenteringProperty:
 
     def test_categorical_reference_category_unchanged(self):
         """Reference category (default multiplier=1.0) must not change base_value."""
-        rel = _categorical("CL", "SEX", categories=["female", "male"])
+        rel = _categorical("CL", "SEX", categories=[1, 2])
         base = 2.5
-        result = rel.apply_categorical(base, category="female", theta_per_category={"male": 1.30})
+        result = rel.apply_categorical(base, category=1, theta_per_category={2: 1.30})
         np.testing.assert_allclose(
             result, base, rtol=1e-12, err_msg="Reference category should leave P unchanged"
         )
@@ -353,16 +353,16 @@ class TestCategoricalEffect:
 
     def test_reference_category_multiplier_one(self):
         """Reference category must leave P unchanged (implicit multiplier=1.0)."""
-        rel = _categorical("CL", "SEX", categories=["female", "male"])
+        rel = _categorical("CL", "SEX", categories=[1, 2])
         base = 2.5
-        result = rel.apply_categorical(base, "female", theta_per_category={"male": 1.3})
+        result = rel.apply_categorical(base, 1, theta_per_category={2: 1.3})
         np.testing.assert_allclose(result, base, rtol=1e-12)
 
     def test_nonreference_category_multiplied(self):
         """Non-reference category applies the theta multiplier."""
-        rel = _categorical("CL", "SEX", categories=["female", "male"])
+        rel = _categorical("CL", "SEX", categories=[1, 2])
         base = 2.5
-        result = rel.apply_categorical(base, "male", theta_per_category={"male": 1.3})
+        result = rel.apply_categorical(base, 2, theta_per_category={2: 1.3})
         np.testing.assert_allclose(
             result,
             base * 1.3,
@@ -372,23 +372,23 @@ class TestCategoricalEffect:
 
     def test_three_category_effect(self):
         """Three-category covariate: multipliers for each non-reference category."""
-        rel = _categorical("CL", "RACE", categories=["white", "black", "asian"])
+        rel = _categorical("CL", "RACE", categories=[1, 2, 3])
         base = 3.0
-        theta = {"black": 1.20, "asian": 0.85}
+        theta = {2: 1.20, 3: 0.85}
 
-        np.testing.assert_allclose(rel.apply_categorical(base, "white", theta), base, rtol=1e-12)
+        np.testing.assert_allclose(rel.apply_categorical(base, 1, theta), base, rtol=1e-12)
         np.testing.assert_allclose(
-            rel.apply_categorical(base, "black", theta), base * 1.20, rtol=1e-12
+            rel.apply_categorical(base, 2, theta), base * 1.20, rtol=1e-12
         )
         np.testing.assert_allclose(
-            rel.apply_categorical(base, "asian", theta), base * 0.85, rtol=1e-12
+            rel.apply_categorical(base, 3, theta), base * 0.85, rtol=1e-12
         )
 
     def test_unknown_category_defaults_to_one(self):
         """Categories not in theta_per_category default to multiplier=1.0."""
-        rel = _categorical("CL", "SEX", categories=["female", "male"])
+        rel = _categorical("CL", "SEX", categories=[1, 2])
         base = 2.5
-        result = rel.apply_categorical(base, "other", theta_per_category={"male": 1.3})
+        result = rel.apply_categorical(base, 3, theta_per_category={2: 1.3})
         np.testing.assert_allclose(
             result, base, rtol=1e-12, err_msg="Unknown category should default to multiplier=1.0"
         )

@@ -881,18 +881,18 @@ class BAYESMethod(EstimationMethod):
         t0 = time.time()
         rng = np.random.default_rng(self.seed)
 
-        foce = FOCEMethod(**self._foce_kwargs_for_laplace())
+        foce_kwargs = self._foce_kwargs_for_laplace()
+        foce = FOCEMethod(**foce_kwargs)
         foce_result = foce.estimate(population_model, init_params)
 
         theta_map = foce_result.theta_final
         n_theta = len(theta_map)
 
-        # Prefer the quasi-Newton inverse-Hessian approximation already
-        # produced by the FOCE outer optimizer when available. This is a
-        # standard local Laplace approximation and avoids an additional
-        # expensive finite-difference Hessian pass on ODE-heavy models.
-        hess_cov = self._covariance_from_foce_inverse_hessian(foce_result)
-        covariance_source = "optimizer_inverse_hessian"
+        requested_covariance = self._laplace_covariance_preference()
+        hess_cov = None
+        covariance_source = requested_covariance
+        if requested_covariance == "optimizer_inverse_hessian":
+            hess_cov = self._covariance_from_foce_inverse_hessian(foce_result)
         if hess_cov is None:
             # Fall back to an explicit finite-difference Hessian on the FOCE OFV.
             # The FOCE outer objective is OFV-like (-2 log posterior), so the
@@ -935,7 +935,10 @@ class BAYESMethod(EstimationMethod):
             backend_used="laplace",
             diagnostics={
                 "laplace": {
+                    "foce_interaction_used": bool(foce_kwargs.get("interaction", False)),
+                    "covariance_request": requested_covariance,
                     "covariance_source": covariance_source,
+                    "sampling_space": "transformed_theta",
                     **covariance_diagnostics,
                 }
             },
@@ -949,7 +952,7 @@ class BAYESMethod(EstimationMethod):
         covariance_source: str,
         init_params: Any,
     ) -> np.ndarray:
-        """Draw Laplace posterior samples while respecting THETA support."""
+        """Draw Laplace posterior samples in the transformed Gaussian space."""
         theta_map = np.asarray(theta_map, dtype=float)
         hess_cov = np.asarray(hess_cov, dtype=float)
 
@@ -1317,6 +1320,19 @@ class BAYESMethod(EstimationMethod):
             for key, value in self._extra_kwargs.items()
             if key in supported
         }
+
+    def _laplace_covariance_preference(self) -> str:
+        """Return the requested Laplace covariance construction policy."""
+        preferred = str(
+            self._extra_kwargs.get("laplace_covariance", "optimizer_inverse_hessian")
+        )
+        if preferred not in {"optimizer_inverse_hessian", "finite_difference_hessian"}:
+            raise EstimationError(
+                "Unsupported laplace_covariance "
+                f"{preferred!r}. Supported values: 'optimizer_inverse_hessian', "
+                "'finite_difference_hessian'."
+            )
+        return preferred
 
     def _foce_kwargs_for_nuts(self) -> dict[str, Any]:
         """

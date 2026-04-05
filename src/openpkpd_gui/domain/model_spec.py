@@ -101,6 +101,26 @@ class ModelSpec:
     sigma_values: list[list[float]] = field(default_factory=list)
     estimation: EstimationConfig = field(default_factory=EstimationConfig)
     covariance: CovarianceConfig = field(default_factory=CovarianceConfig)
+    executable_code_trusted: bool = True
+    executable_code_origin: str | None = None
+
+    def has_executable_model_code(self) -> bool:
+        return bool(
+            self.control_stream_text.strip()
+            or self.pk_code.strip()
+            or self.error_code.strip()
+            or self.des_code.strip()
+        )
+
+    def mark_executable_code_untrusted(self, *, origin: str) -> None:
+        if self.has_executable_model_code():
+            self.executable_code_trusted = False
+            self.executable_code_origin = origin
+
+    def mark_executable_code_trusted(self, *, origin: str | None = None) -> None:
+        self.executable_code_trusted = True
+        if origin is not None:
+            self.executable_code_origin = origin
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -118,6 +138,8 @@ class ModelSpec:
             "sigma_values": [list(row) for row in self.sigma_values],
             "estimation": _serialize_estimation_config(self.estimation),
             "covariance": _serialize_covariance_config(self.covariance),
+            "executable_code_trusted": self.executable_code_trusted,
+            "executable_code_origin": self.executable_code_origin,
         }
 
     @classmethod
@@ -137,4 +159,10 @@ class ModelSpec:
             sigma_values=[list(row) for row in payload.get("sigma_values", [])],
             estimation=EstimationConfig(**dict(payload.get("estimation", {}))),
             covariance=CovarianceConfig(**dict(payload.get("covariance", {}))),
+            executable_code_trusted=bool(payload.get("executable_code_trusted", True)),
+            executable_code_origin=(
+                str(payload["executable_code_origin"])
+                if payload.get("executable_code_origin")
+                else None
+            ),
         )

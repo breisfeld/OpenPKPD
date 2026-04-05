@@ -269,6 +269,12 @@ build-core-native-cvodes:
     OPENPKPD_NATIVE_DEV=1 env -u CONDA_PREFIX uv run maturin develop --release --features native-cvodes
     OPENPKPD_NATIVE_DEV=1 {{ uv_dev }} python scripts/check_native_cvodes.py --require-native-cvodes
 
+# Run the serial native sensitivity performance gate.
+# This is kept outside the default pytest suite because wall-clock benchmarks
+# are unstable under xdist worker contention.
+check-native-sensitivity-perf:
+    OPENPKPD_NATIVE_DEV=1 {{ uv_dev }} python scripts/check_native_sensitivity_perf.py
+
 # Build a LOCAL smoke-test wheel for the current platform.
 # The resulting wheel is tagged manylinux_<host-glibc>; it is NOT suitable
 # for PyPI upload because it will not install on systems with older glibc.

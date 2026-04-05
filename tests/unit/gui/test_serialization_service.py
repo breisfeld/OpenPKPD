@@ -7,6 +7,8 @@ import re
 import zipfile
 from pathlib import Path
 
+import pytest
+
 from openpkpd_gui.domain.artifact import ArtifactRecord
 from openpkpd_gui.domain.dataset_asset import DatasetAsset
 from openpkpd_gui.domain.model_spec import ModelSpec
@@ -663,3 +665,48 @@ def test_project_snapshot_marks_missing_external_resources(tmp_path: Path) -> No
 
     assert len(manifest.resources) == 2
     assert all(resource.missing for resource in manifest.resources)
+
+
+def test_load_snapshot_rejects_path_traversal_archive_members(tmp_path: Path) -> None:
+    snapshot_path = tmp_path / "malicious.opkpd"
+    escape_target = tmp_path.parent / "escaped.txt"
+    with zipfile.ZipFile(snapshot_path, "w") as archive:
+        archive.writestr("../../escaped.txt", "owned")
+        archive.writestr(
+            "workspace.json",
+            json.dumps({"project": {}, "resources": [], "format_name": "x", "format_version": 3}),
+        )
+
+    with pytest.raises(ValueError, match="escapes the extraction root"):
+        ProjectSnapshotService().load_snapshot(snapshot_path, extract_dir=tmp_path / "extract")
+
+    assert not escape_target.exists()
+
+
+def test_load_snapshot_marks_imported_model_code_untrusted(tmp_path: Path) -> None:
+    dataset_path = tmp_path / "theo.csv"
+    dataset_path.write_text("ID,TIME,DV\n1,0,0\n", encoding="utf-8")
+
+    workspace = Workspace(name="Imported Snapshot")
+    workspace.active_dataset = DatasetAsset(
+        source_path=str(dataset_path),
+        display_name="theo.csv",
+    )
+    workspace.active_model_spec = ModelSpec(
+        problem_title="Snapshot model",
+        dataset_path=str(dataset_path),
+        pk_code="CL = THETA(1)",
+        error_code="Y = F",
+        theta_rows=[{"init": 1.0, "lower": 0.0, "upper": 10.0}],
+        omega_values=[[0.3]],
+        sigma_values=[[0.1]],
+    )
+    snapshot_path = tmp_path / "imported.opkpd"
+    service = ProjectSnapshotService()
+    service.save_snapshot(workspace, snapshot_path)
+
+    loaded = service.load_snapshot(snapshot_path, extract_dir=tmp_path / "imported-extract")
+
+    assert loaded.project.active_model_spec is not None
+    assert loaded.project.active_model_spec.executable_code_trusted is False
+    assert loaded.project.active_model_spec.executable_code_origin == "imported_snapshot"

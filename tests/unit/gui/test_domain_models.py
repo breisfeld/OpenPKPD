@@ -66,6 +66,21 @@ def test_workspace_round_trip_and_services() -> None:
     assert restored.artifacts[0].label == "HTML report"
 
 
+def test_model_spec_round_trip_preserves_executable_code_trust_state() -> None:
+    model = ModelSpec(
+        problem_title="Example",
+        mode=ModelSpecMode.BUILDER,
+        pk_code="CL=THETA(1)",
+        executable_code_trusted=False,
+        executable_code_origin="imported_snapshot",
+    )
+
+    restored = ModelSpec.from_dict(model.to_dict())
+
+    assert restored.executable_code_trusted is False
+    assert restored.executable_code_origin == "imported_snapshot"
+
+
 def test_workspace_to_dict_handles_recursive_estimation_options() -> None:
     workspace = Workspace(name="Recursive options")
     recursive_options: dict[str, object] = {}

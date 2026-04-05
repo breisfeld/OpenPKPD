@@ -145,6 +145,16 @@ class FitService:
             )
             return result
 
+        if model_spec.has_executable_model_code() and not model_spec.executable_code_trusted:
+            origin = model_spec.executable_code_origin or "imported project data"
+            result.validation.add_error(
+                f"Model code from {origin.replace('_', ' ')} is blocked until it is explicitly trusted.",
+                field_name="active_model_spec",
+                target_workflow="model",
+                target_widget="model-control-stream-text",
+            )
+            return result
+
         translation = self._translation_service.translate(model_spec)
         if translation.mode == ModelSpecMode.BUILDER and translation.builder is not None:
             dataset_error = self._apply_dataset_asset_to_builder(translation.builder, dataset)

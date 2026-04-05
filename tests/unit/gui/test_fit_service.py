@@ -118,6 +118,53 @@ $ESTIMATION METHOD=FOCE
     assert result.estimation_method == "FOCE"
 
 
+def test_prepare_run_blocks_untrusted_imported_model_code(tmp_path: Path) -> None:
+    dataset_path = tmp_path / "theo.csv"
+    _write_dataset(dataset_path)
+    workspace = Workspace(name="Imported snapshot")
+    model_spec = ModelSpec(
+        problem_title="Imported model",
+        dataset_path=str(dataset_path),
+        pk_code="CL = THETA(1) * EXP(ETA(1))",
+        error_code="Y = F * (1 + EPS(1))",
+        theta_rows=[{"init": 1.0, "lower": 0.0, "upper": 10.0}],
+        omega_values=[[0.3]],
+        sigma_values=[[0.1]],
+    )
+    model_spec.mark_executable_code_untrusted(origin="imported_snapshot")
+    workspace.active_model_spec = model_spec
+
+    result = FitService().prepare_run(workspace)
+
+    assert result.ready is False
+    assert result.translation is None
+    assert result.validation.issues
+    assert "blocked until it is explicitly trusted" in result.validation.issues[0].message
+
+
+def test_prepare_run_allows_explicitly_retrusted_imported_model_code(tmp_path: Path) -> None:
+    dataset_path = tmp_path / "theo.csv"
+    _write_dataset(dataset_path)
+    workspace = Workspace(name="Imported snapshot")
+    model_spec = ModelSpec(
+        problem_title="Imported model",
+        dataset_path=str(dataset_path),
+        pk_code="CL = THETA(1) * EXP(ETA(1))",
+        error_code="Y = F * (1 + EPS(1))",
+        theta_rows=[{"init": 1.0, "lower": 0.0, "upper": 10.0}],
+        omega_values=[[0.3]],
+        sigma_values=[[0.1]],
+    )
+    model_spec.mark_executable_code_untrusted(origin="imported_snapshot")
+    model_spec.mark_executable_code_trusted(origin="user_trusted_imported_snapshot")
+    workspace.active_model_spec = model_spec
+
+    result = FitService().prepare_run(workspace)
+
+    assert result.ready is True
+    assert result.translation is not None
+
+
 def test_estimate_control_stream_forwards_advanced_estimation_options(
     tmp_path: Path, monkeypatch
 ) -> None:

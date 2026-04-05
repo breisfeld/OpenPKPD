@@ -7,6 +7,7 @@ import json
 import mimetypes
 import platform
 import re
+import shutil
 import sys
 import tempfile
 import zipfile
@@ -71,6 +72,40 @@ def _artifact_archive_category(kind: str, metadata: Mapping[str, object]) -> str
     if normalized_kind in {"result", "results", "table", "dataset", "nca"}:
         return "results"
     return "outputs"
+
+
+def _validated_archive_path(name: str) -> Path:
+    candidate = Path(name)
+    if candidate.is_absolute():
+        raise ValueError(f"Snapshot archive member uses an absolute path: {name!r}")
+    if candidate.drive:
+        raise ValueError(f"Snapshot archive member uses a drive-prefixed path: {name!r}")
+    if any(part in {"", ".", ".."} for part in candidate.parts):
+        raise ValueError(f"Snapshot archive member escapes the extraction root: {name!r}")
+    return candidate
+
+
+def _resolve_under_root(root: Path, relative_path: str) -> Path:
+    safe_rel = _validated_archive_path(relative_path)
+    resolved_root = root.resolve()
+    target = (resolved_root / safe_rel).resolve()
+    target.relative_to(resolved_root)
+    return target
+
+
+def _extract_snapshot_archive(archive: zipfile.ZipFile, extraction_root: Path) -> None:
+    resolved_root = extraction_root.resolve()
+    for member in archive.infolist():
+        target = _resolve_under_root(resolved_root, member.filename)
+        is_symlink = (member.external_attr >> 16) & 0o170000 == 0o120000
+        if is_symlink:
+            raise ValueError(f"Snapshot archive member is a symbolic link: {member.filename!r}")
+        if member.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with archive.open(member, "r") as src, target.open("wb") as dst:
+            shutil.copyfileobj(src, dst)
 
 
 @dataclass(slots=True)
@@ -474,7 +509,7 @@ class ProjectSnapshotService:
         )
         extraction_root.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(snapshot_path, "r") as archive:
-            archive.extractall(extraction_root)
+            _extract_snapshot_archive(archive, extraction_root)
 
         manifest_path = extraction_root / WORKSPACE_METADATA_FILE
         if not manifest_path.exists():
@@ -482,11 +517,12 @@ class ProjectSnapshotService:
         manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
         manifest = SnapshotManifest.from_dict(manifest_payload)
         workspace = Workspace.from_dict(manifest.project)
+        self._mark_imported_model_specs_untrusted(workspace, source="imported_snapshot")
 
         fit_state_payloads: dict[tuple[str, str], bytes] = {}
         for resource in manifest.resources:
             if resource.archive_path:
-                resource_path = extraction_root / resource.archive_path
+                resource_path = _resolve_under_root(extraction_root, resource.archive_path)
                 resource.extracted_path = str(resource_path)
             scenario_match = None
             if resource.scenario_id:
@@ -527,6 +563,14 @@ class ProjectSnapshotService:
             extracted_root=str(extraction_root),
             fit_state_payloads=fit_state_payloads,
         )
+
+    @staticmethod
+    def _mark_imported_model_specs_untrusted(workspace: Workspace, *, source: str) -> None:
+        for project in workspace.projects:
+            for scenario in project.scenarios:
+                model_spec = scenario.active_model_spec
+                if model_spec is not None:
+                    model_spec.mark_executable_code_untrusted(origin=source)
 
     def _store_dataset(
         self,

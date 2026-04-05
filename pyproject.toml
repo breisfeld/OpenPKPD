@@ -143,6 +143,9 @@ sdist-exclude = [
     "docs/_build/",
     "dist/",
     "build/",
+    "rust/target/",
+    "rust/.venv/",
+    "src/openpkpd/_core*.so",
 ]
 
 [tool.ruff]

@@ -26,6 +26,7 @@ Tests are skipped automatically when the native extension is unavailable
 from __future__ import annotations
 
 import math
+import os
 import time
 from unittest.mock import MagicMock
 
@@ -143,6 +144,11 @@ pytestmark_cvodes = pytest.mark.skipif(
 pytestmark_sens = pytest.mark.skipif(
     _transit_1cmt_pkpd_sens is None, reason="native-cvodes sensitivity probe not compiled in"
 )
+
+
+def _running_under_xdist_worker() -> bool:
+    """Return True when pytest is executing this test inside an xdist worker."""
+    return bool(os.environ.get("PYTEST_XDIST_WORKER"))
 
 
 # ===========================================================================
@@ -1559,6 +1565,11 @@ class TestSensitivityProbePerformance:
 
 
     def test_sensitivity_probe_faster_than_fd_equivalent(self):
+        if _running_under_xdist_worker():
+            pytest.skip(
+                "wall-clock sensitivity benchmark is unstable under xdist worker contention; "
+                "run scripts/check_native_sensitivity_perf.py for the serial release gate"
+            )
         obs   = _SENS_OBS
         dt    = _SENS_DT
         da    = _SENS_DA
@@ -4150,4 +4161,3 @@ class TestUserOdeGiPath:
 
         np.testing.assert_allclose(G, G_fd, rtol=1e-2, atol=1e-8,
                                    err_msg="User ODE G_i deviates from FD reference")
-

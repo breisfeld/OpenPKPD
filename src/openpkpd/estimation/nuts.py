@@ -84,6 +84,7 @@ def _build_tree(
     joint_log_prob: Callable[[np.ndarray, np.ndarray], float],
     delta_max: float,
     rng: np.random.Generator,
+    joint0: float | None = None,
 ) -> tuple:
     """
     Recursively build a NUTS binary tree.
@@ -96,9 +97,11 @@ def _build_tree(
         # Base case: single leapfrog step
         theta_prime, r_prime = _leapfrog(theta, r, grad_log_prob, v * step_size, 1)
         joint = joint_log_prob(theta_prime, r_prime)
+        if joint0 is None:
+            joint0 = joint_log_prob(theta, r)
         n_prime = int(log_u <= joint)
         s_prime = int(joint > log_u - delta_max)
-        alpha_prime = min(1.0, np.exp(joint - joint_log_prob(theta, r)))
+        alpha_prime = min(1.0, np.exp(joint - joint0))
         return (
             theta_prime,
             r_prime,
@@ -134,6 +137,7 @@ def _build_tree(
         joint_log_prob,
         delta_max,
         rng,
+        joint0,
     )
 
     if s_prime:
@@ -160,6 +164,7 @@ def _build_tree(
                 joint_log_prob,
                 delta_max,
                 rng,
+                joint0,
             )
         else:
             (
@@ -184,6 +189,7 @@ def _build_tree(
                 joint_log_prob,
                 delta_max,
                 rng,
+                joint0,
             )
 
         if n_prime > 0:
@@ -401,6 +407,7 @@ class NUTSSampler:
                         self._joint_log_prob,
                         self._delta_max,
                         self._rng,
+                        joint0,
                     )
                 else:
                     (
@@ -425,10 +432,16 @@ class NUTSSampler:
                         self._joint_log_prob,
                         self._delta_max,
                         self._rng,
+                        joint0,
                     )
 
                 if s_prime:
-                    accept = min(1.0, n_prime / max(n_accepted, 1))
+                    # Sample from the newly expanded tree in proportion to the
+                    # number of valid states it contributes relative to the
+                    # states already accumulated. Using only the previous count
+                    # in the denominator biases selection toward later
+                    # subtrees and can skew the chain.
+                    accept = min(1.0, n_prime / max(n_accepted + n_prime, 1))
                     if self._rng.uniform() < accept:
                         theta_m = theta_prime
 

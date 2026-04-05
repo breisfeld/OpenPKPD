@@ -27,7 +27,7 @@ class TestNUTSAgainstExactGaussian:
             return -(precision @ theta)
 
         samples = NUTSSampler(log_prob, grad, delta=0.7, seed=321).sample(
-            np.zeros(2), n_samples=800, n_warmup=400
+            np.zeros(2), n_samples=1200, n_warmup=600
         )
 
         np.testing.assert_allclose(samples.mean(axis=0), np.zeros(2), atol=0.15)

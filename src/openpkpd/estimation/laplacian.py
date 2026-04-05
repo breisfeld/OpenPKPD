@@ -53,11 +53,6 @@ class LaplacianMethod(FOCEMethod):
         H_i is the Hessian of the individual objective at η̂_i.
         """
         omega_inv = np.linalg.inv(repair_pd(params.omega))
-        # H-08: log|Ω| is part of the Laplace marginal likelihood.  Compute
-        # once here; Ω changes each outer iteration so this must not be cached
-        # across calls.
-        _, _ldo = np.linalg.slogdet(params.omega)
-        log_det_omega = float(_ldo)
 
         subject_ids = population_model.subject_ids()
         ofv = self._sum_outer_subject_terms(
@@ -68,7 +63,6 @@ class LaplacianMethod(FOCEMethod):
                 eta_hat,
                 subj_id,
                 omega_inv,
-                log_det_omega,
             ),
         )
 
@@ -85,7 +79,6 @@ class LaplacianMethod(FOCEMethod):
         eta_hat: dict[int, np.ndarray],
         subj_id: int,
         omega_inv: np.ndarray,
-        log_det_omega: float,
     ) -> float:
         eta_i = eta_hat.get(subj_id, np.zeros(params.n_eta()))
         indiv = population_model.individual_model(subj_id)
@@ -115,11 +108,7 @@ class LaplacianMethod(FOCEMethod):
             quad = float(np.sum(residuals**2 / var_vec))
             eta_penalty = float(eta_i @ omega_inv @ eta_i)
 
-            # H-08: full Laplace marginal -2 log p(y_i) requires log|Ω| in
-            # addition to the per-subject FOCE terms.  Ω changes each outer
-            # iteration, so the gradient w.r.t. OMEGA is only correct when
-            # log_det_omega is included here.
-            foce_ofv_i = n_obs * LOG2PI + log_det_ci + log_det_omega + quad + eta_penalty
+            foce_ofv_i = n_obs * LOG2PI + log_det_ci + quad + eta_penalty
 
             def obj_eta(eta: np.ndarray, _indiv=indiv) -> float:
                 return float(
@@ -162,6 +151,5 @@ class LaplacianMethod(FOCEMethod):
             return float(foce_ofv_i + logdet_H)
         except Exception:
             return 1e10
-
 
 

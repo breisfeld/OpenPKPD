@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from openpkpd.api.model_builder import ModelBuilder
+from openpkpd.model.parameters import ParameterSet
 
 
 def _configured_builder() -> ModelBuilder:
@@ -121,3 +122,13 @@ class TestModelBuilderClone:
         assert original._estimation_kwargs.get("maxeval", 9999) != 1, (
             "Original estimation kwargs was mutated through clone"
         )
+
+    def test_2d_omega_and_sigma_inputs_preserve_matrix_structure(self):
+        builder = ModelBuilder()
+        builder.omega([[0.3, 0.0], [0.0, 0.2]])
+        builder.sigma([[0.1, 0.0], [0.0, 0.05]])
+
+        params = ParameterSet.from_specs([], builder._omega_specs, builder._sigma_specs)
+
+        np.testing.assert_allclose(params.omega, np.array([[0.3, 0.0], [0.0, 0.2]]))
+        np.testing.assert_allclose(params.sigma, np.array([[0.1, 0.0], [0.0, 0.05]]))

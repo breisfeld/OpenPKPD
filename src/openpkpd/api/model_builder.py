@@ -364,8 +364,8 @@ class ModelBuilder:
         elif arr.ndim == 2:
             n = arr.shape[0]
             lower_tri = []
-            for col in range(n):
-                for row in range(col, n):
+            for row in range(n):
+                for col in range(row + 1):
                     lower_tri.append(float(arr[row, col]))
             self._omega_specs = [OmegaSpec(block_size=n, values=lower_tri, fixed=fixed)]
         return self
@@ -393,8 +393,8 @@ class ModelBuilder:
             elif arr.ndim == 2:
                 n = arr.shape[0]
                 lower_tri = []
-                for col in range(n):
-                    for row in range(col, n):
+                for row in range(n):
+                    for col in range(row + 1):
                         lower_tri.append(float(arr[row, col]))
                 self._sigma_specs = [SigmaSpec(block_size=n, values=lower_tri, fixed=fixed)]
         return self

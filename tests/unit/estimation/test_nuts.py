@@ -56,6 +56,17 @@ def _banana_log_prob(theta: np.ndarray) -> float:
     return float(-0.5 * ((x**2 + (y - x**2) ** 2) / 2.0))
 
 
+def _student_t5_log_prob(theta: np.ndarray) -> float:
+    """1-D Student-t target with nu=5, up to an additive constant."""
+    x = float(theta[0])
+    return float(-3.0 * np.log1p((x * x) / 5.0))
+
+
+def _student_t5_grad(theta: np.ndarray) -> np.ndarray:
+    x = float(theta[0])
+    return np.array([-(6.0 * x) / (5.0 + x * x)])
+
+
 # ---------------------------------------------------------------------------
 # _leapfrog
 # ---------------------------------------------------------------------------
@@ -227,6 +238,32 @@ class TestBuildTree:
         )
         alpha_prime = result[7]
         assert 0.0 <= alpha_prime <= 1.0, f"alpha_prime={alpha_prime} out of [0,1]"
+
+    def test_base_case_alpha_uses_initial_joint0_when_provided(self):
+        """Acceptance stat must reference the trajectory start, not the local subtree state."""
+        theta_start = np.array([0.5])
+        r_start = np.array([0.3])
+        explicit_joint0 = self._joint(theta_start, r_start) - 0.4
+
+        result = _build_tree(
+            theta_start,
+            r_start,
+            log_u=-5.0,
+            v=1,
+            j=0,
+            step_size=0.1,
+            log_prob=_std_normal_log_prob,
+            grad_log_prob=_std_normal_grad,
+            joint_log_prob=self._joint,
+            delta_max=1000.0,
+            rng=self._rng,
+            joint0=explicit_joint0,
+        )
+        theta_prime = result[4]
+        r_prime = result[1]
+        joint_prime = self._joint(theta_prime, r_prime)
+        expected_alpha = min(1.0, np.exp(joint_prime - explicit_joint0))
+        assert result[7] == pytest.approx(expected_alpha)
 
     def test_base_case_n_alpha_is_one(self):
         """n_alpha′ should always be 1 at the base case (one leaf)."""
@@ -517,6 +554,52 @@ class TestNUTSSamplerAccuracy:
         p90 = float(np.percentile(col, 90))
         assert abs(p10 - (-1.28)) < 0.3, f"10th percentile {p10:.3f} ≠ -1.28"
         assert abs(p90 - (+1.28)) < 0.3, f"90th percentile {p90:.3f} ≠ +1.28"
+
+    def test_radial_second_moment_matches_2d_standard_normal(self):
+        """For 2-D N(0, I), E[||x||^2] = 2 exactly."""
+        sampler = NUTSSampler(_std_normal_log_prob, _std_normal_grad, seed=71)
+        samples = sampler.sample(np.zeros(2), n_samples=600, n_warmup=300)
+        r2 = np.sum(samples * samples, axis=1)
+        assert abs(float(r2.mean()) - 2.0) < 0.35
+
+    def test_ill_conditioned_gaussian_recovers_marginal_scales(self):
+        """Sampler should handle a strongly anisotropic Gaussian target."""
+        cov = np.diag([1e-2, 10.0])
+        precision = np.linalg.inv(cov)
+
+        def log_prob(theta: np.ndarray) -> float:
+            return float(-0.5 * theta @ precision @ theta)
+
+        def grad(theta: np.ndarray) -> np.ndarray:
+            return -(precision @ theta)
+
+        sampler = NUTSSampler(log_prob, grad, delta=0.8, seed=72)
+        samples = sampler.sample(np.zeros(2), n_samples=800, n_warmup=500)
+        std = samples.std(axis=0)
+        np.testing.assert_allclose(std, np.array([0.1, np.sqrt(10.0)]), atol=0.35)
+
+    def test_student_t5_mean_and_central_quantiles(self):
+        """Heavy-tailed targets should still produce correct central summaries."""
+        sampler = NUTSSampler(_student_t5_log_prob, _student_t5_grad, delta=0.75, seed=73)
+        samples = sampler.sample(np.array([0.0]), n_samples=900, n_warmup=500)
+        col = samples[:, 0]
+        q25, q75 = np.percentile(col, [25, 75])
+        assert abs(float(col.mean())) < 0.25
+        assert abs(float(q25) - (-0.727)) < 0.2
+        assert abs(float(q75) - 0.727) < 0.2
+
+    def test_higher_target_accept_leads_to_smaller_adapted_step_size(self):
+        """Dual averaging should shrink epsilon when the target accept rate is higher."""
+        sampler_lo = NUTSSampler(_std_normal_log_prob, _std_normal_grad, delta=0.6, seed=74)
+        sampler_lo.sample(np.array([0.0]), n_samples=80, n_warmup=120)
+
+        sampler_hi = NUTSSampler(_std_normal_log_prob, _std_normal_grad, delta=0.9, seed=74)
+        sampler_hi.sample(np.array([0.0]), n_samples=80, n_warmup=120)
+
+        assert (
+            sampler_hi.last_diagnostics["step_size_final"]
+            < sampler_lo.last_diagnostics["step_size_final"]
+        )
 
     def test_max_tree_depth_respected(self):
         """With max_tree_depth=1, no sample should require more than 2 leapfrog steps.

@@ -4,7 +4,7 @@
   "software_version": "5.0.0",
   "dataset": "warfarin_pk_cp_subset",
   "n_subjects": 32,
-  "n_obs_in_likelihood": 120,
+  "n_obs_in_likelihood": 251,
   "ofv": null,
   "theta": {
     "KA": 0.7662753787,

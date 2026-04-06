@@ -100,7 +100,7 @@ def test_mixed_endpoint_error_routing_runs_and_distinguishes_same_time_observati
         .problem("Mixed-endpoint routing integration test")
         .dataset(dataset)
         .covariates(["DVID"])
-        .subroutines(advan=1, trans=2)
+        .subroutines(advan=1, trans=1)
         .pk(_PK_CODE)
         .error(_ERROR_CODE)
         .theta(

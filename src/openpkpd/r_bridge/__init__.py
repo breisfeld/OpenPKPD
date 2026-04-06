@@ -1,5 +1,5 @@
 """
-R integration bridge for OpenPKPD via rpy2.
+Optional Python-to-R integration bridge for OpenPKPD via rpy2.
 
 Provides a thin, safe wrapper around rpy2 that:
   - Checks for rpy2 availability at import time (no hard dependency).
@@ -10,10 +10,14 @@ Provides a thin, safe wrapper around rpy2 that:
 
 Requirements
 ------------
-``pip install rpy2``
+``pip install "openpkpd[r]"``
 
 If rpy2 is not installed, ``is_r_available()`` returns ``False`` and
 all ``RBridge`` methods raise ``ImportError`` with a clear message.
+
+This module is separate from the R-backed external validation harness, which
+uses ``Rscript`` subprocesses and the repo-local ``.r-lib`` tree instead of
+embedding R inside the Python process.
 
 References
 ----------
@@ -26,7 +30,7 @@ from typing import Any
 
 
 def is_r_available() -> bool:
-    """Return True if rpy2 and a working R installation can be found."""
+    """Return True if the optional rpy2 bridge is importable and usable."""
     try:
         import rpy2.robjects as _ro
 

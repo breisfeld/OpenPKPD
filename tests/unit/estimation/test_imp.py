@@ -335,6 +335,8 @@ def test_imp_estimate_reports_optimizer_and_ess_diagnostics() -> None:
     assert objective["delta_ofv"] is not None
 
     assert importance["isample"] == 80
+    assert importance["proposal_cov_scale"] > 0.0
+    assert importance["proposal_tightenings"] >= 0
     assert importance["ess_warning_threshold"] == pytest.approx(8.0)
     assert set(importance["final_eval_ess_by_subject"]) == {1, 2, 3}
     assert importance["final_eval_min_ess"] is not None
@@ -342,6 +344,36 @@ def test_imp_estimate_reports_optimizer_and_ess_diagnostics() -> None:
     assert importance["final_eval_mean_ess"] is not None
     assert importance["final_eval_median_ess"] is not None
     assert importance["final_eval_n_below_warn_threshold"] >= 0
+
+
+@pytest.mark.unit
+def test_imp_adaptive_low_ess_tightens_proposal_and_doubles_isample(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pop = _MultiSubjectGaussianPopulationModel([0.5, -1.25, 2.0])
+    params = ParameterSet.from_specs(
+        [ThetaSpec(init=0.0, fixed=True)],
+        [OmegaSpec(block_size=1, values=[0.4])],
+        [SigmaSpec(block_size=1, values=[0.6], fixed=True)],
+    )
+
+    call_count = 0
+
+    def _fake_compute_imp_ofv(self, population_model, p):  # noqa: ANN001
+        nonlocal call_count
+        call_count += 1
+        self._last_ess_by_subject = {1: 1.0, 2: 1.0, 3: 1.0}
+        return 100.0 - call_count
+
+    monkeypatch.setattr(IMPMethod, "_compute_imp_ofv", _fake_compute_imp_ofv)
+    monkeypatch.setattr(IMPMethod, "_map_etas", lambda self, pop_model, p: {})
+
+    result = IMPMethod(isample=80, maxeval=2, seed=123).estimate(pop, params)
+
+    importance = result.diagnostics["importance_sampling"]
+    assert importance["isample_doublings"] >= 1
+    assert importance["proposal_tightenings"] >= 1
+    assert importance["proposal_cov_scale"] < 2.0
 
 
 @pytest.mark.unit
@@ -355,6 +387,11 @@ def test_impmap_uses_focei_warm_start(monkeypatch: pytest.MonkeyPatch) -> None:
     warm_theta = np.array([0.75])
     warm_omega = np.array([[0.2]])
     warm_sigma = np.array([[0.6]])
+    warm_post_hoc = {
+        1: np.array([0.1]),
+        2: np.array([-0.2]),
+        3: np.array([0.3]),
+    }
     calls: list[tuple[str, object]] = []
 
     class _FakeFOCE:
@@ -367,6 +404,7 @@ def test_impmap_uses_focei_warm_start(monkeypatch: pytest.MonkeyPatch) -> None:
                 theta_final=warm_theta,
                 omega_final=warm_omega,
                 sigma_final=warm_sigma,
+                post_hoc_etas=warm_post_hoc,
                 converged=True,
                 message="warm-start-ok",
                 ofv=12.3,
@@ -404,6 +442,7 @@ def test_impmap_uses_focei_warm_start(monkeypatch: pytest.MonkeyPatch) -> None:
     np.testing.assert_allclose(warm_x0, expected_x0)
     assert result.diagnostics["warm_start"]["used"] is True
     assert result.diagnostics["warm_start"]["method"] == "FOCEI"
+    assert result.diagnostics["warm_start"]["n_eta_seeds"] == len(warm_post_hoc)
 
 
 @pytest.mark.unit
@@ -438,6 +477,114 @@ def test_imp_does_not_use_focei_warm_start(monkeypatch: pytest.MonkeyPatch) -> N
     result = IMPMethod(isample=10, maxeval=2, seed=123, is_map=False).estimate(pop, params)
 
     assert "warm_start" not in result.diagnostics
+
+
+@pytest.mark.unit
+def test_imp_can_opt_in_to_focei_warm_start(monkeypatch: pytest.MonkeyPatch) -> None:
+    pop = _MultiSubjectGaussianPopulationModel([0.5, -1.25, 2.0])
+    params = ParameterSet.from_specs(
+        [ThetaSpec(init=0.4, lower=0.01, upper=10.0)],
+        [OmegaSpec(block_size=1, values=[0.4])],
+        [SigmaSpec(block_size=1, values=[0.6], fixed=True)],
+    )
+    warm_theta = np.array([0.75])
+    warm_omega = np.array([[0.2]])
+    warm_sigma = np.array([[0.6]])
+    warm_post_hoc = {
+        1: np.array([0.4]),
+        2: np.array([0.0]),
+        3: np.array([-0.1]),
+    }
+    calls: list[tuple[str, object]] = []
+
+    class _FakeFOCE:
+        def __init__(self, **kwargs):
+            calls.append(("ctor", kwargs))
+
+        def estimate(self, population_model, init_params):
+            calls.append(("estimate", init_params.theta.copy()))
+            return SimpleNamespace(
+                theta_final=warm_theta,
+                omega_final=warm_omega,
+                sigma_final=warm_sigma,
+                post_hoc_etas=warm_post_hoc,
+                converged=True,
+                message="warm-start-ok",
+                ofv=12.3,
+            )
+
+    def _fake_minimize(objective, x0, method=None, options=None):
+        calls.append(("x0", np.asarray(x0, dtype=float).copy()))
+        objective(np.asarray(x0, dtype=float))
+        return SimpleNamespace(
+            x=np.asarray(x0, dtype=float),
+            success=True,
+            status=0,
+            message="ok",
+            nit=1,
+            nfev=1,
+        )
+
+    monkeypatch.setattr("openpkpd.estimation.imp.FOCEMethod", _FakeFOCE)
+    monkeypatch.setattr("openpkpd.estimation.imp.minimize", _fake_minimize)
+    monkeypatch.setattr(IMPMethod, "_compute_imp_ofv", lambda self, pop_model, p: 1.0)
+    monkeypatch.setattr(IMPMethod, "_map_etas", lambda self, pop_model, p: {})
+
+    result = IMPMethod(isample=10, maxeval=2, seed=123, is_map=False, warm_start=True).estimate(
+        pop, params
+    )
+
+    assert any(tag == "estimate" for tag, _payload in calls)
+    warm_x0 = next(payload for tag, payload in calls if tag == "x0")
+    expected_x0 = ParameterSet(
+        theta=warm_theta,
+        omega=warm_omega,
+        sigma=warm_sigma,
+        theta_specs=params.theta_specs,
+        omega_specs=params.omega_specs,
+        sigma_specs=params.sigma_specs,
+    ).apply_bounds().to_vector()
+    np.testing.assert_allclose(warm_x0, expected_x0)
+    assert result.diagnostics["warm_start"]["used"] is True
+    assert result.diagnostics["warm_start"]["n_eta_seeds"] == len(warm_post_hoc)
+
+
+@pytest.mark.unit
+def test_map_etas_reuses_warm_start_subject_eta(monkeypatch: pytest.MonkeyPatch) -> None:
+    pop = _MultiSubjectGaussianPopulationModel([0.5, -1.25])
+    params = ParameterSet.from_specs(
+        [ThetaSpec(init=0.4, lower=0.01, upper=10.0)],
+        [OmegaSpec(block_size=1, values=[0.4])],
+        [SigmaSpec(block_size=1, values=[0.6], fixed=True)],
+    )
+    seen_x0: list[np.ndarray] = []
+
+    def _fake_minimize(objective, x0, method=None, jac=None, options=None):
+        seen_x0.append(np.asarray(x0, dtype=float).copy())
+        return SimpleNamespace(
+            x=np.asarray(x0, dtype=float),
+            success=True,
+            status=0,
+            message="ok",
+            nit=1,
+            nfev=1,
+        )
+
+    monkeypatch.setattr("openpkpd.estimation.imp.minimize", _fake_minimize)
+
+    imp = IMPMethod(isample=10, maxeval=1, seed=123, is_map=True)
+    imp._proposal_warm_start = {
+        1: np.array([0.75]),
+        2: np.array([-0.5]),
+    }
+
+    eta_hat = imp._map_etas(pop, params)
+
+    assert len(seen_x0) == 2
+    np.testing.assert_allclose(seen_x0[0], [0.75])
+    np.testing.assert_allclose(seen_x0[1], [-0.5])
+    np.testing.assert_allclose(eta_hat[1], [0.75])
+    np.testing.assert_allclose(eta_hat[2], [-0.5])
 
 
 # ─────────────────────────────────────────────────────────────────────────────

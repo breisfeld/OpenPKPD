@@ -419,6 +419,17 @@ publish-to-pypi:
     uv publish --token "$PYPI_API_TOKEN"
 
 # ---------------------------------------------------------------------------
+# Smoke testing
+# ---------------------------------------------------------------------------
+
+# Run the PyPI smoke test in a clean Docker container.
+# Usage: just smoke-test-pypi 0.2.7
+#        just smoke-test-pypi 0.2.7 --python-version 3.13
+#        just smoke-test-pypi 0.2.7 --require-native-cvodes
+smoke-test-pypi version *args:
+    bash scripts/docker_smoke_test.sh {{ version }} {{ args }}
+
+# ---------------------------------------------------------------------------
 # Housekeeping
 # ---------------------------------------------------------------------------
 

@@ -557,7 +557,7 @@ def test_results_workflow_enables_bayesian_review_and_lists_bayesian_outputs() -
     if not qt_widgets_available():
         pytest.skip("Qt GUI modules are unavailable in this environment")
 
-    _, _, qt_widgets = load_qt_modules()
+    _, qt_gui, qt_widgets = load_qt_modules()
     app = qt_widgets.QApplication.instance() or qt_widgets.QApplication(
         ["test", "-platform", "offscreen"]
     )
@@ -597,7 +597,7 @@ def test_results_workflow_enables_bayesian_review_and_lists_bayesian_outputs() -
         app.processEvents()
 
         review_button = widget.findChild(qt_widgets.QToolButton, "results-review-menu-button")
-        bayesian_action = widget.findChild(qt_widgets.QAction, "results-open-bayesian-review-button")
+        bayesian_action = widget.findChild(qt_gui.QAction, "results-open-bayesian-review-button")
         analysis_combo = widget.findChild(qt_widgets.QComboBox, "results-analysis-filter")
         artifact_list = widget.findChild(qt_widgets.QListWidget, "results-artifacts-list")
         artifact_summary = widget.findChild(qt_widgets.QLabel, "results-artifact-summary-label")
@@ -609,13 +609,13 @@ def test_results_workflow_enables_bayesian_review_and_lists_bayesian_outputs() -
         assert artifact_summary is not None
         assert review_button.isEnabled() is True
         assert bayesian_action.isEnabled() is True
-        assert analysis_combo.currentText() == "Fit"
+        assert analysis_combo.currentText() == "All analyses"
         assert artifact_summary.text().startswith("3 outputs")
 
         labels = [artifact_list.item(i).text() for i in range(artifact_list.count())]
-        assert any("Bayesian — Posterior densities" in label for label in labels)
-        assert any("Posterior summary (CSV)" in label for label in labels)
-        assert any("R-hat table (CSV)" in label for label in labels)
+        assert any("Posterior density  [plot]" == label for label in labels)
+        assert any("Posterior summary  [table]" == label for label in labels)
+        assert any("R-hat table  [table]" == label for label in labels)
     finally:
         widget.close()
         widget.deleteLater()

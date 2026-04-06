@@ -15,17 +15,14 @@ import pytest
 from openpkpd.data.dataset import NONMEMDataset
 from openpkpd.data.event_processor import DoseEvent
 from openpkpd.model.parameters import OmegaSpec, ParameterSet, SigmaSpec, ThetaSpec
+from openpkpd.r_bridge.rscript import build_rscript_env
 
 ROOT = Path(__file__).resolve().parent.parent
 R_LIB_DIR = ROOT / ".r-lib"
 
 # Make the project-local R library visible to tests that spawn Rscript.
 if R_LIB_DIR.exists():
-    existing_r_libs = os.environ.get("R_LIBS_USER", "").strip()
-    if existing_r_libs:
-        os.environ["R_LIBS_USER"] = f"{R_LIB_DIR}{os.pathsep}{existing_r_libs}"
-    else:
-        os.environ["R_LIBS_USER"] = str(R_LIB_DIR)
+    os.environ.update(build_rscript_env(base_env=os.environ, extra_r_libs=[R_LIB_DIR]))
 
 # ── Theophylline dataset (12 subjects, 1-cmt oral, classic NONMEM example) ───
 

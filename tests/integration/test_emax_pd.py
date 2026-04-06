@@ -134,7 +134,7 @@ def _build_emax_fo_model(
         ModelBuilder()
         .problem(problem)
         .dataset(dataset)
-        .subroutines(advan=1, trans=2)
+        .subroutines(advan=1, trans=1)
         .pk(_PK_CODE)
         .error(_ERROR_CODE)
         .theta(
@@ -164,7 +164,7 @@ def _build_fixed_pk_emax_pd_fo_model(
         ModelBuilder()
         .problem(problem)
         .dataset(dataset)
-        .subroutines(advan=1, trans=2)
+        .subroutines(advan=1, trans=1)
         .pk(_FIXED_PK_CODE)
         .error(_PD_ONLY_ERROR_CODE)
         .theta(

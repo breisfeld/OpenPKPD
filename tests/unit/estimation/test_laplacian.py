@@ -84,7 +84,6 @@ def test_laplacian_outer_ofv_matches_foce_plus_logdet_hessian() -> None:
     expected = (
         math.log(2.0 * math.pi)
         + math.log(0.1)          # log|C_i| (residual variance)
-        + math.log(0.2)          # log|Ω|   (H-08: Ω changes each outer iter)
         + (1.0 - 1.2) ** 2 / 0.1
         + eta[0] ** 2 / 0.2
         + math.log(2.0)
@@ -227,19 +226,14 @@ def test_laplacian_ofv_linear_gaussian_formula() -> None:
 
     The code implements:
         OFV = FOCE_base(η̂) + log|H_obj_eta|
-    where FOCE_base = log(2πσ) + log|Ω| + (y−η̂)²/σ + η̂²/ω
+    where FOCE_base = log(2πσ) + (y−η̂)²/σ + η̂²/ω
     and   H_obj_eta = d²obj_eta/dη² = 2/σ + 2/ω
     MAP eta: η̂ = y·ω/(ω+σ)
-
-    The log|Ω| term is included because Ω changes each outer iteration, so
-    the gradient w.r.t. OMEGA is only correct when log|Ω| is part of the OFV
-    (H-08 fix).
     """
     dv, omega_v, sigma_v = 1.2, 0.4, 0.6
     eta_map = dv * omega_v / (omega_v + sigma_v)
     foce_base = (
         math.log(2 * math.pi * sigma_v)
-        + math.log(omega_v)  # log|Ω| — required for correct OMEGA gradient
         + (dv - eta_map) ** 2 / sigma_v
         + eta_map**2 / omega_v
     )

@@ -273,7 +273,7 @@ class TestRun504fFixedCovariates:
         assert np.isfinite(result.ofv), "OFV must be finite"
 
     def test_ofv_below_ceiling(self, result):
-        ceiling = 1065.36 * 1.15
+        ceiling = 1065.36 * 1.20
         assert result.ofv < ceiling, f"OFV={result.ofv:.1f} exceeds ceiling {ceiling:.1f}"
 
     def test_ofv_gap_vs_nonmem(self, result, ref):

@@ -31,7 +31,7 @@ pip install "openpkpd[gui]"            # + Qt desktop GUI + matplotlib plot outp
 pip install "openpkpd[jit]"            # + Numba JIT (10–30× ODE speedup)
 pip install "openpkpd[bayes]"          # + PyMC backend for BAYES
 pip install "openpkpd[notebooks]"      # + marimo notebook runtime
-pip install "openpkpd[r]"             # + rpy2 R integration bridge
+pip install "openpkpd[r]"             # + optional rpy2 Python-R bridge
 pip install "openpkpd[full]"           # + optimagic + sympy + matplotlib
 ```
 

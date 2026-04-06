@@ -13,15 +13,12 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import shutil
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
-from openpkpd.r_bridge import is_r_available
+from openpkpd.r_bridge.rscript import find_rscript, run_rscript
 
 HERE = Path(__file__).parent
 ROOT = HERE.parent.parent
@@ -30,36 +27,27 @@ NLMIXR2_DIR = HERE / "nlmixr2"
 LOCAL_R_LIB = ROOT / ".r-lib"
 
 
-def _r_package_available(name: str) -> bool:
-    if not is_r_available():
+def _r_runtime_available() -> bool:
+    rscript = find_rscript()
+    if rscript is None:
         return False
-    result = subprocess.run(
-        [
-            "Rscript",
-            "-e",
-            f"cat(requireNamespace('{name}', quietly=TRUE))",
-        ],
-        capture_output=True,
-        text=True,
+    result = run_rscript(["-e", "cat(R.home())"], cwd=ROOT)
+    return result.returncode == 0 and bool(result.stdout.strip())
+
+
+def _r_package_available(name: str) -> bool:
+    if not _r_runtime_available():
+        return False
+    result = run_rscript(
+        ["-e", f"cat(requireNamespace('{name}', quietly=TRUE))"],
         cwd=ROOT,
+        extra_r_libs=[LOCAL_R_LIB],
     )
     return result.returncode == 0 and result.stdout.strip() == "TRUE"
 
 
-def _run_rscript_inline(script: str, *, cwd: Path) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
-    existing = env.get("R_LIBS_USER", "")
-    libs = [str(LOCAL_R_LIB)]
-    if existing:
-        libs.append(existing)
-    env["R_LIBS_USER"] = os.pathsep.join(libs)
-    return subprocess.run(
-        ["Rscript", "-e", script],
-        capture_output=True,
-        text=True,
-        cwd=cwd,
-        env=env,
-    )
+def _run_rscript_inline(script: str, *, cwd: Path):
+    return run_rscript(["-e", script], cwd=cwd, extra_r_libs=[LOCAL_R_LIB])
 
 
 def _run_nlmixr2_reference_script(
@@ -72,19 +60,10 @@ def _run_nlmixr2_reference_script(
     shutil.copytree(HERE / "data", tmp_path / "data")
     script_path = temp_dir / script_name
 
-    env = os.environ.copy()
-    existing = env.get("R_LIBS_USER", "")
-    libs = [str(LOCAL_R_LIB)]
-    if existing:
-        libs.append(existing)
-    env["R_LIBS_USER"] = os.pathsep.join(libs)
-
-    result = subprocess.run(
-        ["Rscript", str(script_path)],
+    result = run_rscript(
+        [str(script_path)],
         cwd=temp_dir,
-        capture_output=True,
-        text=True,
-        env=env,
+        extra_r_libs=[LOCAL_R_LIB],
     )
     assert result.returncode == 0, result.stderr[-4000:]
 
@@ -118,7 +97,7 @@ def script_name_to_saem_ref(script_name: str) -> str:
 
 @pytest.mark.external_validation
 class TestLivePKNCAReference:
-    @pytest.mark.skipif(not is_r_available(), reason="R / rpy2 not available")
+    @pytest.mark.skipif(not _r_runtime_available(), reason="Rscript not available")
     @pytest.mark.skipif(not _r_package_available("PKNCA"), reason="R package PKNCA not installed")
     def test_theophylline_summary_matches_frozen_pknca_reference(self) -> None:
         reference = json.loads(PKNCA_REF.read_text())
@@ -205,7 +184,7 @@ class TestLivePKNCAReference:
 
 @pytest.mark.external_validation
 class TestLiveNlmixr2ReferenceGeneration:
-    @pytest.mark.skipif(not is_r_available(), reason="R / rpy2 not available")
+    @pytest.mark.skipif(not _r_runtime_available(), reason="Rscript not available")
     @pytest.mark.skipif(not _r_package_available("nlmixr2"), reason="R package nlmixr2 not installed")
     @pytest.mark.skipif(not _r_package_available("nlmixr2data"), reason="R package nlmixr2data not installed")
     @pytest.mark.slow
@@ -236,7 +215,7 @@ class TestLiveNlmixr2ReferenceGeneration:
                 float(frozen["sigma_prop_err_variance"]), rel=0.10
             )
 
-    @pytest.mark.skipif(not is_r_available(), reason="R / rpy2 not available")
+    @pytest.mark.skipif(not _r_runtime_available(), reason="Rscript not available")
     @pytest.mark.skipif(not _r_package_available("nlmixr2"), reason="R package nlmixr2 not installed")
     @pytest.mark.skipif(not _r_package_available("nlmixr2data"), reason="R package nlmixr2data not installed")
     @pytest.mark.slow

@@ -66,7 +66,7 @@ extract_results <- function(fit, method_name) {
   omega_diag <- diag(fit$omega)
   prop_err_est <- fit$parFixedDf["prop.err", "Estimate"]
   ofv_val <- if (length(fit$objDf$OBJF) == 0 || is.na(fit$objDf$OBJF[1])) {
-    NULL
+    NA_real_
   } else {
     unname(fit$objDf$OBJF[1])
   }
@@ -109,7 +109,7 @@ extract_results <- function(fit, method_name) {
 
 save_json <- function(results, filename) {
   path <- file.path("reference", filename)
-  write_json(results, path, pretty = TRUE, auto_unbox = TRUE)
+  write_json(results, path, pretty = TRUE, auto_unbox = TRUE, na = "null")
   cat(sprintf("Wrote %s\n", path))
 }
 

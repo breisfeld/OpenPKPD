@@ -57,6 +57,10 @@ class IMPMethod(EstimationMethod):
     ESS_WARN_FRACTION: float = 0.10
     #: Maximum number of times isample may be automatically doubled during a run.
     MAX_ISAMPLE_DOUBLINGS: int = 3
+    #: Maximum number of times the Gaussian proposal covariance may be tightened.
+    MAX_PROPOSAL_TIGHTENINGS: int = 3
+    #: Minimum multiplicative scale applied to the Laplace proposal covariance.
+    MIN_PROPOSAL_COV_SCALE: float = 0.25
 
     def __init__(
         self,
@@ -66,15 +70,19 @@ class IMPMethod(EstimationMethod):
         seed: int | None = None,
         n_parallel: int = 1,
         is_map: bool = False,
+        warm_start: bool = False,
         iteration_callback=None,
     ) -> None:
         self.isample = isample
         self._initial_isample = isample  # preserved for diagnostics/reporting
         self._isample_doublings = 0      # count of automatic doublings so far
+        self._proposal_cov_scale = 2.0
+        self._proposal_tightenings = 0
         self.maxeval = maxeval
         self.print_interval = print_interval
         self.n_parallel = n_parallel
         self.is_map = is_map
+        self.warm_start = warm_start
         self.iteration_callback = iteration_callback
         self.rng = np.random.default_rng(seed)
         self._iter = 0
@@ -112,8 +120,10 @@ class IMPMethod(EstimationMethod):
         self._low_ess_subjects = []
         self.isample = self._initial_isample  # reset adaptive isample for each run
         self._isample_doublings = 0
+        self._proposal_cov_scale = 1.0 if self.is_map else 2.0
+        self._proposal_tightenings = 0
 
-        if self.is_map:
+        if self.is_map or self.warm_start:
             params = self._warm_start_with_focei(population_model, params)
 
         # One deterministic seed per subject.  Recreating the generator inside
@@ -151,6 +161,26 @@ class IMPMethod(EstimationMethod):
                 ess_values = np.fromiter(self._last_ess_by_subject.values(), dtype=float)
                 n_low = int(np.sum(ess_values / self.isample < self.ESS_WARN_FRACTION))
                 if n_low > len(ess_values) // 2:
+                    tightened = False
+                    if (
+                        self._proposal_tightenings < self.MAX_PROPOSAL_TIGHTENINGS
+                        and self._proposal_cov_scale > self.MIN_PROPOSAL_COV_SCALE
+                    ):
+                        old_scale = self._proposal_cov_scale
+                        self._proposal_cov_scale = max(
+                            self.MIN_PROPOSAL_COV_SCALE,
+                            self._proposal_cov_scale * 0.5,
+                        )
+                        self._proposal_tightenings += 1
+                        self._proposal_cache.clear()
+                        tightened = True
+                        logger.warning(
+                            "IMP adaptive proposal: %d/%d subjects had ESS/isample < %.2f "
+                            "(tightening %d/%d). covariance scale: %.3f → %.3f.",
+                            n_low, len(ess_values), self.ESS_WARN_FRACTION,
+                            self._proposal_tightenings, self.MAX_PROPOSAL_TIGHTENINGS,
+                            old_scale, self._proposal_cov_scale,
+                        )
                     if self._isample_doublings < self.MAX_ISAMPLE_DOUBLINGS:
                         old_isample = self.isample
                         self.isample *= 2
@@ -163,7 +193,7 @@ class IMPMethod(EstimationMethod):
                             self._isample_doublings, self.MAX_ISAMPLE_DOUBLINGS,
                             old_isample, self.isample,
                         )
-                    else:
+                    elif not tightened:
                         logger.warning(
                             "IMP: %d/%d subjects still have low ESS/isample (< %.2f) "
                             "after %d doublings (isample=%d). "
@@ -260,6 +290,8 @@ class IMPMethod(EstimationMethod):
                 "isample": int(self.isample),
                 "initial_isample": int(self._initial_isample),
                 "isample_doublings": int(self._isample_doublings),
+                "proposal_cov_scale": float(self._proposal_cov_scale),
+                "proposal_tightenings": int(self._proposal_tightenings),
                 "ess_warning_threshold": float(ess_threshold),
                 "final_eval_ess_by_subject": {
                     int(sid): float(ess) for sid, ess in sorted(self._last_ess_by_subject.items())
@@ -310,6 +342,12 @@ class IMPMethod(EstimationMethod):
             "message": str(getattr(warm, "message", "")),
             "ofv": float(getattr(warm, "ofv", np.nan)),
         }
+        warm_etas = getattr(warm, "post_hoc_etas", None) or {}
+        self._proposal_warm_start = {
+            int(sid): np.asarray(eta, dtype=float).copy()
+            for sid, eta in warm_etas.items()
+        }
+        self._warm_start_diagnostics["n_eta_seeds"] = int(len(self._proposal_warm_start))
         return ParameterSet(
             theta=np.asarray(warm.theta_final, dtype=float),
             omega=np.asarray(warm.omega_final, dtype=float),
@@ -477,7 +515,7 @@ class IMPMethod(EstimationMethod):
                 H = numerical_hessian(neg_log_joint, eta_map, eps=1e-4)
             H = repair_pd(H, epsilon=1e-6)
             try:
-                V_prop = 2.0 * np.linalg.inv(H)
+                V_prop = self._proposal_cov_scale * np.linalg.inv(H)
                 V_prop = repair_pd(V_prop, epsilon=1e-8)
                 # Verify the repaired matrix is actually PD before using it as a
                 # proposal covariance; fall back to diagonal if not.
@@ -583,6 +621,10 @@ class IMPMethod(EstimationMethod):
         eta_hat: dict[int, np.ndarray] = {}
         for sid in population_model.subject_ids():
             indiv = population_model.individual_model(sid)
+            eta0 = np.asarray(
+                self._proposal_warm_start.get(sid, np.zeros(params.n_eta(), dtype=float)),
+                dtype=float,
+            ).copy()
 
             def obj(eta: np.ndarray, _indiv=indiv) -> float:
                 return float(
@@ -595,11 +637,10 @@ class IMPMethod(EstimationMethod):
             # Probe once to validate the return type before committing.
             _sg = getattr(indiv, "supports_eta_objective_gradient", None)
             _vg = getattr(indiv, "eta_objective_value_grad", None)
-            _eta0 = np.zeros(params.n_eta())
             _native_grad = False
             if callable(_sg) and _sg(population_model.trans) and callable(_vg):
                 try:
-                    _p = _vg(_eta0, params.theta, params.omega, params.sigma,
+                    _p = _vg(eta0, params.theta, params.omega, params.sigma,
                              trans=population_model.trans)
                     if isinstance(_p, tuple) and len(_p) == 2:
                         _native_grad = True
@@ -621,14 +662,14 @@ class IMPMethod(EstimationMethod):
 
                 res = minimize(
                     obj_with_grad,
-                    np.zeros(params.n_eta()),
+                    eta0,
                     method="L-BFGS-B",
                     jac=True,
                     options={"maxiter": 100},
                 )
             else:
                 res = minimize(
-                    obj, np.zeros(params.n_eta()), method="L-BFGS-B", options={"maxiter": 100}
+                    obj, eta0, method="L-BFGS-B", options={"maxiter": 100}
                 )
             if not getattr(res, 'success', True):
                 logger.warning(

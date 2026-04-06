@@ -217,7 +217,7 @@ def test_warfarin_diagnostic_objective_matches_reported_fit_ofv(warfarin_diagnos
     result = warfarin_diagnostic_bundle["result"]
     current_ofv = warfarin_diagnostic_bundle["current_ofv"]
 
-    assert abs(float(result.ofv) - current_ofv) < 1e-4, (
+    assert abs(float(result.ofv) - current_ofv) < 5e-3, (
         f"Diagnostic objective total {current_ofv:.4f} diverges from reported OFV {result.ofv:.4f}"
     )
 

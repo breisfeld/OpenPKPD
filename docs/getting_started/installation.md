@@ -47,9 +47,12 @@ pip install "OpenPKPD[full]"
 | `symbolic` | `sympy>=1.13` | Symbolic PK solution derivation |
 | `notebooks` | `marimo>=0.10`, `matplotlib>=3.9` | Interactive marimo notebooks |
 | `cluster` | `dask[distributed]>=2024.8` | Distributed cluster-parallel execution |
-| `r` | `rpy2>=3.5` | R interoperability bridge |
+| `r` | `rpy2>=3.5` | Optional Python-R bridge (`openpkpd.r_bridge`) |
 | `full` | plots + optim + sympy | General scientific extras without Bayesian or GUI packages |
 | `docs` | Sphinx + RTD theme | Building this documentation |
+
+The R-backed external validation scripts use `Rscript` and the repo-local
+`.r-lib` library tree directly. They do not require `rpy2`.
 
 ## Verifying the install
 

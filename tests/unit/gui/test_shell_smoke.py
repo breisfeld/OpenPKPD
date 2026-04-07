@@ -3159,8 +3159,8 @@ def test_results_workflow_opens_latest_bayesian_plot_from_review_menu(
     assert review_button.isEnabled() is True
     assert bayesian_action.isEnabled() is True
     labels = [artifact_list.item(i).text() for i in range(artifact_list.count())]
-    assert any("Bayesian — Trace by chain" in label for label in labels)
-    assert any("Posterior summary (CSV)" in label for label in labels)
+    assert any("Bayesian trace  [plot]" == label for label in labels)
+    assert any("Posterior summary  [table]" == label for label in labels)
 
     bayesian_action.trigger()
     app.processEvents()

@@ -61,6 +61,7 @@ _VALID_ADVAN_TRANS: dict[int, set[int] | None] = {
     2:  {1, 2},           # 1-cmt oral: same
     3:  {1, 3, 4, 5},     # 2-cmt IV: TRANS1 (micro), TRANS3/4/5
     4:  {1, 3, 4, 5},     # 2-cmt oral: same
+    5:  {1},              # N-cmt general linear: TRANS1 (micro rate constants)
     11: {1, 3, 4, 5, 6},  # 3-cmt IV: adds TRANS6
     12: {1, 3, 4, 5, 6},  # 3-cmt oral
     6:  None,             # general ODE: no TRANS restriction

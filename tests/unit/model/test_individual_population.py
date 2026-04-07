@@ -11,6 +11,7 @@ from openpkpd.data.dataset import NONMEMDataset
 from openpkpd.data.event_processor import DoseEvent, SubjectEvents
 from openpkpd.model.derivative_kernels import DerivativeKernelCapabilities
 from openpkpd.model.individual import IndividualModel
+from openpkpd.model.individual._base import _NativeOdeTemplate
 from openpkpd.model.parameters import ParameterSet
 from openpkpd.model.population import PopulationModel
 from openpkpd.model.residuals import log_likelihood_normal
@@ -1837,6 +1838,25 @@ _OBS_DV = np.array([10.0, 9.0, 7.0, 3.0], dtype=float)
 _DVID_COVARIATES = [{"DVID": 1.0}, {"DVID": 1.0}, {"DVID": 2.0}, {"DVID": 2.0}]
 
 
+def _enable_native_contract_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Force gate 1 to see a native template without relying on compiled probes."""
+    monkeypatch.setattr(
+        "openpkpd.model.individual._pk_solution._NATIVE_ODE_TEMPLATES",
+        [
+            _NativeOdeTemplate(
+                name="fake_native_gate",
+                required_names=(),
+                n_states=4,
+                output_cmt_idx=0,
+                vol_param_name="V",
+                state_probe_fn=object(),
+                sens_probe_fn=None,
+                eligible_advans=frozenset({1, 2, 3, 4, 6}),
+            )
+        ],
+    )
+
+
 class _FakeADVAN6(PKSubroutine):
     """Minimal PKSubroutine that declares advan=6."""
     advan = 6
@@ -1954,10 +1974,7 @@ class TestNativeAdvan6DetectionGates:
     def test_gate_wrong_advan_number_returns_none(self, monkeypatch) -> None:
         # ADVAN7 is not in _NATIVE_ELIGIBLE_ADVANS; contract must be None.
         # (ADVAN2 is now eligible via the P1.3 analytical probes.)
-        monkeypatch.setattr(
-            "openpkpd.model.individual._base._native_cvodes_transit_1cmt_pkpd_probe_rust",
-            lambda *a, **kw: [],
-        )
+        _enable_native_contract_gate(monkeypatch)
         model = _build_mixed_pkpd_model(pk_subroutine=_FakeADVAN7())
         assert model._native_ode_contract is None
 
@@ -1967,10 +1984,7 @@ class TestNativeAdvan6DetectionGates:
         proportional / additive / combined_* are now accepted; a custom
         multi-EPS pattern that doesn't match any known template is still rejected.
         """
-        monkeypatch.setattr(
-            "openpkpd.model.individual._base._native_cvodes_transit_1cmt_pkpd_probe_rust",
-            lambda *a, **kw: [],
-        )
+        _enable_native_contract_gate(monkeypatch)
         compiler = NMTRANCompiler()
         # This 4-line error block doesn't match any recognized template.
         unknown_error = (
@@ -1998,10 +2012,7 @@ class TestNativeAdvan6DetectionGates:
 
     def test_proportional_error_model_activates_native_path(self, monkeypatch) -> None:
         """After P1b: proportional error model now builds a non-None contract."""
-        monkeypatch.setattr(
-            "openpkpd.model.individual._base._native_cvodes_transit_1cmt_pkpd_probe_rust",
-            lambda *a, **kw: [],
-        )
+        _enable_native_contract_gate(monkeypatch)
         model = _build_mixed_pkpd_model(
             error_code=_SIMPLE_PROP_ERROR_CODE,
             obs_covariates=None,
@@ -2011,10 +2022,7 @@ class TestNativeAdvan6DetectionGates:
         assert contract["is_pkpd"] is False
 
     def test_gate_occasion_indices_returns_none(self, monkeypatch) -> None:
-        monkeypatch.setattr(
-            "openpkpd.model.individual._base._native_cvodes_transit_1cmt_pkpd_probe_rust",
-            lambda *a, **kw: [],
-        )
+        _enable_native_contract_gate(monkeypatch)
         model = _build_mixed_pkpd_model(
             occasion_indices=np.array([1, 1, 2, 2]),
         )
@@ -2028,10 +2036,7 @@ class TestNativeAdvan6DetectionGates:
         pk_callable evaluated at baseline returns the same micro-params always.
         """
         import pandas as pd
-        monkeypatch.setattr(
-            "openpkpd.model.individual._base._native_cvodes_transit_1cmt_pkpd_probe_rust",
-            lambda *a, **kw: [],
-        )
+        _enable_native_contract_gate(monkeypatch)
         cov_df = pd.DataFrame({"TIME": _OBS_TIMES, "DVID": [1, 1, 2, 2], "WT": [70, 70, 70, 70]})
         model = _build_mixed_pkpd_model(covariate_df=cov_df)
         # Constant WT → contract must be built (not None)
@@ -2040,28 +2045,19 @@ class TestNativeAdvan6DetectionGates:
     def test_gate_timevarying_covariate_column_returns_none(self, monkeypatch) -> None:
         """Time-varying covariates (multiple distinct values) must block the native path."""
         import pandas as pd
-        monkeypatch.setattr(
-            "openpkpd.model.individual._base._native_cvodes_transit_1cmt_pkpd_probe_rust",
-            lambda *a, **kw: [],
-        )
+        _enable_native_contract_gate(monkeypatch)
         cov_df = pd.DataFrame({"TIME": _OBS_TIMES, "DVID": [1, 1, 2, 2], "WT": [60, 65, 70, 75]})
         model = _build_mixed_pkpd_model(covariate_df=cov_df)
         assert model._native_ode_contract is None
 
     def test_gate_zero_doses_returns_none(self, monkeypatch) -> None:
-        monkeypatch.setattr(
-            "openpkpd.model.individual._base._native_cvodes_transit_1cmt_pkpd_probe_rust",
-            lambda *a, **kw: [],
-        )
+        _enable_native_contract_gate(monkeypatch)
         model = _build_mixed_pkpd_model(dose_events=[])
         assert model._native_ode_contract is None
 
     def test_multiple_doses_activate_native_path(self, monkeypatch) -> None:
         """After P1a: multiple IV bolus doses now build a non-None contract."""
-        monkeypatch.setattr(
-            "openpkpd.model.individual._base._native_cvodes_transit_1cmt_pkpd_probe_rust",
-            lambda *a, **kw: [],
-        )
+        _enable_native_contract_gate(monkeypatch)
         two_doses = [
             DoseEvent(time=0.0, amount=100.0, compartment=1),
             DoseEvent(time=24.0, amount=100.0, compartment=1),
@@ -2090,10 +2086,7 @@ class TestNativeAdvan6DetectionGates:
 
     def test_late_dose_activates_native_path(self, monkeypatch) -> None:
         """After P1a: a dose at any time (not just t=0) builds a contract."""
-        monkeypatch.setattr(
-            "openpkpd.model.individual._base._native_cvodes_transit_1cmt_pkpd_probe_rust",
-            lambda *a, **kw: [],
-        )
+        _enable_native_contract_gate(monkeypatch)
         late = [DoseEvent(time=1.0, amount=100.0, compartment=1)]
         model = _build_mixed_pkpd_model(dose_events=late)
         contract = model._native_ode_contract
@@ -2101,19 +2094,13 @@ class TestNativeAdvan6DetectionGates:
         assert contract["dose_times"] == [1.0]
 
     def test_gate_wrong_dose_compartment_returns_none(self, monkeypatch) -> None:
-        monkeypatch.setattr(
-            "openpkpd.model.individual._base._native_cvodes_transit_1cmt_pkpd_probe_rust",
-            lambda *a, **kw: [],
-        )
+        _enable_native_contract_gate(monkeypatch)
         wrong_cmt = [DoseEvent(time=0.0, amount=100.0, compartment=2)]
         model = _build_mixed_pkpd_model(dose_events=wrong_cmt)
         assert model._native_ode_contract is None
 
     def test_gate_unsorted_obs_times_returns_none(self, monkeypatch) -> None:
-        monkeypatch.setattr(
-            "openpkpd.model.individual._base._native_cvodes_transit_1cmt_pkpd_probe_rust",
-            lambda *a, **kw: [],
-        )
+        _enable_native_contract_gate(monkeypatch)
         unsorted_times = np.array([4.0, 1.0, 0.5, 24.0], dtype=float)
         unsorted_dv = np.array([7.0, 9.0, 10.0, 3.0], dtype=float)
         model = _build_mixed_pkpd_model(

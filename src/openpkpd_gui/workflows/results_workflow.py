@@ -1537,6 +1537,7 @@ def build_results_workflow(
     open_residual_action.triggered.connect(lambda: _open_plot_group("residuals"))
     open_eta_action.triggered.connect(lambda: _open_plot_group("eta"))
     open_profile_action.triggered.connect(lambda: _open_plot_group("profiles"))
+    open_bayesian_action.triggered.connect(lambda: _open_plot_group("bayesian"))
     open_latest_report_action.triggered.connect(_open_latest_report)
     open_latest_plot_action.triggered.connect(_open_latest_plot)
     open_diagnostics_action.triggered.connect(lambda: _open_role_artifact("diagnostics_table"))

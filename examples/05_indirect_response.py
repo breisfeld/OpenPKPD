@@ -96,7 +96,7 @@ def main():
         ModelBuilder()
         .problem("Indirect response — approximate Emax fit")
         .dataset(ds)
-        .subroutines(advan=1, trans=2)
+        .subroutines(advan=1, trans=1)
         .pk("""
 K = THETA(1)*EXP(ETA(1))
 V = THETA(2)*EXP(ETA(2))

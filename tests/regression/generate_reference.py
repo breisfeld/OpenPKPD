@@ -274,6 +274,20 @@ def main() -> None:
         json.dump(imp_dict, fh, indent=2)
     print(f"  OFV={imp_dict['ofv']:.4f}  converged={imp_dict['converged']}  -> {path}")
 
+    print("Running IMPMAP...")
+    params = _build_params()
+    pop_model = _build_pop_model(dataset, params)
+    impmap = IMPMethod(isample=300, maxeval=50, seed=42, is_map=True, print_interval=9999)
+    impmap_result = impmap.estimate(pop_model, params)
+    impmap_dict = _result_to_dict(
+        impmap_result,
+        metadata=_reference_metadata(name="theophylline_impmap", method="IMPMAP", seed=42),
+    )
+    path = os.path.join(REFERENCE_DIR, "theophylline_impmap.json")
+    with open(path, "w") as fh:
+        json.dump(impmap_dict, fh, indent=2)
+    print(f"  OFV={impmap_dict['ofv']:.4f}  converged={impmap_dict['converged']}  -> {path}")
+
     # ── BAYES (Laplace fallback) ──────────────────────────────────────────────
     print("Running BAYES (Laplace)...")
     params = _build_params()

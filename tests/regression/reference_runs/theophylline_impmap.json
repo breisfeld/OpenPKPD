@@ -1,0 +1,25 @@
+{
+  "_meta": {
+    "name": "theophylline_impmap",
+    "reference_kind": "internal-baseline",
+    "externally_validated": false,
+    "dataset": "theophylline",
+    "method": "IMPMAP",
+    "seed": 42
+  },
+  "method_name": "IMPMAP",
+  "ofv": 248.43794019422972,
+  "aic": 258.4379401942297,
+  "converged": false,
+  "theta": [
+    1.4427735080856476,
+    2.7434255771526552,
+    32.52529382949745
+  ],
+  "omega_diag": [
+    0.06890175656852886
+  ],
+  "sigma_diag": [
+    0.38571228994461765
+  ]
+}

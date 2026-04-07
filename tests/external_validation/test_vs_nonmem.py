@@ -38,14 +38,14 @@ import pathlib
 import numpy as np
 import pytest
 
+from tests._release_validation import require_release_fixture
+
 TEMP_DIR = pathlib.Path(__file__).parent.parent.parent / "temp" / "nonmem"
 REF_DIR = pathlib.Path(__file__).parent / "reference"
 
 
 def _load_ref(name: str) -> dict:
-    path = REF_DIR / name
-    if not path.exists():
-        pytest.skip(f"Reference file not found: {path}")
+    path = require_release_fixture(REF_DIR / name, kind="Reference file")
     return json.loads(path.read_text())
 
 
@@ -83,7 +83,7 @@ class TestRun402TwoCompartmentIV:
     @pytest.fixture(scope="class")
     def result(self):
         if not _ctl_available("402.ctl"):
-            pytest.skip("402.ctl not found in temp/nonmem/")
+            require_release_fixture(TEMP_DIR / "402.ctl", kind="NONMEM control stream")
         return _run_ctl("402.ctl")
 
     @pytest.fixture(scope="class")
@@ -172,7 +172,7 @@ class TestRun504OneCmtCovariates:
     @pytest.fixture(scope="class")
     def result(self):
         if not _ctl_available("504.ctl"):
-            pytest.skip("504.ctl not found in temp/nonmem/")
+            require_release_fixture(TEMP_DIR / "504.ctl", kind="NONMEM control stream")
         return _run_ctl("504.ctl")
 
     @pytest.fixture(scope="class")
@@ -262,7 +262,7 @@ class TestRun504fFixedCovariates:
     @pytest.fixture(scope="class")
     def result(self):
         if not _ctl_available("504f.ctl"):
-            pytest.skip("504f.ctl not found in temp/nonmem/")
+            require_release_fixture(TEMP_DIR / "504f.ctl", kind="NONMEM control stream")
         return _run_ctl("504f.ctl")
 
     @pytest.fixture(scope="class")

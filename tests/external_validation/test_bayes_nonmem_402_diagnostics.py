@@ -11,6 +11,7 @@ import pytest
 from openpkpd.estimation.bayes import BAYESMethod
 from openpkpd.model.problem import Problem
 from openpkpd.parser.control_stream import ControlStream
+from tests._release_validation import require_release_fixture
 
 
 TEMP_DIR = Path(__file__).parent.parent.parent / "temp" / "nonmem"
@@ -18,18 +19,13 @@ REF_PATH = Path(__file__).parent / "reference" / "nonmem_402_focei.json"
 
 
 def _load_ref() -> dict:
-    if not REF_PATH.exists():
-        pytest.skip(f"Reference file not found: {REF_PATH}")
-    return json.loads(REF_PATH.read_text())
+    ref_path = require_release_fixture(REF_PATH, kind="Reference file")
+    return json.loads(ref_path.read_text())
 
 
 def _build_problem():
-    ctl_path = TEMP_DIR / "402.ctl"
-    data_path = TEMP_DIR / "402.csv"
-    if not ctl_path.exists():
-        pytest.skip("402.ctl not found in temp/nonmem/")
-    if not data_path.exists():
-        pytest.skip("402.csv not found in temp/nonmem/")
+    ctl_path = require_release_fixture(TEMP_DIR / "402.ctl", kind="NONMEM control stream")
+    data_path = require_release_fixture(TEMP_DIR / "402.csv", kind="NONMEM dataset")
     control_stream = ControlStream.from_file(str(ctl_path))
     return Problem.from_control_stream(control_stream, dataset_path=str(data_path))
 

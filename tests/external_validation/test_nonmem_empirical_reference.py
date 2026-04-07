@@ -8,6 +8,8 @@ import os
 import numpy as np
 import pytest
 
+from tests._release_validation import require_release_fixture
+
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 REF_DIR = os.path.join(os.path.dirname(__file__), "reference")
@@ -17,9 +19,8 @@ _NONMEM_504_REF_FILE = os.path.join(REF_DIR, "nonmem_504_focei.json")
 
 
 def _load_nonmem_504_reference() -> dict:
-    if not os.path.exists(_NONMEM_504_REF_FILE):
-        pytest.skip(f"Reference file not found: {_NONMEM_504_REF_FILE}")
-    with open(_NONMEM_504_REF_FILE) as f:
+    ref_file = require_release_fixture(_NONMEM_504_REF_FILE, kind="Reference file")
+    with open(ref_file) as f:
         return json.load(f)
 
 
@@ -28,10 +29,8 @@ def _build_nonmem_504_focei_model(maxeval: int = 5):
     from openpkpd import ModelBuilder
     from openpkpd.data.dataset import NONMEMDataset
 
-    if not os.path.exists(_NONMEM_504_DATA_FILE):
-        pytest.skip(f"Data file not found: {_NONMEM_504_DATA_FILE}")
-
-    dataset = NONMEMDataset.from_csv(_NONMEM_504_DATA_FILE)
+    data_file = require_release_fixture(_NONMEM_504_DATA_FILE, kind="Data file")
+    dataset = NONMEMDataset.from_csv(data_file)
     return (
         ModelBuilder()
         .problem("NONMEM Run 504 — 1-cmt IV infusion with WT/AGE/SEX covariates")

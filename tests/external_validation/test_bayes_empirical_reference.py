@@ -10,16 +10,16 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests._release_validation import require_release_fixture
+
 
 REF_DIR = os.path.join(os.path.dirname(__file__), "nlmixr2", "reference")
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 
 
 def _load_ref(name: str) -> dict:
-    path = os.path.join(REF_DIR, name)
-    if not os.path.exists(path):
-        pytest.skip(f"Reference file not found: {path}")
-    with open(path) as f:
+    path = require_release_fixture(os.path.join(REF_DIR, name), kind="Reference file")
+    with path.open() as f:
         return json.load(f)
 
 
@@ -28,9 +28,10 @@ def _build_theophylline_bayes_laplace_model(n_samples: int = 300, maxeval: int =
     from openpkpd import ModelBuilder
     from openpkpd.data.dataset import NONMEMDataset
 
-    data_path = os.path.join(DATA_DIR, "theophylline_boeckmann.csv")
-    if not os.path.exists(data_path):
-        pytest.skip(f"Data file not found: {data_path}")
+    data_path = require_release_fixture(
+        os.path.join(DATA_DIR, "theophylline_boeckmann.csv"),
+        kind="Data file",
+    )
 
     dataset = NONMEMDataset.from_csv(data_path)
     return (
@@ -61,9 +62,10 @@ def _build_warfarin_bayes_laplace_model(n_samples: int = 300, maxeval: int = 40)
     from openpkpd import ModelBuilder
     from openpkpd.data.dataset import NONMEMDataset
 
-    data_path = os.path.join(DATA_DIR, "warfarin_pk.csv")
-    if not os.path.exists(data_path):
-        pytest.skip(f"Data file not found: {data_path}")
+    data_path = require_release_fixture(
+        os.path.join(DATA_DIR, "warfarin_pk.csv"),
+        kind="Data file",
+    )
 
     dataset = NONMEMDataset.from_csv(data_path)
     return (
@@ -93,9 +95,10 @@ def _build_theophylline_bayes_nuts_model(n_samples: int = 150, tune: int = 150):
     from openpkpd import ModelBuilder
     from openpkpd.data.dataset import NONMEMDataset
 
-    data_path = os.path.join(DATA_DIR, "theophylline_boeckmann.csv")
-    if not os.path.exists(data_path):
-        pytest.skip(f"Data file not found: {data_path}")
+    data_path = require_release_fixture(
+        os.path.join(DATA_DIR, "theophylline_boeckmann.csv"),
+        kind="Data file",
+    )
 
     dataset = NONMEMDataset.from_csv(data_path)
     return (

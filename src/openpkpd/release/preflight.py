@@ -1,7 +1,8 @@
-"""Checks for release-tree hygiene before building sdists or wheels."""
+"""Checks for release-tree hygiene and release-validation mode."""
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 _DISALLOWED_PATHS = (
@@ -11,6 +12,17 @@ _DISALLOWED_PATHS = (
 _DISALLOWED_GLOBS = (
     "src/openpkpd/_core*.so",
 )
+
+
+def strict_release_validation_enabled() -> bool:
+    """Return True when tests should fail on missing release fixtures.
+
+    The release-validation test path sets ``OPENPKPD_STRICT_RELEASE_VALIDATION=1``
+    so missing reference files or bundled datasets become hard failures instead
+    of developer-friendly skips.
+    """
+    value = os.environ.get("OPENPKPD_STRICT_RELEASE_VALIDATION", "")
+    return value.strip().lower() not in {"", "0", "false", "no"}
 
 
 def release_tree_issues(root: str | Path) -> list[str]:

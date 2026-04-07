@@ -28,6 +28,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests._release_validation import require_release_fixture
+
 from openpkpd.data.dataset import NONMEMDataset
 from openpkpd.estimation.bayes import BAYESMethod
 from openpkpd.estimation.foce import FOCEMethod
@@ -44,10 +46,11 @@ REFERENCE_DIR = os.path.join(os.path.dirname(__file__), "reference_runs")
 
 def load_reference(name: str) -> dict:
     """Load reference results from JSON file."""
-    path = os.path.join(REFERENCE_DIR, f"{name}.json")
-    if not os.path.exists(path):
-        pytest.skip(f"Reference file not found: {path}")
-    with open(path) as f:
+    path = require_release_fixture(
+        os.path.join(REFERENCE_DIR, f"{name}.json"),
+        kind="Reference file",
+    )
+    with path.open() as f:
         return json.load(f)
 
 

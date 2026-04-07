@@ -8,16 +8,19 @@ import os
 import numpy as np
 import pytest
 
+from tests._release_validation import require_release_fixture
+
 from tests.regression.pd_model_helpers import fit_joint_pkpd_case
 
 REFERENCE_DIR = os.path.join(os.path.dirname(__file__), "reference_runs")
 
 
 def load_reference(name: str) -> dict:
-    path = os.path.join(REFERENCE_DIR, f"{name}.json")
-    if not os.path.exists(path):
-        pytest.skip(f"Reference file not found: {path}")
-    with open(path) as f:
+    path = require_release_fixture(
+        os.path.join(REFERENCE_DIR, f"{name}.json"),
+        kind="Reference file",
+    )
+    with path.open() as f:
         return json.load(f)
 
 

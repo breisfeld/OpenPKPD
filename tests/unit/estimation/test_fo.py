@@ -199,6 +199,25 @@ def test_get_estimation_method_fo_kwargs_are_forwarded() -> None:
     assert method.print_interval == 17
 
 
+@pytest.mark.parametrize(
+    "method",
+    ["FO", "FOCE", "FOCEI", "LAPLACIAN", "SAEM", "IMP", "IMPMAP", "BAYES", "NONPARAMETRIC"],
+)
+def test_get_estimation_method_strips_gui_only_options(method: str) -> None:
+    """base_method and blq_method are GUI-level options stored in the shared options
+    dict regardless of which estimation method is selected.  They must never reach
+    any EstimationMethod constructor — previously FOCEMethod raised TypeError when
+    base_method leaked through.
+    """
+    from openpkpd.estimation.base import EstimationMethod
+
+    # These two keys are always present in the GUI options dict; every branch
+    # in get_estimation_method must pop them (or pass them only where accepted).
+    inst = get_estimation_method(method, base_method="FOCE", blq_method="M1")
+
+    assert isinstance(inst, EstimationMethod)
+
+
 def test_fo_fit_penalizes_invalid_transform_proposals_without_transform_warning(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

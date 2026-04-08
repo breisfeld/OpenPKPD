@@ -40,30 +40,45 @@ def get_estimation_method(
     if m == Method.FO:
         kwargs.pop("n_parallel", None)
         kwargs.pop("iteration_callback", None)
+        kwargs.pop("base_method", None)
+        kwargs.pop("blq_method", None)
         return FOMethod(**kwargs)
     elif m in (Method.FOCE, Method.FOCEI):
         interact = interaction or (m == Method.FOCEI)
+        kwargs.pop("base_method", None)
+        kwargs.pop("blq_method", None)
         return FOCEMethod(interaction=interact, **kwargs)
     elif m == Method.LAPLACIAN:
         kwargs.pop("n_parallel", None)
         kwargs.pop("iteration_callback", None)
+        kwargs.pop("base_method", None)
+        kwargs.pop("blq_method", None)
         return LaplacianMethod(**kwargs)
     elif m == Method.SAEM:
         kwargs.pop("maxeval", None)
         kwargs.pop("n_parallel", None)
+        kwargs.pop("base_method", None)
+        kwargs.pop("blq_method", None)
         return SAEMMethod(**kwargs)
     elif m == Method.IMP:
+        kwargs.pop("base_method", None)
+        kwargs.pop("blq_method", None)
         return IMPMethod(is_map=False, **kwargs)
     elif m == Method.IMPMAP:
+        kwargs.pop("base_method", None)
+        kwargs.pop("blq_method", None)
         return IMPMethod(is_map=True, **kwargs)
     elif m == Method.BAYES:
         kwargs.pop("n_parallel", None)
         kwargs.pop("iteration_callback", None)
+        kwargs.pop("base_method", None)
+        kwargs.pop("blq_method", None)
         kwargs["interaction"] = interaction
         return BAYESMethod(**kwargs)
     elif m in (Method.NONPARAMETRIC, "NONPARM", "NP"):
         kwargs.pop("n_parallel", None)
         kwargs.pop("iteration_callback", None)
+        kwargs.pop("blq_method", None)
         return NonparametricMethod(**kwargs)
     else:
         raise EstimationError(

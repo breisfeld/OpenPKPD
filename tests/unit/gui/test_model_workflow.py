@@ -516,6 +516,70 @@ def test_model_workflow_round_trips_advanced_estimation_options() -> None:
 
 
 @pytest.mark.unit
+def test_estimation_method_switch_leaves_constructable_options() -> None:
+    """Item 3: Widget interaction coverage.
+
+    Simulates a realistic user sequence: configure FOCEI options, switch to
+    NONPARAMETRIC (which makes base_method visible), then switch back to FOCE
+    and save.  The saved options dict will contain base_method from the NP
+    combo — verify that get_estimation_method can still construct a FOCEMethod
+    from those options without a TypeError.
+    """
+    if not qt_widgets_available():
+        pytest.skip("Qt GUI modules are unavailable in this environment")
+
+    from openpkpd.estimation import get_estimation_method
+    from openpkpd.estimation.foce import FOCEMethod
+
+    _, _, qt_widgets = load_qt_modules()
+    app = qt_widgets.QApplication.instance() or qt_widgets.QApplication(
+        ["test", "-platform", "offscreen"]
+    )
+    project = Workspace(name="Method switch test")
+    widget = build_model_workflow(project)
+
+    try:
+        widget.show()
+        app.processEvents()
+
+        estimation_combo = widget.findChild(qt_widgets.QComboBox, "model-estimation-combo")
+        assert estimation_combo is not None
+
+        # NOTE: "NONPARAMETRIC" is NOT in the main estimation combo; it has its own
+        # separate base-method combo (nonparam_base_combo) whose value is always
+        # saved into options regardless of which estimation method is active.
+        # Switching to FOCEI triggers a currentIndexChanged signal and registers a
+        # user interaction, causing _on_leave() to save the spec.
+        estimation_combo.setCurrentIndex(estimation_combo.findData("FOCEI"))
+        app.processEvents()
+
+        widget._on_leave()  # type: ignore[attr-defined]
+        app.processEvents()
+
+        saved = project.active_model_spec
+        assert saved is not None
+        assert saved.estimation.method == "FOCEI"
+        # base_method is always present in options — it's recorded from the
+        # nonparametric base-method combo regardless of which estimation method is
+        # currently selected.  This is the source of the bug: base_method leaks
+        # into kwargs for non-NP methods.
+        options = dict(saved.estimation.options)
+        assert "base_method" in options
+
+        # The critical assertion: constructing the method from the saved options
+        # must not raise TypeError.  This is the exact path that triggered the bug.
+        from openpkpd.estimation.foce import FOCEMethod as _FOCEMethod
+
+        est = get_estimation_method(saved.estimation.method, **options)
+        assert isinstance(est, _FOCEMethod)
+
+    finally:
+        widget.close()
+        widget.deleteLater()
+        app.processEvents()
+
+
+@pytest.mark.unit
 def test_model_tables_are_user_resizable() -> None:
     if not qt_widgets_available():
         pytest.skip("Qt GUI modules are unavailable in this environment")

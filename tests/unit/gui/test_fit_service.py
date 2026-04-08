@@ -1072,3 +1072,272 @@ def test_estimate_built_model_pops_blq_method_and_applies_to_population_model(
     assert _FakeBuiltModel.population_model.blq_method == "M3"
     # blq_method must NOT be forwarded to get_estimation_method
     assert "blq_method" not in captured.get("kwargs", {})
+
+
+def test_estimate_built_model_real_constructor_accepts_gui_options(
+    monkeypatch,
+) -> None:
+    """Regression: get_estimation_method must not receive any kwargs that its target
+    constructor rejects.  This test lets the real router run (no mock) so that a
+    future stray GUI option causes a TypeError here rather than silently passing
+    the kwargs-capture test above.
+
+    Only estimate() itself is stubbed to avoid actual computation.
+    """
+    import openpkpd_gui.services.fit_service as _fit_service_module
+
+    real_get = _fit_service_module.get_estimation_method
+    constructed: list[object] = []
+
+    def _wrapping_get(method, **kwargs):
+        # Real router — raises TypeError immediately if an unknown kwarg slips through
+        est = real_get(method, **kwargs)
+        constructed.append(est)
+        # Stub only the heavy computation, not the constructor
+        est.estimate = lambda population_model, params: type(
+            "FakeResult",
+            (),
+            {
+                "theta_final": np.asarray(params.theta, dtype=float),
+                "omega_final": np.asarray(params.omega, dtype=float),
+                "sigma_final": np.asarray(params.sigma, dtype=float),
+                "post_hoc_etas": {},
+                "warnings": [],
+                "method": "FOCE",
+                "n_observations": 0,
+                "n_subjects": 0,
+                "compute_n_parameters": lambda *_a, **_kw: None,
+            },
+        )()
+        return est
+
+    monkeypatch.setattr(
+        "openpkpd_gui.services.fit_service.get_estimation_method",
+        _wrapping_get,
+    )
+
+    class _FakePopulationModel:
+        blq_method: str = "M1"
+
+        def n_subjects(self):
+            return 1
+
+        @property
+        def dataset(self):
+            return None
+
+    class _FakeBuiltModel:
+        params = type(
+            "P",
+            (),
+            {
+                "theta": [1.0],
+                "omega": [[0.3]],
+                "sigma": [[0.1]],
+                "theta_specs": [],
+                "omega_specs": [],
+                "sigma_specs": [],
+            },
+        )()
+        population_model = _FakePopulationModel()
+        # Simulate the full GUI options dict: includes base_method (NP-only) and
+        # blq_method (model-level), both of which must be stripped before the
+        # constructor is called.
+        estimation_kwargs = {
+            "method": "FOCE",
+            "base_method": "FOCE",
+            "blq_method": "M3",
+            "retain_best_iterate": True,
+            "retry_on_abnormal": False,
+            "retry_omega_scales": (),
+        }
+        do_covariance = False
+
+    FitService()._estimate_built_model(_FakeBuiltModel())
+
+    from openpkpd.estimation.foce import FOCEMethod
+
+    assert len(constructed) == 1
+    assert isinstance(constructed[0], FOCEMethod)
+
+
+# ---------------------------------------------------------------------------
+# Item 2: Round-trip — real ModelSpec → real builder → real get_estimation_method
+# ---------------------------------------------------------------------------
+
+
+def test_estimation_method_constructed_from_real_builder_pipeline(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Full pipeline: ModelSpec.estimation.options → ModelTranslationService →
+    ModelBuilder.build() → _estimate_built_model → get_estimation_method.
+
+    Uses the real builder so that any filtering step (translation service,
+    builder, or _estimate_built_model) that accidentally drops or leaks an
+    option surfaces immediately.  Only estimate() is stubbed.
+    """
+    from openpkpd_gui.domain.model_spec import EstimationConfig
+    import openpkpd_gui.services.fit_service as _fit_service_module
+
+    dataset_path = tmp_path / "theo.csv"
+    _write_dataset(dataset_path)
+
+    # Spec carries the full set of GUI options, including base_method which
+    # must be stripped before reaching FOCEMethod.__init__.
+    workspace = Workspace(name="Round-trip spec")
+    workspace.active_model_spec = ModelSpec(
+        problem_title="Round-trip demo",
+        dataset_path=str(dataset_path),
+        pk_code="CL = THETA(1) * EXP(ETA(1))",
+        error_code="Y = F * (1 + EPS(1))",
+        theta_rows=[{"init": 1.0, "lower": 0.0, "upper": 10.0}],
+        omega_values=[[0.3]],
+        sigma_values=[[0.1]],
+        estimation=EstimationConfig(
+            method="FOCE",
+            options={
+                "base_method": "FOCE",
+                "blq_method": "M1",
+                "retain_best_iterate": True,
+                "retry_on_abnormal": False,
+                "retry_omega_scales": (),
+            },
+        ),
+    )
+
+    preparation = FitService().prepare_run(workspace)
+    assert preparation.ready
+    assert preparation.translation is not None
+    built_model = preparation.translation.builder.build()
+
+    real_get = _fit_service_module.get_estimation_method
+    constructed: list[object] = []
+
+    def _wrapping_get(method, **kwargs):
+        est = real_get(method, **kwargs)  # TypeError here if any stray kwarg leaks
+        constructed.append(est)
+        est.estimate = lambda pm, p: type(
+            "R",
+            (),
+            {
+                "theta_final": np.asarray(p.theta, dtype=float),
+                "omega_final": np.asarray(p.omega, dtype=float),
+                "sigma_final": np.asarray(p.sigma, dtype=float),
+                "post_hoc_etas": {},
+                "warnings": [],
+                "method": "FOCE",
+                "n_observations": 0,
+                "n_subjects": 0,
+                "compute_n_parameters": lambda *_a, **_kw: None,
+            },
+        )()
+        return est
+
+    monkeypatch.setattr(
+        "openpkpd_gui.services.fit_service.get_estimation_method", _wrapping_get
+    )
+
+    from openpkpd.estimation.foce import FOCEMethod
+
+    FitService()._estimate_built_model(built_model)
+
+    assert len(constructed) == 1
+    assert isinstance(constructed[0], FOCEMethod)
+
+
+# ---------------------------------------------------------------------------
+# Item 4: Builder-path kwargs parity with the control-stream path test
+# ---------------------------------------------------------------------------
+
+
+def test_estimate_built_model_forwards_advanced_estimation_options(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Builder path parallel to test_estimate_control_stream_forwards_advanced_estimation_options.
+
+    Verifies that the specific set of kwargs produced by _builder_estimation_settings
+    arrives intact at get_estimation_method — including that GUI-only keys (base_method,
+    blq_method) are NOT forwarded to the constructor.
+    """
+    from openpkpd_gui.domain.model_spec import EstimationConfig
+
+    dataset_path = tmp_path / "theo.csv"
+    _write_dataset(dataset_path)
+
+    workspace = Workspace(name="Builder kwargs parity")
+    workspace.active_model_spec = ModelSpec(
+        problem_title="Parity demo",
+        dataset_path=str(dataset_path),
+        pk_code="CL = THETA(1) * EXP(ETA(1))",
+        error_code="Y = F * (1 + EPS(1))",
+        theta_rows=[{"init": 1.0, "lower": 0.0, "upper": 10.0}],
+        omega_values=[[0.3]],
+        sigma_values=[[0.1]],
+        estimation=EstimationConfig(
+            method="FOCEI",
+            options={
+                "maxeval": 321,
+                "outer_optimizer": "Powell",
+                "outer_fallback_optimizer": "L-BFGS-B",
+                "outer_fallback_maxeval": 17,
+                "retain_best_iterate": False,
+                "retry_on_abnormal": True,
+                "retry_omega_scales": (0.6, 0.3),
+                "base_method": "FOCE",   # GUI always stores this
+                "blq_method": "M1",      # GUI always stores this
+            },
+        ),
+    )
+
+    preparation = FitService().prepare_run(workspace)
+    assert preparation.ready
+    built_model = preparation.translation.builder.build()
+
+    captured: dict[str, object] = {}
+
+    class _FakeEstimation:
+        def estimate(self, pm, p):
+            return type(
+                "R",
+                (),
+                {
+                    "theta_final": np.asarray(p.theta, dtype=float),
+                    "omega_final": np.asarray(p.omega, dtype=float),
+                    "sigma_final": np.asarray(p.sigma, dtype=float),
+                    "post_hoc_etas": {},
+                    "warnings": [],
+                    "method": "FOCEI",
+                    "n_observations": 0,
+                    "n_subjects": 0,
+                    "compute_n_parameters": lambda *_a, **_kw: None,
+                },
+            )()
+
+    def _fake_get(method, **kwargs):
+        captured["method"] = method
+        captured["kwargs"] = kwargs
+        return _FakeEstimation()
+
+    monkeypatch.setattr(
+        "openpkpd_gui.services.fit_service.get_estimation_method", _fake_get
+    )
+
+    FitService()._estimate_built_model(built_model, n_parallel=2)
+
+    assert captured["method"] == "FOCEI"
+    # The builder path does not inject interaction=True into estimation_kwargs;
+    # the router derives True from the method name (FOCEI) internally.
+    # _estimate_built_model passes interaction=False (default when absent from options).
+    assert captured["kwargs"]["interaction"] is False
+    assert captured["kwargs"]["maxeval"] == 321
+    assert captured["kwargs"]["n_parallel"] == 2
+    assert captured["kwargs"]["outer_optimizer"] == "Powell"
+    assert captured["kwargs"]["outer_fallback_optimizer"] == "L-BFGS-B"
+    assert captured["kwargs"]["outer_fallback_maxeval"] == 17
+    assert captured["kwargs"]["retain_best_iterate"] is False
+    assert captured["kwargs"]["retry_on_abnormal"] is True
+    assert captured["kwargs"]["retry_omega_scales"] == (0.6, 0.3)
+    # base_method passes through _estimate_built_model to the router (the router
+    # strips it before the constructor); blq_method is popped by _estimate_built_model.
+    assert "base_method" in captured["kwargs"]
+    assert "blq_method" not in captured["kwargs"]

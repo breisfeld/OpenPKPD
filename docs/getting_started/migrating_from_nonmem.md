@@ -133,7 +133,8 @@ Previously listed as limitations but now implemented:
 
 | Feature | Status |
 |---------|--------|
-| ADVAN5/7 (general linear, matrix exponential) | ✅ Implemented |
+| ADVAN5 (general linear, matrix exponential) | ✅ Implemented |
+| ADVAN7 | ✅ Implemented; overlaps ADVAN5 and is usually not needed as a separate selector |
 | ADVAN6/8 (general nonlinear ODE, stiff/nonstiff) | ✅ Implemented |
 | ADVAN11/12 (3-compartment IV/oral) | ✅ Implemented |
 | ADVAN13 (stiff ODE + forward sensitivity) | ✅ Implemented (partial) |

@@ -22,6 +22,7 @@ dependencies = [
     "click>=8.1",
     "pydantic>=2.8",
     "pyyaml>=6.0.3",
+    "sympy>=1.13",
 ]
 
 [project.urls]
@@ -44,9 +45,9 @@ bayes = [
 optim = [
     "optimagic>=0.5",
 ]
-# Symbolic math (ADVAN analytical solutions)
+# Symbolic math compatibility alias. SymPy is now a core dependency because
+# analytical-kernel generation is a first-class tested path.
 symbolic = [
-    "sympy>=1.13",
 ]
 # Cluster parallelism
 cluster = [
@@ -59,7 +60,6 @@ plots = [
 # Full install
 full = [
     "optimagic>=0.5",
-    "sympy>=1.13",
     "matplotlib>=3.9",
 ]
 dev = [
@@ -72,7 +72,6 @@ dev = [
     "pre-commit>=3.8",
     "marimo>=0.10",
     "matplotlib>=3.9",
-    "sympy>=1.13",
     "maturin>=1.5,<2",
     "patchelf>=0.17.2.4",
 ]
@@ -189,7 +188,6 @@ dev = [
     "pytest-xdist>=3.8.0",
     "marimo>=0.10",
     "matplotlib>=3.9",
-    "sympy>=1.13",
     # platformdirs is a runtime dep of openpkpd_gui; listed here so that
     # `uv sync` (no extras) still installs it and GUI test modules can be
     # *collected* without a ModuleNotFoundError.  PySide6 itself is kept

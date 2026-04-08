@@ -53,6 +53,8 @@ secondary or selectively benchmarked", not "placeholder only".
 | ADVAN2 | 1-cmt oral | Y | Y | Y | Y | Y | Y | via NM |
 | ADVAN3 | 2-cmt IV | Y | Y | Y | Y | Y | Y | via NM |
 | ADVAN4 | 2-cmt oral | Y | Y | Y | Y | Y | Y | via NM |
+| ADVAN5 | General linear N-cmt (matrix exponential) | Y | Y | Y | — | — | Y | via NM |
+| ADVAN7 | General linear N-cmt (alternate matrix-exponential backend; mostly overlaps ADVAN5) | Y | Y | — | — | — | Y | via NM |
 | ADVAN11 | 3-cmt IV | Y | Y | Y | Y | Y | Y | via NM |
 | ADVAN12 | 3-cmt oral | Y | Y | Y | Y | Y | Y | via NM |
 | TRANS1–6 | Parameterisation variants | Y | Y | Y | Y | Y | Y | via NM |
@@ -61,8 +63,6 @@ secondary or selectively benchmarked", not "placeholder only".
 
 | ADVAN | Description | OpenPKPD | NONMEM | Monolix | WinNonLin | mrgsolve | Pumas.jl | Pharmpy |
 |-------|-------------|:--------:|:------:|:-------:|:---------:|:--------:|:--------:|:-------:|
-| ADVAN5 | General linear N-cmt (matrix exponential) | Y | Y | Y | — | — | Y | via NM |
-| ADVAN7 | General linear N-cmt, no peripheral elim. | Y | Y | — | — | — | Y | via NM |
 | ADVAN6 | Non-stiff ODE ($DES), JIT-accelerated | Y | Y | Y | — | Y | Y | via NM |
 | ADVAN8 | Stiff ODE (LSODA) | Y | Y | Y | — | Y | Y | via NM |
 | ADVAN10 | 1-cmt Michaelis-Menten | Y | Y | Y | Y | Y | Y | via NM |

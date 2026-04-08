@@ -39,7 +39,7 @@ Full autodoc reference for all public classes and functions.
 ## Highlights
 
 - **Estimation methods**: primary FO/FOCE/FOCEI/Laplacian workflows plus secondary SAEM, IMP/IMPMAP, `BAYES(Laplace)`, and nonparametric paths
-- **PK subroutines**: ADVAN1–4, ADVAN11/12, ODE routes, and DDE support
+- **PK subroutines**: analytical ADVAN1–5 and ADVAN11/12, numerical ODE routes, and DDE support
 - **NM-TRAN compiler**: `$PK` / `$ERROR` / `$DES` blocks → Python callables
 - **NONMEM-compatible output**: `.lst`, `.ext`, `.phi`, `.cov`, `.cor`, `$TABLE`
 - **Python API**: `ModelBuilder` — no `.ctl` file required

@@ -116,7 +116,7 @@ Important interpretation:
 | `$PROBLEM` | `runtime` | `yes` | parsed and used |
 | `$DATA` | `runtime` | `yes` | `IGNORE=` supported |
 | `$INPUT` | `runtime` | `yes` | includes `DROP` / `SKIP` handling |
-| `$SUBROUTINES` | `runtime` | `yes` | `ADVAN1–4/6/8/10/11/12/13/16`; `TRANS1–6`, plus OpenPKPD `TRANS7/8` |
+| `$SUBROUTINES` | `runtime` | `yes` | `ADVAN1–6/8/10/11/12/13/16`; `TRANS1–6`, plus OpenPKPD `TRANS7/8` |
 | `$PK` | `runtime` | `yes` | compiled by the NM-TRAN compiler |
 | `$ERROR` | `runtime` | `yes` | compiled by the NM-TRAN compiler |
 | `$DES` | `runtime` | `yes` | used by ODE/DDE workflows |

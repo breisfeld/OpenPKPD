@@ -38,7 +38,7 @@ install-docs:
 
 # Install symbolic-kernel dev/test dependencies explicitly
 install-symbolic:
-    uv sync --extra dev --extra symbolic
+    uv sync --extra dev
 
 # Install local R packages used by external-validation tests
 install-r-test-deps:
@@ -72,6 +72,28 @@ run-tests-regression:
 run-tests-cov:
     {{ uv_dev }} pytest --cov=openpkpd --cov-report=term-missing --cov-report=html -q
     @echo "HTML report: htmlcov/index.html"
+
+# Run the release validation frontier in strict fixture mode.
+run-tests-release:
+    OPENPKPD_NATIVE_DEV=1 OPENPKPD_STRICT_RELEASE_VALIDATION=1 {{ uv_dev }} --extra gui pytest -q -x -n 0
+
+# Run the dedicated symbolic-kernel lane explicitly.
+run-tests-symbolic:
+    {{ uv_dev }} pytest -q -n 0 \
+        tests/unit/model/test_symbolic_eta.py \
+        tests/unit/model/test_symbolic_eta_guards.py \
+        tests/unit/model/test_symbolic_gradient_advan2.py \
+        tests/unit/model/test_individual_population.py
+
+# Build the native CVODES extension and run the dedicated native lane.
+run-tests-native-cvodes:
+    just build-core-native-cvodes
+    OPENPKPD_NATIVE_DEV=1 {{ uv_dev }} --extra gui pytest -q -n 0 \
+        tests/unit/test_native.py \
+        tests/unit/test_native_cvodes.py \
+        tests/unit/rust/test_rust_python_parity.py \
+        tests/unit/model/test_individual_population.py
+    just check-native-sensitivity-perf
 
 # Run a specific test file or pattern
 # Usage: just test-only tests/unit/pk/test_advan4.py
@@ -421,6 +443,13 @@ publish-to-pypi:
 # ---------------------------------------------------------------------------
 # Smoke testing
 # ---------------------------------------------------------------------------
+
+# Run the full test suite and write a datestamped report to test_status/
+# Usage: just test-report
+#        just test-report --unit-only
+#        just test-report --open
+test-report *args:
+    bash scripts/run_tests_and_report.sh {{ args }}
 
 # Run the PyPI smoke test in a clean Docker container.
 # Usage: just smoke-test-pypi 0.2.7

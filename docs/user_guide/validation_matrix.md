@@ -8,8 +8,8 @@ Use it together with:
 
 - [`external_validation_benchmarks.md`](external_validation_benchmarks.md) for
   the concrete external datasets and tools
-- [`analysis_tools.md`](analysis_tools.md) for model-family validation outside
-  the core estimation stack
+- [`analysis_tools.md`](analysis_tools.md) for the consolidated coverage
+  inventory: surfaces, concrete test files, and test types
 - [`testing.md`](testing.md) for the test-tier structure
 
 ## How to read this page

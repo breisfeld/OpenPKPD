@@ -38,7 +38,7 @@ from openpkpd.data.event_processor import DoseEvent
 
 
 N_SUBJECTS = 2
-MAXEVAL = 1
+MAXEVAL = 80
 
 
 # ── Simulate reference data from ADVAN2 ──────────────────────────────────────
@@ -171,6 +171,7 @@ def main() -> None:
     # Patch the pk_subroutine to use n_compartments=4 and pass des_callable
     from openpkpd.pk.ode.advan6 import ADVAN6 as _ADVAN6
     advan6 = _ADVAN6(n_compartments=4, rtol=1e-6, atol=1e-8)
+    advan6.output_compartment = 4
     model.population_model.pk_subroutine = advan6
 
     # Patch individual models to pass des_callable through solve
@@ -184,6 +185,8 @@ def main() -> None:
                 pk_params = _indiv.pk_callable(list(theta), list(eta), t=0.0)
             else:
                 pk_params = {}
+            if "V" in pk_params and "V4" not in pk_params:
+                pk_params["V4"] = pk_params["V"]
             try:
                 micro = _indiv.pk_subroutine.apply_trans(pk_params, trans)
             except Exception:
@@ -207,9 +210,11 @@ def main() -> None:
     print(f"\nFitting transit compartment model (FO, maxeval={MAXEVAL})...")
     try:
         result = model.fit()
+        usable_fit = result.ofv < 1.0e9
         print(f"\nEstimation complete:")
         print(f"  OFV = {result.ofv:.3f}")
         print(f"  Converged: {result.converged}")
+        print(f"  Usable optimum: {usable_fit}")
         print(f"  Method: {result.method}")
 
         print(f"\n  THETA estimates:")
@@ -223,10 +228,12 @@ def main() -> None:
 
         print(f"\n  SIGMA:")
         print(f"    SIGMA(1,1) = {result.sigma_final[0,0]:.4f}")
+        if not usable_fit:
+            print("\n  Warning: the objective remained on the penalty surface.")
+            print("  This example demonstrates ADVAN6 transit-model setup, not a tuned estimation workflow.")
 
     except Exception as exc:
-        print(f"  Estimation encountered an issue (expected for short maxeval): {exc}")
-        print("  Note: Set maxeval higher for a real fit.")
+        print(f"  Estimation encountered an issue: {exc}")
 
     print("\nExample 08 complete.")
 

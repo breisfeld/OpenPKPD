@@ -1822,10 +1822,9 @@ class TestLaplacianNativeHessian:
         indiv.eta_objective_hessian = spy
 
         omega_inv = np.linalg.inv(omega)
-        log_det_omega = float(np.linalg.slogdet(omega)[1])
         eta_hat = {1: np.zeros(2)}
 
-        method._outer_ofv_subject_term(pop_model, p, eta_hat, 1, omega_inv, log_det_omega)
+        method._outer_ofv_subject_term(pop_model, p, eta_hat, 1, omega_inv)
         assert len(hessian_calls) == 1, (
             "eta_objective_hessian was not called by _outer_ofv_subject_term"
         )

@@ -48,6 +48,14 @@ parameter recovery; and VPC / NPDE / NPC / NCA / SSE diagnostic summaries.
 Regression tests are marked `@pytest.mark.slow` and take 1–10 minutes. Run them
 with `pytest -m regression`.
 
+Two explicit release lanes now sit beside the broad suite:
+
+- `just run-tests-symbolic` exercises the SymPy-backed analytical-kernel and
+  symbolic-gradient route directly.
+- `just run-tests-native-cvodes` rebuilds the optional native CVODES extension,
+  runs the dedicated native/rust parity suites, and then runs the serial native
+  sensitivity performance gate.
+
 ### External-validation tests (`@pytest.mark.external_validation`)
 
 External-validation tests compare openpkpd output against an independent reference:
@@ -195,115 +203,23 @@ uv run pytest -m slow
 # one area
 uv run pytest tests/unit/nca/
 uv run pytest tests/external_validation/
+
+# dedicated release lanes
+just run-tests-symbolic
+just run-tests-native-cvodes
 ```
 
-## Coverage by analysis area
+## Coverage inventory
 
-Each row is one analysis method or model. Counts are the number of test functions
-in the corresponding tier that primarily exercise that area; tests shared across
-multiple areas (e.g. a full-pipeline integration test) are credited to the row
-that best describes their purpose.
+The consolidated coverage inventory now lives in
+[`analysis_tools.md`](analysis_tools.md).
 
-`—` means zero tests in that tier for that area.
+Use that page for:
 
-| Analysis area | Unit | Integration | Regression | Ext. validation | **Total** |
-|---|---:|---:|---:|---:|---:|
-| **Estimation methods** | | | | | |
-| FO (First Order) | 4 | 2 | — | 5 | **11** |
-| FOCE / FOCEI | 5 | 9 | 4 | 13 | **31** |
-| FO vs FOCE cross-method consistency | — | — | 10 | 11 | **21** |
-| Laplacian | 8 | — | 4 | 12 | **24** |
-| SAEM | 20 | — | 3 | 3 | **26** |
-| IMP / IMPMAP | 9 | — | 8 | 4 | **21** |
-| Bayesian / NUTS | 15 | — | 5 | 2 | **22** |
-| Nonparametric (NPML / NPEM) | 11 | — | 7 | 1 | **19** |
-| EstimationResult (shrinkage, AIC, BIC) | 33 | — | — | 5 | **38** |
-| Parameter specifications (Θ, Ω, Σ) | 21 | — | — | — | **21** |
-| **PK subroutines** | | | | | |
-| ADVAN1 — 1-cmt IV bolus | 6 | — | — | 8 | **14** |
-| ADVAN2 — 1-cmt oral | 3 | 6 | — | 8 | **17** |
-| ADVAN3 — 2-cmt IV | 8 | 5 | — | 7 | **20** |
-| ADVAN4 — 2-cmt oral | 7 | 1 | — | — | **8** |
-| ADVAN11 — extended 1-cmt | 19 | — | — | — | **19** |
-| ADVAN12 — extended 2-cmt | 18 | — | — | — | **18** |
-| ADVAN6 / general ODE | 31 | — | — | — | **31** |
-| ODE vs analytical cross-check | 4 | — | — | 3 | **7** |
-| Absorption models (transit, EHC, parallel) | 22 | — | — | — | **22** |
-| DDE (delay differential equations) | 12 | — | — | — | **12** |
-| PBPK | 7 | — | — | — | **7** |
-| TRANS parameterizations (TRANS1–6) | 12 | — | — | — | **12** |
-| **Non-compartmental analysis (NCA)** | | | | | |
-| Core dense-profile NCA | 33 | — | 1 | 19 | **53** |
-| Multidose NCA | 12 | — | — | — | **12** |
-| Sparse NCA (model-informed) | 7 | — | — | — | **7** |
-| Urine NCA | 7 | — | — | 5 | **12** |
-| Crossover design analysis | 15 | — | — | 17 | **32** |
-| Reference-scaled ABE (RSABE) | 8 | — | — | — | **8** |
-| CDISC PP domain export | 10 | — | — | — | **10** |
-| **Inference and model comparison** | | | | | |
-| LRT, AIC / BIC, model comparison tables | 29 | — | — | 23 | **52** |
-| Bootstrap resampling and BCa CIs | 46 | — | — | — | **46** |
-| SCM (stepwise covariate modelling) | 28 | — | — | — | **28** |
-| Covariate effect functions (power, linear, exp, categorical) | 21 | — | — | 21 | **42** |
-| **Simulation and diagnostics** | | | | | |
-| Simulation engine | 34 | — | — | — | **34** |
-| VPC / prediction-corrected VPC | 9 | 8 | 2 | — | **19** |
-| NPDE | 24 | — | 2 | 15 | **41** |
-| NPC | 10 | — | 2 | 7 | **19** |
-| SSE (stochastic simulation & re-estimation) | 12 | — | 1 | — | **13** |
-| Diagnostic tables and plots | 76 | — | — | — | **76** |
-| **Extended model families** | | | | | |
-| PK-PD (direct, Emax, indirect response, effect-cmt, TGI) | 20 | 7 | — | — | **27** |
-| Population PD | 4 | — | 10 | — | **14** |
-| Time-to-event / survival | 46 | — | — | 15 | **61** |
-| Count models (Poisson, NegBin, ZIP) | 33 | — | — | 20 | **53** |
-| Ordered categorical / proportional odds | 55 | — | — | 7 | **62** |
-| CTMC / Markov / HMM | — | — | — | 8 | **8** |
-| TMDD | 12 | — | — | 5 | **17** |
-| Static DDI analysis | 23 | — | — | — | **23** |
-| **Data and preprocessing** | | | | | |
-| NONMEMDataset and event processing | 13 | — | — | — | **13** |
-| BLQ handling | 30 | 6 | — | — | **36** |
-| Preprocessor and covariate imputation | 25 | — | — | — | **25** |
-| Time-varying covariates | 15 | — | — | — | **15** |
-| **Output, parsing, and reporting** | | | | | |
-| NONMEM output writers (.lst, .ext, .phi, .cov) | 46 | — | — | — | **46** |
-| NONMEM result reader | 32 | — | — | — | **32** |
-| Control stream parser | 68 | 3 | — | — | **71** |
-| CDISC export | 31 | — | — | — | **31** |
-| **Math and numerics** | | | | | |
-| Matrix operations (Cholesky, log-det, repair) | 12 | — | — | — | **12** |
-| Numerical accuracy (OFV, gradient, Hessian) | 60 | — | — | — | **60** |
-| ODE solver | 4 | — | — | — | **4** |
-| Autodiff | 4 | — | — | — | **4** |
-| Residual models (AR1, log-normal, power variance) | 15 | — | — | — | **15** |
-| Sandwich covariance estimator | 13 | — | — | 15 | **28** |
-| **GUI** | | | | | |
-| GUI (workflows, services, shell) | 210 | — | — | — | **210** |
+- the full list of estimation, PK, simulation, NCA, and workflow surfaces
+- the concrete test files backing each surface
+- the current mix of unit, integration, regression, and external-validation
+  evidence behind those surfaces
 
-## Notes on external reference packages
-
-The external-validation tier references the following independent implementations:
-
-| Reference | Used for |
-|---|---|
-| **nlmixr2** (R) | FOCE/FOCEI and FO parameter estimates on Boeckmann theophylline; FO parameter and residual-variance checks on the PK-only `warfarin` subset; reduced 4-subject and second-tier 6-subject mixed-endpoint joint `warfarin` PK/PD FO checks on the real ODE + `DVID`-routed path; OFV sign and direction; cross-method FO→FOCE ratio checks; OMEGA convergence |
-| **Pharmpy** (Python) | ETA shrinkage formula, FOCEI parameter-estimate comparison, and nonparametric empirical support-point benchmark on Pharmpy's phenobarbital (`pheno`) example |
-| **scipy.stats** | LRT p-values (`chi2.sf`), TOST p-values (`t.sf` / `t.cdf`), BE power (`nct.sf`), survival functions (`expon.sf`, `weibull_min.sf`), count PMFs (`nbinom.pmf`) |
-| **scipy.linalg** | Matrix exponential (`expm`) for CTMC transition probabilities |
-| **scipy.integrate** | ODE reference solutions via `odeint` for ADVAN1/2/3 post-infusion cross-validation |
-| **Closed-form Gaussian / EM references** | NUTS covariance recovery for exact Gaussian targets; BAYES(Laplace) posterior variance on a quadratic OFV; nonparametric EM weights for a fixed likelihood matrix |
-| **Closed-form integrals** | NCA reference values; ADVAN1/2/3 closed-form PK equations; Bateman equation; biexponential 2-cmt formula; Laplacian and FOCE OFV formula verification via linear-Gaussian mock model |
-| **Anderson & Holford (2008)** | Power-law allometric scaling: CL ∝ WT^0.75, V ∝ WT^1.0 |
-| **Schuirmann (1987)** | TOST bioequivalence framework; paired log-scale t-test identity |
-| **PowerTOST algorithm** | BE power and sample size via non-central t distribution |
-| **Burnham & Anderson (2002)** | Akaike weight formula: w_i = exp(−0.5 · ΔAIC_i) / Σ exp(−0.5 · ΔAIC_j) |
-| **Karlsson & Sheiner (1993)** | ETA shrinkage definition: shrinkage_k = 1 − SD(η̂_k) / √ω_kk |
-| **Beal & Sheiner (1992)** | FOCE OFV formula with prior_const; NONMEM 7 reference |
-| **Wolfinger (1993)** | Laplacian correction: OFV_Lap = OFV_FOCE_base + log\|H\|, H = ∂²obj_eta/∂η² |
-
-## Related pages
-
-- `docs/user_guide/validation.md` — literature-backed validation claims for NCA, VPC, and NPDE
-- `docs/user_guide/analysis_validation_gaps.md` — prioritised gaps and next tests to add
-- `docs/user_guide/analysis_tools.md` — full test-to-implementation mapping with narrative descriptions
+This page stays focused on test tiers, release gates, and the commands used to
+run them.

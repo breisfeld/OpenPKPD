@@ -98,17 +98,21 @@ Covariates are available inside `$PK` by column name:
 .covariates(["WT"])
 ```
 
-## Not yet available as named ADVAN selectors
-
-The current router does **not** expose the following as built-in selectors:
+## Selector notes
 
 | ADVAN | Status |
 |-------|--------|
-| `ADVAN7` | not currently implemented |
+| `ADVAN7` | implemented as an alternate backend for the same general linear `Kij` / `Ki0` family as `ADVAN5`; prefer `ADVAN5` unless you specifically want the matrix-exponential solver |
 | `ADVAN9` | not currently implemented |
 
-For many use cases that would otherwise require those selectors, the practical
-alternative today is a custom `$DES` model through `ADVAN6/8/13`.
+`ADVAN7` does not add a broader model family than `ADVAN5`. Both cover general
+linear N-compartment systems defined by micro-rate constants; the difference is
+the linear-algebra backend (`ADVAN5` uses eigendecomposition, `ADVAN7` uses a
+matrix exponential). For many general linear models, `ADVAN5` remains the
+preferred default selector.
+
+For selectors that are still absent, the practical alternative today is a
+custom `$DES` model through `ADVAN6/8/13`.
 
 ## ODE solver tuning (ADVAN6 / ADVAN8)
 

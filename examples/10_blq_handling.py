@@ -40,7 +40,7 @@ from openpkpd.utils.constants import BLQMethod
 # True population parameters (used for simulation)
 # ---------------------------------------------------------------------------
 TRUE_KA: float = 1.2    # hr^-1
-TRUE_CL: float = 0.15   # L/hr
+TRUE_CL: float = 2.0    # L/hr
 TRUE_V: float = 10.0    # L
 TRUE_SIGMA: float = 0.05  # proportional CV (variance)
 
@@ -49,7 +49,7 @@ IIV_KA: float = 0.20  # omega_KA (log-scale variance)
 IIV_CL: float = 0.15  # omega_CL
 IIV_V: float = 0.10   # omega_V
 
-LLOQ: float = 0.30  # mg/L — set to capture ~20% BLQ at late time points
+LLOQ: float = 1.00  # mg/L — set to capture ~20% BLQ at late time points
 N_SUBJECTS: int = 20
 DOSE: float = 100.0  # mg
 OBS_TIMES: list[float] = [0.25, 0.5, 1.0, 2.0, 4.0, 6.0, 8.0, 12.0, 24.0]

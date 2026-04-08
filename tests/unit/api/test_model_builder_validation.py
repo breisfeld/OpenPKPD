@@ -49,6 +49,7 @@ def _base_builder(ds=None, advan=2, trans=2):
     (1, 2),
     (3, 4),
     (5, 1),
+    (7, 1),
     (11, 6),
 ])
 def test_valid_advan_trans_combinations(advan, trans):

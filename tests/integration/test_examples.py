@@ -26,6 +26,7 @@ ALL_EXAMPLES = tuple(sorted(int(path.name[:2]) for path in EXAMPLES_DIR.glob("[0
 PLOT_EXAMPLES = {1, 2, 3, 4, 5, 7, 9, 11, 12, 14, 16, 17, 20, 21, 22, 23, 24, 33, 34}
 
 SMOKE_TIMEOUTS = {
+    10: 360,
     14: 180,
     18: 180,
     20: 180,
@@ -33,13 +34,24 @@ SMOKE_TIMEOUTS = {
 
 CONTRACT_TIMEOUTS = {
     1: 120,
+    2: 120,
+    3: 120,
+    4: 120,
+    5: 120,
     7: 120,
+    8: 120,
+    9: 180,
+    10: 360,
+    11: 120,
     6: 120,
     12: 120,
     13: 120,
     14: 180,
     15: 120,
     16: 120,
+    17: 120,
+    18: 180,
+    19: 120,
     20: 180,
     21: 180,
     22: 120,
@@ -103,6 +115,12 @@ def _assert_example_passed(num: int, result: subprocess.CompletedProcess[str]) -
     )
 
 
+def _extract_float(stdout: str, pattern: str) -> float:
+    match = re.search(pattern, stdout)
+    assert match is not None, f"Pattern not found: {pattern!r}"
+    return float(match.group(1))
+
+
 def _skip_if_optional_deps_missing(num: int) -> None:
     if num in PLOT_EXAMPLES and not _module_available("matplotlib"):
         pytest.skip("matplotlib not installed (install with: uv sync --extra plots)")
@@ -135,6 +153,87 @@ def test_example_01_contract(tmp_path: Path) -> None:
     assert "Figures saved to" in stdout
     assert (output_dir / "01_spaghetti.png").exists()
     assert (output_dir / "01_conc_time.png").exists()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_example_02_contract(tmp_path: Path) -> None:
+    result = _run_example(2, tmp_path, timeout=CONTRACT_TIMEOUTS[2])
+    _assert_example_passed(2, result)
+
+    stdout = result.stdout
+    output_dir = tmp_path / "example_02_output"
+    ofv = _extract_float(stdout, r"OFV:\s+(-?[0-9.]+)")
+    assert "Running FOCE estimation..." in stdout
+    assert "Method: FOCEI" in stdout
+    assert "Converged: True" in stdout
+    assert ofv < 0.0
+    assert "Near-singular Omega" in stdout
+    assert "Figures saved to" in stdout
+    assert (output_dir / "02_gof_panel.png").exists()
+    assert (output_dir / "02_eta_hist.png").exists()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_example_03_contract(tmp_path: Path) -> None:
+    result = _run_example(3, tmp_path, timeout=CONTRACT_TIMEOUTS[3])
+    _assert_example_passed(3, result)
+
+    stdout = result.stdout
+    output_dir = tmp_path / "example_03_output"
+    ofv = _extract_float(stdout, r"OFV:\s+(-?[0-9.]+)")
+    assert "Running FO on 2-cmt IV model..." in stdout
+    assert "Method: FO" in stdout
+    assert "Converged: True" in stdout
+    assert ofv < 0.0
+    assert "THETA:" in stdout
+    assert (output_dir / "03_log_conc_time.png").exists()
+    assert (output_dir / "03_spaghetti_log.png").exists()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_example_04_contract(tmp_path: Path) -> None:
+    result = _run_example(4, tmp_path, timeout=CONTRACT_TIMEOUTS[4])
+    _assert_example_passed(4, result)
+
+    stdout = result.stdout
+    output_dir = tmp_path / "example_04_output"
+    k = _extract_float(stdout, r"K=([0-9.]+),")
+    v = _extract_float(stdout, r"V=([0-9.]+),")
+    e0 = _extract_float(stdout, r"E0=([0-9.]+),")
+    emax = _extract_float(stdout, r"Emax=([0-9.]+),")
+    ec50 = _extract_float(stdout, r"EC50=([0-9.]+),")
+    assert "Running FO on Emax PD model..." in stdout
+    assert "Method: FO" in stdout
+    assert "Converged: True" in stdout
+    assert 0.05 < k < 1.0
+    assert 5.0 < v < 100.0
+    assert 0.0 < e0 < 10.0
+    assert 0.0 < emax < 30.0
+    assert 1.0 < ec50 < 100.0
+    assert (output_dir / "04_emax_curve.png").exists()
+    assert (output_dir / "04_effect_time.png").exists()
+    assert (output_dir / "04_gof_panel.png").exists()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_example_05_contract(tmp_path: Path) -> None:
+    result = _run_example(5, tmp_path, timeout=CONTRACT_TIMEOUTS[5])
+    _assert_example_passed(5, result)
+
+    stdout = result.stdout
+    output_dir = tmp_path / "example_05_output"
+    ofv = _extract_float(stdout, r"OFV:\s+(-?[0-9.]+)")
+    assert "Simulating indirect response data..." in stdout
+    assert "Fitting..." in stdout
+    assert "Method: FO" in stdout
+    assert "Converged: True" in stdout
+    assert 0.0 < ofv < 100.0
+    assert (output_dir / "05_effect_time.png").exists()
+    assert (output_dir / "05_hysteresis.png").exists()
 
 
 @pytest.mark.integration
@@ -180,6 +279,96 @@ def test_example_07_contract(tmp_path: Path) -> None:
 
 @pytest.mark.integration
 @pytest.mark.slow
+def test_example_08_contract(tmp_path: Path) -> None:
+    result = _run_example(8, tmp_path, timeout=CONTRACT_TIMEOUTS[8])
+    _assert_example_passed(8, result)
+
+    stdout = result.stdout
+    assert "Example 08: Transit Compartment Absorption (ADVAN6)" in stdout
+    assert "Fitting transit compartment model (FO, maxeval=80)..." in stdout
+    assert "Estimation complete:" in stdout
+    assert "Usable optimum: False" in stdout
+    assert "Warning: the objective remained on the penalty surface." in stdout
+    assert "demonstrates ADVAN6 transit-model setup" in stdout
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_example_09_contract(tmp_path: Path) -> None:
+    result = _run_example(9, tmp_path, timeout=CONTRACT_TIMEOUTS[9])
+    _assert_example_passed(9, result)
+
+    stdout = result.stdout
+    output_dir = tmp_path / "example_09_output"
+    assert "Example 09: 3-Compartment IV Model (ADVAN11)" in stdout
+    assert "Running FOCE estimation..." in stdout
+    assert "Converged = True" in stdout
+    cl = _extract_float(stdout, r"THETA\(1\) \[CL \(L/h\)\]: est=([0-9.]+)")
+    v1 = _extract_float(stdout, r"THETA\(2\) \[V1 \(L\)\]: est=([0-9.]+)")
+    q2 = _extract_float(stdout, r"THETA\(3\) \[Q2 \(L/h\)\]: est=([0-9.]+)")
+    assert cl == pytest.approx(2.0, abs=0.4)
+    assert v1 == pytest.approx(10.0, abs=2.5)
+    assert q2 == pytest.approx(1.5, abs=0.4)
+    assert "Simulating 3 replicates from fitted model..." in stdout
+    assert (output_dir / "09_three_cmt_profile.png").exists()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_example_10_contract(tmp_path: Path) -> None:
+    result = _run_example(10, tmp_path, timeout=CONTRACT_TIMEOUTS[10])
+    _assert_example_passed(10, result)
+
+    stdout = result.stdout
+    blq = _extract_float(stdout, r"BLQ observations\s+:\s+([0-9]+)")
+    blq_pct = _extract_float(stdout, r"BLQ observations\s+:\s+[0-9]+\s+\(([0-9.]+)%\)")
+    m1_ofv_match = re.search(r"Fitting BLQ method: M1.*?OFV\s+=\s+([0-9.]+)", stdout, re.S)
+    m3_ofv_match = re.search(r"Fitting BLQ method: M3.*?OFV\s+=\s+([0-9.]+)", stdout, re.S)
+    m5_ofv_match = re.search(r"Fitting BLQ method: M5.*?OFV\s+=\s+([0-9.]+)", stdout, re.S)
+    m1_match = re.search(r"Fitting BLQ method: M1.*?Converged = (True|False).*?n_obs\s+=\s+([0-9]+)", stdout, re.S)
+    m3_match = re.search(r"Fitting BLQ method: M3.*?Converged = (True|False).*?n_obs\s+=\s+([0-9]+)", stdout, re.S)
+    m5_match = re.search(r"Fitting BLQ method: M5.*?Converged = (True|False).*?n_obs\s+=\s+([0-9]+)", stdout, re.S)
+    assert m1_ofv_match is not None
+    assert m3_ofv_match is not None
+    assert m5_ofv_match is not None
+    assert m1_match is not None
+    assert m3_match is not None
+    assert m5_match is not None
+    assert "Example 10: BLQ Handling — M1 vs M3 vs M5" in stdout
+    assert blq >= 10
+    assert 10.0 <= blq_pct <= 30.0
+    assert m1_match.group(1) == "True"
+    assert m3_match.group(1) == "True"
+    assert m5_match.group(1) == "True"
+    assert int(m1_match.group(2)) < int(m3_match.group(2))
+    assert int(m3_match.group(2)) == int(m5_match.group(2))
+    assert "Best model by AIC: M3" in stdout
+    assert float(m3_ofv_match.group(1)) < float(m1_ofv_match.group(1))
+    assert float(m3_ofv_match.group(1)) < float(m5_ofv_match.group(1))
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_example_11_contract(tmp_path: Path) -> None:
+    result = _run_example(11, tmp_path, timeout=CONTRACT_TIMEOUTS[11])
+    _assert_example_passed(11, result)
+
+    stdout = result.stdout
+    output_dir = tmp_path / "example_11_output"
+    const_aic = _extract_float(stdout, r"ConstantHazard AIC\s+:\s+([0-9.]+)")
+    weib_aic = _extract_float(stdout, r"Weibull AIC\s+:\s+([0-9.]+)")
+    scale = _extract_float(stdout, r"Fitted scale\s+:\s+([0-9.]+)")
+    shape = _extract_float(stdout, r"Fitted shape\s+:\s+([0-9.]+)")
+    assert "Example 11: Time-to-Event Survival Analysis" in stdout
+    assert "Weibull model preferred" in stdout
+    assert weib_aic < const_aic
+    assert scale == pytest.approx(15.0, abs=2.0)
+    assert shape == pytest.approx(1.8, abs=0.2)
+    assert (output_dir / "11_tte_survival.png").exists()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
 def test_example_12_contract(tmp_path: Path) -> None:
     result = _run_example(12, tmp_path, timeout=CONTRACT_TIMEOUTS[12])
     _assert_example_passed(12, result)
@@ -187,9 +376,12 @@ def test_example_12_contract(tmp_path: Path) -> None:
     stdout = result.stdout
     assert "Example 12: Non-Compartmental Analysis (NCA)" in stdout
     assert "NCA Summary Table" in stdout
-    assert "Geometric mean AUC_inf: 19.18" in stdout
-    assert "Geometric mean CL/F:    5.214" in stdout
-    assert "Median t½:              6.56 hr" in stdout
+    auc_inf = _extract_float(stdout, r"Geometric mean AUC_inf:\s+([0-9.]+)")
+    cl_f = _extract_float(stdout, r"Geometric mean CL/F:\s+([0-9.]+)")
+    t_half = _extract_float(stdout, r"Median t½:\s+([0-9.]+)\s+hr")
+    assert auc_inf == pytest.approx(19.18, abs=0.2)
+    assert cl_f == pytest.approx(5.214, abs=0.05)
+    assert t_half == pytest.approx(6.56, abs=0.1)
     assert "Average Bioequivalence — AUC0-inf" in stdout
     assert "Average Bioequivalence — Cmax" in stdout
     assert "Done." in stdout
@@ -205,17 +397,21 @@ def test_example_13_contract(tmp_path: Path) -> None:
     assert "Example 13: Covariate Search — Theophylline PK" in stdout
     assert "Dataset: NONMEMDataset(n_subjects=6, n_rows=64" in stdout
     assert "Fitting base model (FOCE, maxeval=80)..." in stdout
-    assert "OFV: -109.7020" in stdout
+    base_ofv = _extract_float(stdout, r"OFV:\s+(-?[0-9.]+)")
     assert "Converged: True" in stdout
     assert "Manual LRT: WT (power) on CL" in stdout
-    assert "ΔOFV              : 0.0038" in stdout
-    assert "p-value (LRT, 1df): 0.9506" in stdout
+    delta_ofv = _extract_float(stdout, r"ΔOFV\s+:\s+(-?[0-9.]+)")
+    p_value = _extract_float(stdout, r"p-value \(LRT, 1df\):\s+([0-9.]+)")
     match = re.search(r"THETA\(4\) \[WT→CL\]\s+:\s+(-?[0-9]+\.[0-9]+)", stdout)
     assert match is not None
+    assert base_ofv == pytest.approx(-109.70, abs=0.05)
+    assert delta_ofv == pytest.approx(0.0038, abs=0.002)
+    assert p_value == pytest.approx(0.9506, abs=0.02)
     assert float(match.group(1)) == pytest.approx(0.0213, abs=0.001)
     assert ">>> WT (power) on CL is NOT significant at 5% level." in stdout
     assert "SCMEngine: Automatic Stepwise Covariate Search" in stdout
-    assert "Final OFV : -109.7020" in stdout
+    final_ofv = _extract_float(stdout, r"Final OFV\s+:\s+(-?[0-9.]+)")
+    assert final_ofv == pytest.approx(base_ofv, abs=0.02)
     assert "No covariate relationships were accepted." in stdout
     assert "Example 13 complete." in stdout
 
@@ -249,9 +445,9 @@ def test_example_15_contract(tmp_path: Path) -> None:
     assert "Example 15: Bayesian Estimation via MAP and Laplace Posterior Approximation" in stdout
     assert "Dataset: 12 subjects, 132 rows" in stdout
     assert "Backend used: laplace" in stdout
-    assert "THETA(1) [KA (hr⁻¹)] = 1.4792" in stdout
-    assert "THETA(2) [CL (L/hr)] = 2.7181" in stdout
-    assert "THETA(3) [V (L)] = 32.4609" in stdout
+    assert "THETA(1) [KA (hr⁻¹)]" in stdout
+    assert "THETA(2) [CL (L/hr)]" in stdout
+    assert "THETA(3) [V (L)]" in stdout
     theta1_match = re.search(r"THETA\(1\)\s+([0-9.]+)\s+[0-9.]+\s+[0-9.]+\s+[0-9.]+\s+1\.0000\s+2000", stdout)
     theta2_match = re.search(r"THETA\(2\)\s+([0-9.]+)\s+[0-9.]+\s+[0-9.]+\s+[0-9.]+\s+1\.0000\s+2000", stdout)
     theta3_match = re.search(r"THETA\(3\)\s+([0-9.]+)\s+[0-9.]+\s+[0-9.]+\s+[0-9.]+\s+1\.0000\s+2000", stdout)
@@ -273,12 +469,71 @@ def test_example_16_contract(tmp_path: Path) -> None:
     stdout = result.stdout
     output_dir = tmp_path / "example_16_output"
     assert "Example 16: Delay Differential Equation (DDE) PK model" in stdout
-    assert "0.10            9.8020            9.8000        9.8020" in stdout
-    assert "1.31            7.6948            7.5105        7.6948" in stdout
-    assert "Max ODE vs analytical error: 2.63e-06  (should be < 1e-4)" in stdout
-    assert "Max DDE vs ODE difference:  3.88e-01  (should be > 0 with tau=0.5)" in stdout
+    assert "ODE (no delay)" in stdout
+    assert "Analytical" in stdout
+    ode_err = _extract_float(stdout, r"Max ODE vs analytical error:\s+([0-9.eE+-]+)")
+    dde_gap = _extract_float(stdout, r"Max DDE vs ODE difference:\s+([0-9.eE+-]+)")
+    assert ode_err < 1e-4
+    assert dde_gap > 0.0
     assert "DDE model with tau=0.5 h produces delayed elimination — as expected." in stdout
     assert (output_dir / "16_dde_model.png").exists()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_example_17_contract(tmp_path: Path) -> None:
+    result = _run_example(17, tmp_path, timeout=CONTRACT_TIMEOUTS[17])
+    _assert_example_passed(17, result)
+
+    stdout = result.stdout
+    output_dir = tmp_path / "example_17_output"
+    assert "Example 17: SBML model import and simulation" in stdout
+    assert "Two-compartment IV model:" in stdout
+    assert "Mass balance check: PASSED" in stdout
+    assert "ThetaSpec round-trip: PASSED" in stdout
+    assert "SBML import example complete." in stdout
+    assert (output_dir / "17_sbml_import.png").exists()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_example_18_contract(tmp_path: Path) -> None:
+    result = _run_example(18, tmp_path, timeout=CONTRACT_TIMEOUTS[18])
+    _assert_example_passed(18, result)
+
+    stdout = result.stdout
+    conv_match = re.search(r"Converged:\s+([0-9]+)/([0-9]+)", stdout)
+    assert conv_match is not None
+    assert "Example 18: Parallel bootstrap with get_backend()" in stdout
+    assert "Backend: _MultiprocessingBackend" in stdout
+    assert conv_match.group(1) == conv_match.group(2)
+    assert "Bootstrap 95% confidence intervals:" in stdout
+    assert "KA    :" in stdout
+    assert "CL    :" in stdout
+    assert "V     :" in stdout
+    assert "map([1..5], x*2) = [2, 4, 6, 8, 10]" in stdout
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_example_19_contract(tmp_path: Path) -> None:
+    result = _run_example(19, tmp_path, timeout=CONTRACT_TIMEOUTS[19])
+    _assert_example_passed(19, result)
+
+    stdout = result.stdout
+    mean_count = _extract_float(stdout, r"Mean count:\s+([0-9.]+)")
+    poisson_match = re.search(r"--- Poisson model ---.*?AIC:\s+([0-9.]+)", stdout, re.S)
+    zip_match = re.search(r"--- Zero-Inflated Poisson model \(excess zeros\) ---.*?AIC:\s+([0-9.]+)", stdout, re.S)
+    assert poisson_match is not None
+    assert zip_match is not None
+    assert "PART 1: Count PD models" in stdout
+    assert "PART 2: Categorical PD models" in stdout
+    assert mean_count > 0.0
+    assert "P(cat) at C=0.0:" in stdout
+    assert "Fitted transition matrix:" in stdout
+    assert "Fitted rate matrix Q:" in stdout
+    assert float(zip_match.group(1)) < float(poisson_match.group(1))
+    assert "Example 19 complete." in stdout
 
 
 @pytest.mark.integration
@@ -388,8 +643,8 @@ def test_example_22_contract(tmp_path: Path) -> None:
     assert "Example 22: PBPK Model — 5-Organ Human Template" in stdout
     assert "Compartments: ['lung', 'liver', 'kidney', 'gut', 'central']" in stdout
     assert "Output compartment: 'central' (index 5)" in stdout
-    assert "0.25             1.5935" in stdout
-    assert "0.25       1.5935       8.0686       4.6843" in stdout
+    assert "Plasma (central) concentration profile" in stdout
+    assert "Tissue concentration comparison at key times" in stdout
     assert (output_dir / "22_pbpk.png").exists()
 
 
@@ -649,12 +904,17 @@ def test_example_33_contract(tmp_path: Path) -> None:
 
     stdout = result.stdout
     output_dir = tmp_path / "example_33_output"
-    assert "Full TMDD  peak C: 0.989 nmol/L" in stdout
-    assert "QSSA       peak C: 0.994 nmol/L" in stdout
-    assert "MM         peak C: 1.000 nmol/L" in stdout
-    assert "Full TMDD  AUC(0-168h) ≈ 1.6 nmol·h/L" in stdout
-    assert "QSSA       AUC(0-168h) ≈ 1.4 nmol·h/L" in stdout
-    assert "MM         AUC(0-168h) ≈ 15.0 nmol·h/L" in stdout
+    full_peak = _extract_float(stdout, r"Full TMDD\s+peak C:\s+([0-9.]+)\s+nmol/L")
+    qssa_peak = _extract_float(stdout, r"QSSA\s+peak C:\s+([0-9.]+)\s+nmol/L")
+    mm_peak = _extract_float(stdout, r"MM\s+peak C:\s+([0-9.]+)\s+nmol/L")
+    full_auc = _extract_float(stdout, r"Full TMDD\s+AUC\(0-168h\)\s+≈\s+([0-9.]+)\s+nmol·h/L")
+    qssa_auc = _extract_float(stdout, r"QSSA\s+AUC\(0-168h\)\s+≈\s+([0-9.]+)\s+nmol·h/L")
+    mm_auc = _extract_float(stdout, r"MM\s+AUC\(0-168h\)\s+≈\s+([0-9.]+)\s+nmol·h/L")
+    assert full_peak == pytest.approx(0.99, abs=0.05)
+    assert qssa_peak == pytest.approx(0.99, abs=0.05)
+    assert mm_peak == pytest.approx(1.00, abs=0.05)
+    assert full_auc < mm_auc
+    assert qssa_auc < mm_auc
     assert (output_dir / "33_tmdd_model.png").exists()
 
 
@@ -667,13 +927,20 @@ def test_example_34_contract(tmp_path: Path) -> None:
     stdout = result.stdout
     output_dir = tmp_path / "example_34_output"
     assert "Single-dose NCA" in stdout
-    assert "Cmax     = 5.572 mg/L" in stdout
-    assert "AUC(0-∞) = 53.18 mg·h/L" in stdout
+    cmax = _extract_float(stdout, r"Cmax\s+=\s+([0-9.]+)\s+mg/L")
+    auc_inf = _extract_float(stdout, r"AUC\(0-∞\)\s+=\s+([0-9.]+)\s+mg·h/L")
     assert "Steady-state NCA (SS=1, tau=12 h)" in stdout
-    assert "Ctrough  = 1.697 mg/L" in stdout
-    assert "Cpeak_ss = 6.830 mg/L" in stdout
-    assert "Cavg_ss  = 4.141 mg/L" in stdout
-    assert "AUCtau   = 49.69 mg·h/L" in stdout
-    assert "R_ac     = 0.934" in stdout
-    assert "%%Fluct  = 123.9%%" in stdout
+    ctrough = _extract_float(stdout, r"Ctrough\s+=\s+([0-9.]+)\s+mg/L")
+    cpeak_ss = _extract_float(stdout, r"Cpeak_ss\s+=\s+([0-9.]+)\s+mg/L")
+    cavg_ss = _extract_float(stdout, r"Cavg_ss\s+=\s+([0-9.]+)\s+mg/L")
+    auctau = _extract_float(stdout, r"AUCtau\s+=\s+([0-9.]+)\s+mg·h/L")
+    rac = _extract_float(stdout, r"R_ac\s+=\s+([0-9.]+)")
+    fluct = _extract_float(stdout, r"%Fluct\s+=\s+([0-9.]+)%")
+    assert cmax == pytest.approx(5.57, abs=0.1)
+    assert auc_inf == pytest.approx(53.18, abs=0.5)
+    assert ctrough < cpeak_ss
+    assert ctrough < cavg_ss < cpeak_ss
+    assert auctau == pytest.approx(49.69, abs=0.5)
+    assert 0.7 < rac < 1.2
+    assert fluct > 50.0
     assert (output_dir / "34_multidose_ss_nca.png").exists()

@@ -11,7 +11,7 @@ NONMEM-style control-stream support, a CLI, and a Qt desktop GUI.
 ## Features
 
 - **Estimation methods**: primary FO/FOCE/FOCEI/Laplacian workflows plus secondary SAEM, IMP/IMPMAP, `BAYES(Laplace)`, and nonparametric paths, with explicit support notes in the docs
-- **PK subroutines**: analytical `ADVAN1–4`, `ADVAN11`, `ADVAN12`; numerical `ADVAN6/8/10/13`; DDE support via `ADVAN16`
+- **PK subroutines**: analytical `ADVAN1–5`, `ADVAN11`, `ADVAN12`; numerical `ADVAN6/8/10/13`; DDE support via `ADVAN16`
 - **ODE JIT acceleration**: 10–30× speedup for `$DES` ODE models via optional Numba JIT compilation (`openpkpd[jit]`); explicit stiff-ODE fallback to scipy/Radau when step limits are hit
 - **NM-TRAN compiler**: `$PK`, `$DES`, and `$ERROR` blocks compiled to Python callables
 - **Interfaces**: fluent `ModelBuilder`, NONMEM-style control streams, CLI, and a scenario-based Qt desktop GUI
@@ -25,14 +25,14 @@ NONMEM-style control-stream support, a CLI, and a Qt desktop GUI.
 ## Installation
 
 ```bash
-pip install openpkpd                   # core library + CLI
+pip install openpkpd                   # core library + CLI + SymPy analytical path
 pip install "openpkpd[plots]"          # + matplotlib plotting/diagnostics
 pip install "openpkpd[gui]"            # + Qt desktop GUI + matplotlib plot output
 pip install "openpkpd[jit]"            # + Numba JIT (10–30× ODE speedup)
 pip install "openpkpd[bayes]"          # + PyMC backend for BAYES
 pip install "openpkpd[notebooks]"      # + marimo notebook runtime
 pip install "openpkpd[r]"             # + optional rpy2 Python-R bridge
-pip install "openpkpd[full]"           # + optimagic + sympy + matplotlib
+pip install "openpkpd[full]"           # + optimagic + matplotlib
 ```
 
 With [uv](https://docs.astral.sh/uv/):
@@ -52,7 +52,12 @@ Optional extras:
 - `pip install python-libsbml` — SBML/QSP model import
 
 `openpkpd[full]` does **not** include the GUI or Bayesian extras; install
-`[gui]` and/or `[bayes]` separately as needed.
+`[gui]` and/or `[bayes]` separately as needed. SymPy is part of the core
+dependency set because the symbolic analytical-kernel path is now treated as a
+first-class tested route.
+
+The detailed “which extra should I install, and why?” guidance lives in
+[docs/getting_started/installation.md](/home/breisfel/Documents/projects/openpkpd/docs/getting_started/installation.md).
 
 ## Desktop GUI
 

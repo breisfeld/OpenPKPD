@@ -7,20 +7,52 @@
 Open-source Python toolkit for population PK/PD analysis, with a native Python API,
 NONMEM-style control-stream support, a CLI, and a Qt desktop GUI.
 
+## Contents
+
+- [Features](#features)
+- [Installation](#installation)
+- [Desktop GUI](#desktop-gui)
+- [Quick start](#quick-start)
+- [Validation and benchmarking](#validation-and-benchmarking)
+- [Running a NONMEM control stream](#running-a-nonmem-control-stream)
+- [HTML / PDF reports](#html--pdf-reports)
+- [Diagnostic plots](#diagnostic-plots)
+- [Parallel estimation and simulation](#parallel-estimation-and-simulation)
+- [Parallel bootstrap](#parallel-bootstrap)
+- [SBML / QSP model import](#sbml--qsp-model-import)
+- [Delay Differential Equations](#delay-differential-equations)
+- [Examples](#examples)
+- [Comparison with Other Tools](#comparison-with-other-tools)
+- [Development](#development)
+- [Selected references](#selected-references)
+- [Licence](#licence)
+
 
 ## Features
 
-- **Estimation methods**: primary FO/FOCE/FOCEI/Laplacian workflows plus secondary SAEM, IMP/IMPMAP, `BAYES(Laplace)`, and nonparametric paths, with explicit support notes in the docs
-- **PK subroutines**: analytical `ADVAN1–5`, `ADVAN11`, `ADVAN12`; numerical `ADVAN6/8/10/13`; DDE support via `ADVAN16`
-- **ODE JIT acceleration**: 10–30× speedup for `$DES` ODE models via optional Numba JIT compilation (`openpkpd[jit]`); explicit stiff-ODE fallback to scipy/Radau when step limits are hit
-- **NM-TRAN compiler**: `$PK`, `$DES`, and `$ERROR` blocks compiled to Python callables
-- **Interfaces**: fluent `ModelBuilder`, NONMEM-style control streams, CLI, and a scenario-based Qt desktop GUI
-- **Simulation and diagnostics**: replicate simulation, VPC/pcVPC, NPC, NPDE, GOF plots, residual plots, and ETA panels
-- **Model families**: PK, PK/PD, TTE, count/categorical PD, TMDD, tumor growth, and advanced absorption models
-- **Covariate workflows**: manual covariate coding, imputation helpers, and stepwise SCM
-- **Data/output**: NONMEM-compatible `.lst/.ext/.phi/.cov/.cor` outputs, `$TABLE`, HTML reports, and NCA exports
-- **Advanced integrations**: SBML import, sparse-sampling NCA, built-in multi-core parallelism for estimation and simulation
-- **Examples and tests**: 34 shipped example scripts, a smaller curated set of annotated docs pages, and extensive unit/integration/regression coverage
+- **Model building and execution**
+  - `ModelBuilder` Python API, NONMEM-style control streams, CLI, and desktop GUI
+  - NM-TRAN-style `$PK`, `$DES`, and `$ERROR` compilation to Python callables
+  - NONMEM-format datasets, BLQ handling, covariate coding, and scenario-based workflows
+- **Estimation methods**
+  - FO, FOCE, FOCEI, and Laplacian as the main mixed-effects workflows
+  - SAEM, IMP, IMPMAP, `BAYES(Laplace)`, and nonparametric support-point estimation
+  - covariance step, OFV/AIC/BIC review, and cross-method comparison tooling
+- **PK/PD and model families**
+  - analytical PK subroutines `ADVAN1–5`, `ADVAN7`, `ADVAN11`, `ADVAN12`
+  - numerical ODE routes `ADVAN6/8/10/13` and DDE support via `ADVAN16`
+  - population PK, PK/PD, TTE, count/categorical PD, TMDD, tumor growth, PBPK, and advanced absorption models
+- **Simulation, diagnostics, and analysis**
+  - replicate simulation, VPC/pcVPC, NPC, NPDE, GOF plots, residual plots, and ETA panels
+  - NCA, sparse-sampling NCA, bioequivalence, bootstrap, and PFIM-backed optimal design
+  - manual covariate workflows, imputation helpers, and stepwise SCM support
+- **Outputs and integrations**
+  - NONMEM-compatible `.lst/.ext/.phi/.cov/.cor` outputs and `$TABLE`
+  - HTML reports, PDF export via the GUI runtime, and NCA exports
+  - SBML import, built-in multi-core/distributed execution hooks, and optional R/PyMC integration
+- **Examples and validation**
+  - 34 shipped examples and marimo notebook support
+  - extensive unit, integration, regression, and external-validation coverage
 
 ## Installation
 
@@ -98,70 +130,6 @@ Notable GUI pages and recent improvements:
 - **Results** keeps common actions visible and places secondary actions under **More actions** menus.  CSV artifacts are now displayed as a rendered interactive table rather than raw text, and the page can jump directly to a strong sibling comparison scenario.  Bayesian review actions are shown when the current run produced Bayesian posterior artifacts.
 - **Plots** and **Diagnostics** provide focused artifact browsers and preview panes
 - **Advanced** provides **VPC**, **Bootstrap**, **Design**, and **Artifacts** tabs, with secondary settings/log/preview panels hidden behind collapsible sections by default.  The current **Design** tab fronts the implemented PFIM path, whose support boundary is intentionally narrower than the broadest residual-error structures advertised by some external tools; see the validation matrix and optimal-design example docs for the current envelope.
-
-## Architecture
-
-```mermaid
-graph TB
-    subgraph "Entry Points"
-        CLI["CLI\nopenpkpd run model.ctl\nopenpkpd parse model.ctl"]
-        PyAPI["Python API\nModelBuilder().build().fit()"]
-        GUIEP["Desktop GUI\nopenpkpd-gui"]
-    end
-
-    subgraph "openpkpd_gui - Qt Desktop"
-        Shell["Shell\nmain_window.py · menu bar · sidebar nav"]
-        WFs["Workflows\nDashboard · Data · Model · Fit\nNCA · Covariate · Advanced · Results · Diagnostics"]
-        Svcs["Services\nfit · data · nca · vpc · bootstrap · scm\ndesign · project · artifact · serialization · validation"]
-    end
-
-    subgraph "openpkpd - Core Library"
-        Parser["Parser\n.ctl Control Stream\n25+ typed record types"]
-        Data["Data\nNONMEM CSV\nloading · validation · BLQ handling"]
-        Assembly["Model Assembly\nPopulationModel\ncompiled PK / ERROR callables"]
-        PKSubs["PK Subroutines\nADVAN 1-4 analytical\nADVAN 6/8/10/13 ODE · ADVAN 16 DDE"]
-        Estimation["Estimation\nFO · FOCE/I · Laplacian · SAEM\nIMP/IMPMAP · BAYES · Nonparametric"]
-        PostEst["Post-Estimation\nCovariance · VPC · NPDE · NPC"]
-        Analysis["Analysis\nNCA · SCM · Bootstrap · Optimal Design"]
-        Output["Output\nGOF plots · HTML/PDF reports\nNONMEM tables (.ext/.cov/.phi) · CDISC"]
-    end
-
-    subgraph "Optional Backends"
-        PyMC["PyMC\nBAYES"]
-        SymPy["SymPy\nAnalytical PK"]
-        Parallel["dask / ray\nCluster Parallelism"]
-        MPL["matplotlib\nAll Plots"]
-    end
-
-    CLI --> Parser
-    CLI --> Data
-    PyAPI --> Assembly
-    GUIEP --> Shell
-
-    Shell --> WFs
-    WFs --> Svcs
-    Svcs --> Parser
-    Svcs --> Data
-    Svcs --> Assembly
-    Svcs --> Estimation
-    Svcs --> Analysis
-    Svcs --> Output
-
-    Parser --> Assembly
-    Data --> Assembly
-    Assembly --> PKSubs
-    PKSubs --> Estimation
-    Assembly --> Estimation
-    Estimation --> PostEst
-    PostEst --> Output
-    Estimation --> Analysis
-    Analysis --> Output
-
-    Estimation -.-> PyMC
-    Assembly -.-> SymPy
-    Output -.-> MPL
-    Estimation -.-> Parallel
-```
 
 ## Quick start
 
@@ -351,42 +319,25 @@ sol = dde.solve({"CL": 2.0, "V": 10.0, "TAU": 0.5},
 
 ## Examples
 
-| # | Topic |
-|---|-------|
-| 01 | Theophylline 1-cmt oral — FO |
-| 02 | Warfarin FOCE with covariance step |
-| 03 | Two-compartment IV bolus |
-| 04 | Emax PD model |
-| 05 | Indirect response model (IDR types 1–4) |
-| 06 | From NONMEM control stream |
-| 07 | Diagnostic plots |
-| 08 | ODE transit absorption |
-| 09 | Three-compartment ADVAN11/12 |
-| 10 | Below-limit-of-quantification handling |
-| 11 | Time-to-event survival model |
-| 12 | Non-compartmental analysis (NCA) |
-| 13 | Stepwise covariate modelling (SCM) |
-| 14 | Simulation and VPC |
-| 15 | Bayesian estimation via MAP and Laplace posterior approximation |
-| 16 | Delay differential equation (DDE) model |
-| 17 | SBML / QSP model import |
-| 18 | Parallel bootstrap resampling |
-| 19 | Count and categorical PD models |
-| 20 | SAEM estimation with OFV convergence history |
-| 21 | Laplacian estimation and prior augmentation |
-| 22 | 5-organ PBPK model (lung, liver, kidney, gut, central) |
-| 23 | Inter-occasion variability (IOV) modelling |
-| 24 | Advanced PD models: effect compartment, turnover, TGI, placebo |
-| 25 | FOCEI optimizer controls: L-BFGS-B, Powell fallback, multi-start, retry logic |
-| 26 | Control-stream optimizer extension inspection |
-| 27 | Phenobarbital neonatal population PK — weight-based allometric scaling |
-| 28 | Indometh NCA (Phoenix WinNonlin reference) |
-| 29 | Optimal design (PFIM-backed sampling-time optimization) |
-| 30 | Four-compartment ADVAN5 (micro-rate) model |
-| 31 | IMP vs IMPMAP warm-start comparison on warfarin PK |
-| 32 | Nonparametric support-point estimation on phenobarbital |
-| 33 | TMDD / QSSA / Michaelis-Menten approximation comparison |
-| 34 | Multi-dose steady-state NCA |
+| # | Topic | # | Topic |
+|---|-------|---|-------|
+| 01 | Theophylline 1-cmt oral — FO | 18 | Parallel bootstrap resampling |
+| 02 | Warfarin FOCE with covariance step | 19 | Count and categorical PD models |
+| 03 | Two-compartment IV bolus | 20 | SAEM estimation with OFV convergence history |
+| 04 | Emax PD model | 21 | Laplacian estimation and prior augmentation |
+| 05 | Indirect response model (IDR types 1–4) | 22 | 5-organ PBPK model (lung, liver, kidney, gut, central) |
+| 06 | From NONMEM control stream | 23 | Inter-occasion variability (IOV) modelling |
+| 07 | Diagnostic plots | 24 | Advanced PD models: effect compartment, turnover, TGI, placebo |
+| 08 | ODE transit absorption | 25 | FOCEI optimizer controls: L-BFGS-B, Powell fallback, multi-start, retry logic |
+| 09 | Three-compartment ADVAN11/12 | 26 | Control-stream optimizer extension inspection |
+| 10 | Below-limit-of-quantification handling | 27 | Phenobarbital neonatal population PK — weight-based allometric scaling |
+| 11 | Time-to-event survival model | 28 | Indometh NCA (Phoenix WinNonlin reference) |
+| 12 | Non-compartmental analysis (NCA) | 29 | Optimal design (PFIM-backed sampling-time optimization) |
+| 13 | Stepwise covariate modelling (SCM) | 30 | Four-compartment ADVAN5 (micro-rate) model |
+| 14 | Simulation and VPC | 31 | IMP vs IMPMAP warm-start comparison on warfarin PK |
+| 15 | Bayesian estimation via MAP and Laplace posterior approximation | 32 | Nonparametric support-point estimation on phenobarbital |
+| 16 | Delay differential equation (DDE) model | 33 | TMDD / QSSA / Michaelis-Menten approximation comparison |
+| 17 | SBML / QSP model import | 34 | Multi-dose steady-state NCA |
 
 ## Comparison with Other Tools
 

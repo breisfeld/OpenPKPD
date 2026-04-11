@@ -1,10 +1,21 @@
-### Project-specific generated files ###
+### editor artifacts ###
 .history/
+
+### package managers  ###
+uv.lock
+
+
+### Project-specific generated files ###
 temp/
-manuscript/
+test_status/
+todo/
+.openpkpd_gui_artifacts/
 
 ### env ###
 .envrc
+.env
+
+
 
 ### C ###
 # Prerequisites
@@ -283,22 +294,23 @@ poetry.toml
 ### Local tool caches and scratch directories ###
 .r-lib/
 .uv-cache/
-.claude/
 .local/
 .xdg-data/
 artifacts/
 main.py
+
+### AI ###
+AGENTS.md
+.agents/
+.claude/
+.cursor/
+.augment/
 
 # ruff
 .ruff_cache/
 
 # LSP config files
 pyrightconfig.json
-
-# project-specific generated files
-uv.lock
-todo/
-.openpkpd_gui_artifacts/
 
 ### LaTeX ###
 ## Core latex/pdflatex auxiliary files:

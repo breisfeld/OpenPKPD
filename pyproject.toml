@@ -196,6 +196,7 @@ dev = [
     "platformdirs>=4.9",
     "hatchling>=1.29.0",
     "build>=1.4.2",
+    "excalidraw-cli[export]>=0.2,<0.3",
 ]
 validation = [
     "pharmpy-core>=2.0.0",

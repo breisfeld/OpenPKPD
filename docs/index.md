@@ -12,6 +12,12 @@ OpenPKPD provides a pure-Python estimation engine that reads NONMEM control
 streams, accepts the same data format, and produces NONMEM 7.x-compatible output
 files — with no commercial license required.
 
+```{image} _static/openpkpd_capabilities.svg
+:alt: OpenPKPD capability overview
+:width: 100%
+:align: center
+```
+
 
 ::::{grid} 3
 :::{grid-item-card} 🚀 Getting Started
@@ -38,23 +44,11 @@ Full autodoc reference for all public classes and functions.
 
 ## Highlights
 
-- **Model setup and execution**
-  - NONMEM-style datasets, BLQ handling, covariates, control streams, and `ModelBuilder`
-  - Python API, CLI, and desktop GUI workflows for the same core engine
-- **Estimation and inference**
-  - FO, FOCE, FOCEI, and Laplacian as the main mixed-effects workflows
-  - SAEM, IMP, IMPMAP, `BAYES(Laplace)`, and nonparametric support-point estimation
-- **Model families**
-  - analytical PK subroutines, numerical ODE routes, and DDE support
-  - population PK, PK/PD, PBPK, TMDD, tumor growth, TTE, and categorical/count PD
-- **Simulation, diagnostics, and analysis**
-  - GOF plots, residual diagnostics, ETA panels, VPC/pcVPC, NPC, NPDE
-  - NCA, sparse-sampling NCA, bioequivalence, bootstrap, and optimal design
-- **Outputs and integrations**
-  - NONMEM-compatible `.lst/.ext/.phi/.cov/.cor` outputs and `$TABLE`
-  - HTML/PDF reporting, SBML import, and optional distributed/JIT/Bayesian extras
-- **Examples and validation**
-  - 34 shipped examples, marimo notebook support, and broad automated test coverage
+- Python API, control streams, CLI, and desktop GUI on one estimation engine
+- FO/FOCE/FOCEI/Laplacian plus SAEM, IMP/IMPMAP, `BAYES(Laplace)`, NUTS, and nonparametric estimation
+- analytical ADVAN routes, numerical ODE solvers, DDE support, and broad PK/PD model families
+- simulation, diagnostics, NCA, bootstrap, optimal design, and NONMEM-compatible reporting
+- 34 shipped examples, marimo notebooks, and broad automated validation against exact references and external tools
 
 For the current support classification across estimation, analysis, and workflow
 surfaces, start with [`user_guide/validation_matrix.md`](user_guide/validation_matrix.md).

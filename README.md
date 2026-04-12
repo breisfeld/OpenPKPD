@@ -7,6 +7,8 @@
 Open-source Python toolkit for population PK/PD analysis, with a native Python API,
 NONMEM-style control-stream support, a CLI, and a Qt desktop GUI.
 
+![OpenPKPD capabilities](docs/_static/openpkpd_capabilities.svg)
+
 ## Contents
 
 - [Features](#features)
@@ -30,29 +32,12 @@ NONMEM-style control-stream support, a CLI, and a Qt desktop GUI.
 
 ## Features
 
-- **Model building and execution**
-  - `ModelBuilder` Python API, NONMEM-style control streams, CLI, and desktop GUI
-  - NM-TRAN-style `$PK`, `$DES`, and `$ERROR` compilation to Python callables
-  - NONMEM-format datasets, BLQ handling, covariate coding, and scenario-based workflows
-- **Estimation methods**
-  - FO, FOCE, FOCEI, and Laplacian as the main mixed-effects workflows
-  - SAEM, IMP, IMPMAP, `BAYES(Laplace)`, and nonparametric support-point estimation
-  - covariance step, OFV/AIC/BIC review, and cross-method comparison tooling
-- **PK/PD and model families**
-  - analytical PK subroutines `ADVAN1–5`, `ADVAN7`, `ADVAN11`, `ADVAN12`
-  - numerical ODE routes `ADVAN6/8/10/13` and DDE support via `ADVAN16`
-  - population PK, PK/PD, TTE, count/categorical PD, TMDD, tumor growth, PBPK, and advanced absorption models
-- **Simulation, diagnostics, and analysis**
-  - replicate simulation, VPC/pcVPC, NPC, NPDE, GOF plots, residual plots, and ETA panels
-  - NCA, sparse-sampling NCA, bioequivalence, bootstrap, and PFIM-backed optimal design
-  - manual covariate workflows, imputation helpers, and stepwise SCM support
-- **Outputs and integrations**
-  - NONMEM-compatible `.lst/.ext/.phi/.cov/.cor` outputs and `$TABLE`
-  - HTML reports, PDF export via the GUI runtime, and NCA exports
-  - SBML import, built-in multi-core/distributed execution hooks, and optional R/PyMC integration
-- **Examples and validation**
-  - 34 shipped examples and marimo notebook support
-  - extensive unit, integration, regression, and external-validation coverage
+- Python API, NONMEM-style control streams, CLI, and desktop GUI on the same estimation engine
+- FO/FOCE/FOCEI/Laplacian plus SAEM, IMP/IMPMAP, `BAYES(Laplace)`, NUTS, and nonparametric estimation
+- analytical ADVAN routes, numerical ODE solvers, DDE support, and broad PK/PD model families
+- simulation, VPC/pcVPC, NPC, NPDE, NCA, sparse-sampling NCA, bootstrap, and optimal design
+- NONMEM-compatible outputs, HTML/PDF reporting, SBML import, and parallel execution hooks
+- 34 shipped examples, marimo notebooks, and extensive automated validation against exact references and external tools
 
 ## Installation
 

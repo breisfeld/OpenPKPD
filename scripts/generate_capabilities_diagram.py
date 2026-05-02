@@ -14,6 +14,7 @@ SCENE_PATH = OUT_DIR / "openpkpd_capabilities.excalidraw"
 SVG_PATH = OUT_DIR / "openpkpd_capabilities.svg"
 PNG_PATH = OUT_DIR / "openpkpd_capabilities.png"
 SVG_NS = {"svg": "http://www.w3.org/2000/svg"}
+FONT_FAMILY = "'Helvetica Neue', Helvetica, Arial, sans-serif"
 
 TITLE_TEXTS = {
     "OpenPKPD",
@@ -305,6 +306,7 @@ def postprocess_svg(path: Path) -> None:
     tree = ET.parse(path)
     root = tree.getroot()
     for text in root.findall(".//svg:text", SVG_NS):
+        text.set("font-family", FONT_FAMILY)
         if (text.text or "").strip() in TITLE_TEXTS:
             text.set("font-weight", "700")
     tree.write(path, encoding="utf-8", xml_declaration=True)

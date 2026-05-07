@@ -281,14 +281,14 @@ test-notebooks: install-notebooks
 
 # Run once after cloning or after modifying rust/src/lib.rs.
 build-core:
-    env -u CONDA_PREFIX uv run --extra dev maturin develop --release
+    env -u CONDA_PREFIX uv run --extra dev maturin develop --manifest-path rust/Cargo.toml --release
     {{ uv_dev }} python scripts/check_native_cvodes.py
 
 # Build and install the openpkpd._core Rust extension with the optional native
 
 # CVODES path enabled, then verify all native-cvodes symbols are present.
 build-core-native-cvodes:
-    OPENPKPD_NATIVE_DEV=1 env -u CONDA_PREFIX uv run --extra dev maturin develop --release --features native-cvodes
+    OPENPKPD_NATIVE_DEV=1 env -u CONDA_PREFIX uv run --extra dev maturin develop --manifest-path rust/Cargo.toml --release --features native-cvodes
     OPENPKPD_NATIVE_DEV=1 {{ uv_dev }} python scripts/check_native_cvodes.py --require-native-cvodes
 
 # Run the serial native sensitivity performance gate.
@@ -306,7 +306,7 @@ check-native-sensitivity-perf:
 
 # in-place RPATH rewrite does not contaminate the dev build artifacts.
 build-wheel:
-    env -u CONDA_PREFIX CARGO_TARGET_DIR=rust/target/wheel uv run --extra dev maturin build --release --features native-cvodes --out dist/
+    env -u CONDA_PREFIX CARGO_TARGET_DIR=rust/target/wheel uv run --extra dev maturin build --manifest-path rust/Cargo.toml --release --features native-cvodes --out dist/
     {{ uv_dev }} python scripts/check_installed_native_cvodes_wheel.py --require-native-cvodes --wheel "$(ls -t dist/openpkpd-*-linux*.whl | head -1)"
 
 # Build a macOS x86_64 wheel suitable for PyPI upload.
@@ -316,7 +316,7 @@ build-wheel:
 
 # Requires: Rust toolchain (rustup.rs); x86_64-apple-darwin target is the default on Intel Macs.
 build-wheel-macos:
-    env -u CONDA_PREFIX MACOSX_DEPLOYMENT_TARGET=10.13 CARGO_TARGET_DIR=rust/target/macos-x86_64-wheel uv run --extra dev maturin build --release --features native-cvodes --out dist/
+    env -u CONDA_PREFIX MACOSX_DEPLOYMENT_TARGET=10.13 CARGO_TARGET_DIR=rust/target/macos-x86_64-wheel uv run --extra dev maturin build --manifest-path rust/Cargo.toml --release --features native-cvodes --out dist/
     {{ uv_dev }} python scripts/check_installed_native_cvodes_wheel.py --require-native-cvodes --wheel "$(ls -t dist/openpkpd-*-macosx*x86_64*.whl | head -1)"
 
 # Build a macOS arm64 (Apple Silicon) wheel suitable for PyPI upload, cross-compiled from
@@ -326,7 +326,7 @@ build-wheel-macos:
 
 # Requires: rustup target add aarch64-apple-darwin
 build-wheel-macos-arm64:
-    env -u CONDA_PREFIX MACOSX_DEPLOYMENT_TARGET=11.0 CARGO_TARGET_DIR=rust/target/macos-arm64-wheel uv run --extra dev maturin build --release --target aarch64-apple-darwin --features native-cvodes --out dist/
+    env -u CONDA_PREFIX MACOSX_DEPLOYMENT_TARGET=11.0 CARGO_TARGET_DIR=rust/target/macos-arm64-wheel uv run --extra dev maturin build --manifest-path rust/Cargo.toml --release --target aarch64-apple-darwin --features native-cvodes --out dist/
 
 # Build a macOS universal2 wheel (x86_64 + arm64 fat binary) suitable for PyPI upload.
 # Contains both slices in a single wheel; the x86_64 slice can be verified locally on
@@ -334,7 +334,7 @@ build-wheel-macos-arm64:
 
 # Requires: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 build-wheel-macos-universal2:
-    env -u CONDA_PREFIX MACOSX_DEPLOYMENT_TARGET=11.0 CARGO_TARGET_DIR=rust/target/macos-universal2-wheel uv run --extra dev maturin build --release --target universal2-apple-darwin --features native-cvodes --out dist/
+    env -u CONDA_PREFIX MACOSX_DEPLOYMENT_TARGET=11.0 CARGO_TARGET_DIR=rust/target/macos-universal2-wheel uv run --extra dev maturin build --manifest-path rust/Cargo.toml --release --target universal2-apple-darwin --features native-cvodes --out dist/
     {{ uv_dev }} python scripts/check_installed_native_cvodes_wheel.py --require-native-cvodes --wheel "$(ls -t dist/openpkpd-*-macosx*universal2*.whl | head -1)"
 
 # Cross-compile a Windows (win_amd64) wheel from Linux using the MinGW-w64 toolchain.
@@ -345,7 +345,7 @@ build-wheel-macos-universal2:
 
 # rustup target add x86_64-pc-windows-gnu
 build-wheel-windows:
-    env -u CONDA_PREFIX CARGO_TARGET_DIR=rust/target/windows-wheel CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-gcc CXX_x86_64_pc_windows_gnu=x86_64-w64-mingw32-g++ PYO3_CROSS_PYTHON_VERSION=3.12 uv run --extra dev maturin build --release --target x86_64-pc-windows-gnu --features native-cvodes -i python3.12 --out dist/
+    env -u CONDA_PREFIX CARGO_TARGET_DIR=rust/target/windows-wheel CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-gcc CXX_x86_64_pc_windows_gnu=x86_64-w64-mingw32-g++ PYO3_CROSS_PYTHON_VERSION=3.12 uv run --extra dev maturin build --manifest-path rust/Cargo.toml --release --target x86_64-pc-windows-gnu --features native-cvodes -i python3.12 --out dist/
 
 # ---------------------------------------------------------------------------
 # Git hooks
@@ -390,7 +390,7 @@ build-manylinux:
     rm -rf dist/
     docker run --rm -v "$(pwd)":/io --entrypoint bash ghcr.io/pyo3/maturin \
         /io/scripts/build_manylinux_wheel.sh
-    env -u CONDA_PREFIX uv run --extra dev maturin sdist --out dist/
+    env -u CONDA_PREFIX uv run --extra dev maturin sdist --manifest-path rust/Cargo.toml --out dist/
 
 # Build all PyPI release artefacts: manylinux_2_28 + Windows (cross-compiled) + sdist.
 # Requires Docker (for the Linux wheel) and mingw-w64 + x86_64-pc-windows-gnu target.
@@ -400,17 +400,17 @@ build-release-wheels:
     rm -rf dist/
     docker run --rm -v "$(pwd)":/io --entrypoint bash ghcr.io/pyo3/maturin \
         /io/scripts/build_manylinux_wheel.sh
-    env -u CONDA_PREFIX CARGO_TARGET_DIR=rust/target/windows-wheel CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-gcc CXX_x86_64_pc_windows_gnu=x86_64-w64-mingw32-g++ PYO3_CROSS_PYTHON_VERSION=3.12 uv run --extra dev maturin build --release --target x86_64-pc-windows-gnu --features native-cvodes -i python3.12 --out dist/
-    env -u CONDA_PREFIX uv run --extra dev maturin sdist --out dist/
+    env -u CONDA_PREFIX CARGO_TARGET_DIR=rust/target/windows-wheel CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-gcc CXX_x86_64_pc_windows_gnu=x86_64-w64-mingw32-g++ PYO3_CROSS_PYTHON_VERSION=3.12 uv run --extra dev maturin build --manifest-path rust/Cargo.toml --release --target x86_64-pc-windows-gnu --features native-cvodes -i python3.12 --out dist/
+    env -u CONDA_PREFIX uv run --extra dev maturin sdist --manifest-path rust/Cargo.toml --out dist/
 
 # Build macOS release artefacts: universal2 wheel (x86_64 + arm64) + sdist.
 
 # Requires: rustup target add aarch64-apple-darwin x86_64-apple-darwin
 build-release-wheels-macos:
     rm -rf dist/
-    env -u CONDA_PREFIX MACOSX_DEPLOYMENT_TARGET=11.0 CARGO_TARGET_DIR=rust/target/macos-universal2-wheel uv run --extra dev maturin build --release --target universal2-apple-darwin --features native-cvodes --out dist/
+    env -u CONDA_PREFIX MACOSX_DEPLOYMENT_TARGET=11.0 CARGO_TARGET_DIR=rust/target/macos-universal2-wheel uv run --extra dev maturin build --manifest-path rust/Cargo.toml --release --target universal2-apple-darwin --features native-cvodes --out dist/
     {{ uv_dev }} python scripts/check_installed_native_cvodes_wheel.py --require-native-cvodes --wheel "$(ls -t dist/openpkpd-*-macosx*universal2*.whl | head -1)"
-    env -u CONDA_PREFIX uv run --extra dev maturin sdist --out dist/
+    env -u CONDA_PREFIX uv run --extra dev maturin sdist --manifest-path rust/Cargo.toml --out dist/
 
 # Publish to TestPyPI (reads PYPI_TEST_API_TOKEN from .env).
 # On Linux: builds manylinux_2_28 + Windows wheels + sdist.

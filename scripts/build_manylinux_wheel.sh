@@ -44,6 +44,7 @@ export BINDGEN_EXTRA_CLANG_ARGS="-I$GCC_INCDIR -I/usr/include"
 
 echo "==> Building manylinux_2_28 wheel (CPython 3.12, native-cvodes)"
 maturin build \
+    --manifest-path /io/rust/Cargo.toml \
     --release \
     --features native-cvodes \
     --compatibility manylinux_2_28 \

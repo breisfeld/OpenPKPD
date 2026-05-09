@@ -4,8 +4,8 @@ version = "0.2.8"
 edition = "2021"
 description = "Compiled inner-loop extensions for OpenPKPD"
 license = "AGPL-3.0-or-later"
-homepage = "https://gitlab.com/breisfeld/OpenPKPD"
-repository = "https://gitlab.com/breisfeld/OpenPKPD"
+homepage = "https://github.com/breisfeld/OpenPKPD"
+repository = "https://github.com/breisfeld/OpenPKPD"
 documentation = "https://openpkpd.readthedocs.io"
 
 [lib]

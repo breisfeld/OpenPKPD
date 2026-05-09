@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://gitlab.com/breisfeld/OpenPKPD/-/raw/main/docs/OpenPKPD_logo.png" alt="OpenPKPD" width="320" />
+  <img src="https://raw.githubusercontent.com/breisfeld/OpenPKPD/main/docs/OpenPKPD_logo.png" alt="OpenPKPD" width="320" />
 </p>
 
 # OpenPKPD
@@ -388,7 +388,7 @@ Full feature comparison: [`docs/user_guide/comparison.md`](docs/user_guide/compa
 ## Development
 
 ```bash
-git clone https://gitlab.com/breisfeld/OpenPKPD.git
+git clone https://github.com/breisfeld/OpenPKPD.git
 cd openpkpd
 uv sync --all-extras
 uv run pytest -q

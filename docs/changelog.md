@@ -5,6 +5,20 @@ All notable changes to OpenPKPD are documented here. This project follows
 
 
 
+## 0.2.9 — 2026-05-09
+
+### Fixed
+
+- **PyPI project metadata**: updated project URLs from GitLab to GitHub in the
+  package metadata so the PyPI project page points to the current canonical
+  repository and issue tracker.
+
+### Documentation
+
+- **README**: switched the logo image URL and development clone example to the
+  GitHub repository.
+
+
 ## 0.2.8 — 2026-05-09
 
 ### Fixed

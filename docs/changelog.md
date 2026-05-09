@@ -5,6 +5,26 @@ All notable changes to OpenPKPD are documented here. This project follows
 
 
 
+## 0.2.8 — 2026-05-09
+
+### Fixed
+
+- **Release automation**: added GitHub Actions workflows for manual multi-platform
+  wheel builds and tagged PyPI releases covering manylinux_2_28 x86_64, macOS
+  x86_64, macOS arm64, Windows x64, and source distributions.
+- **Wheel builds**: passed `--manifest-path rust/Cargo.toml` to all `maturin`
+  commands in local build recipes, CI workflows, and the manylinux helper
+  script so Rust-extension packaging resolves the correct manifest reliably.
+- **manylinux CVODES packaging**: bumped `sundials-sys` from `0.2.3` to
+  `0.2.5` and adjusted the Linux build pipeline to keep vendored SUNDIALS
+  builds working under current CMake behavior.
+
+### Documentation
+
+- **Capabilities diagram**: switched the generated SVG text to a standard
+  sans-serif stack for more consistent rendering across platforms.
+
+
 ## 0.2.7 — 2026-04-02
 
 ### Added2

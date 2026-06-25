@@ -118,6 +118,9 @@ build-backend = "maturin"
 [tool.maturin]
 # Python packages live under src/
 python-source = "src"
+# Explicitly enumerate Python packages so auto-discovery does not miss openpkpd_gui.
+# This was the root cause of the v0.2.7 ModuleNotFoundError on `import openpkpd_gui`.
+python-packages = ["openpkpd", "openpkpd_gui"]
 # Rust extension is injected as openpkpd._core
 module-name = "openpkpd._core"
 features = ["pyo3/extension-module"]

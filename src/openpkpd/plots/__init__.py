@@ -82,7 +82,10 @@ from openpkpd.plots.pk import (
     mean_profile,
     spaghetti_plot,
 )
-from openpkpd.plots.simulation import pcvpc_plot, stratified_vpc_plot
+from openpkpd.plots.simulation import pcvpc_plot, stratified_vpc_plot, vpc_plot
+
+# Convenience alias: gof_panel is the four-panel GOF figure, identical to diagnostic_panel.
+gof_panel = diagnostic_panel
 
 __all__ = [
     "compute_diagnostics",
@@ -149,4 +152,7 @@ __all__ = [
     "simulation",
     "pcvpc_plot",
     "stratified_vpc_plot",
+    "vpc_plot",
+    # Convenience aliases
+    "gof_panel",
 ]

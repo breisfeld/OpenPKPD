@@ -20,6 +20,12 @@
     "V_pop": 0.45550364049905545,
     "Cl_pop": 0.04017236409860534
   },
+  "omega_log_sd": {
+    "ka_pop": 0.391,
+    "Cl_pop": 0.278,
+    "V_pop": 0.140
+  },
+  "omega_notes": "omega values (log SD) from Monolix 2023R1 theophylline tutorial project documentation at https://monolixsuite.slp-software.com/monolix/2024R1/theophylline-data-set",
   "residual_error": {
     "a": 0.433279557549051,
     "b": 0.0542595276206251

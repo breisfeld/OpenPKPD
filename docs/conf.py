@@ -28,6 +28,7 @@ extensions = [
     "myst_parser",                   # Markdown (.md) content files
     "sphinx_copybutton",             # Copy button on every code block
     "sphinx_design",                 # Grid cards, tabs on landing pages
+    "sphinxcontrib.mermaid",         # Render ```mermaid fenced diagrams
 ]
 
 # ---------------------------------------------------------------------------
@@ -40,6 +41,7 @@ myst_enable_extensions = [
     "attrs_inline",  # Inline attributes {.class}
 ]
 myst_heading_anchors = 3  # Auto-anchor h1 / h2 / h3
+myst_fence_as_directive = ["mermaid"]  # Treat ```mermaid fences as the mermaid directive
 
 # ---------------------------------------------------------------------------
 # autodoc / autosummary

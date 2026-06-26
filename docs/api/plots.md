@@ -18,6 +18,10 @@
 .. autofunction:: openpkpd.plots.gof.abs_iwres_vs_ipred
 ```
 
+`openpkpd.plots.gof_panel` is a convenience alias for
+{func}`~openpkpd.plots.gof.diagnostic_panel`, the seven-panel goodness-of-fit
+figure.
+
 ## PK plots
 
 ```{eval-rst}
@@ -49,3 +53,17 @@
 .. autofunction:: openpkpd.plots.model_perf.ofv_history
 .. autofunction:: openpkpd.plots.model_perf.vpc
 ```
+
+## Simulation-based plots
+
+```{eval-rst}
+.. autofunction:: openpkpd.plots.simulation.vpc_plot
+.. autofunction:: openpkpd.plots.simulation.pcvpc_plot
+.. autofunction:: openpkpd.plots.simulation.stratified_vpc_plot
+.. autofunction:: openpkpd.plots.simulation.npde_plot
+.. autofunction:: openpkpd.plots.simulation.simulation_panel
+```
+
+`openpkpd.plots.vpc_plot` is re-exported from the top-level `openpkpd.plots`
+namespace as a convenience alias for
+{func}`~openpkpd.plots.simulation.vpc_plot`.

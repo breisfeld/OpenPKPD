@@ -8,6 +8,7 @@ Physiologically-based pharmacokinetic (PBPK) model building blocks.
 .. autoclass:: openpkpd.pk.pbpk.PBPKModel
    :members:
    :undoc-members: False
+   :exclude-members: compartment_names
 ```
 
 ## Five-organ template

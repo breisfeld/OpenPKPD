@@ -1,4 +1,8 @@
-## Analysis and simulation profiling report
+---
+orphan: true
+---
+
+# Analysis and simulation profiling report
 
 Date: 2026-03-16
 

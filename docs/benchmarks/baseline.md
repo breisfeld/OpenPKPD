@@ -1,3 +1,7 @@
+---
+orphan: true
+---
+
 # OpenPKPD Performance Baseline
 
 This document records the performance baseline captured on **2026-03-24** before any

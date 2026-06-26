@@ -5,6 +5,43 @@ All notable changes to OpenPKPD are documented here. This project follows
 
 
 
+## 0.3.0 — 2026-06-26
+
+### Added
+
+- **Bundled dataset loaders**: `openpkpd.data.load_theophylline()` and
+  `openpkpd.data.load_warfarin()` return the example datasets as
+  `NONMEMDataset` objects, so the tutorial and quickstart workflows run without
+  a separate data download.
+- **Plot convenience exports**: `openpkpd.plots.gof_panel` (an alias for the
+  seven-panel `diagnostic_panel` goodness-of-fit figure) and
+  `openpkpd.plots.vpc_plot` are now exported from the top-level `openpkpd.plots`
+  namespace.
+
+### Fixed
+
+- **SAEM dosing scale**: aligned the SAEM control-stream path with absolute-mg
+  dosing so SAEM recovers the FOCEI optimum on the theophylline benchmark. Added
+  `tests/integration/test_theophylline.py::test_control_stream_saem_recovers_focei_optimum`
+  to guard the dosing-scale fix against regression.
+- **GUI packaging**: the maturin build configuration now sets
+  `python-packages = ["openpkpd", "openpkpd_gui"]` so the desktop GUI package is
+  bundled into the wheel; the `openpkpd-gui` entry point now resolves on a clean
+  PyPI install.
+- **manylinux release build**: set a CMake policy floor
+  (`CMAKE_POLICY_VERSION_MINIMUM=3.5`) so the vendored SUNDIALS sub-projects
+  configure under CMake 4.x, and restore host-user ownership of `dist/` after
+  the root-owned Docker build step.
+- **GOF panel comment**: corrected the `gof_panel` alias comment to describe the
+  actual seven-panel GOF figure (was "four-panel").
+
+### Documentation
+
+- **API reference**: documented the bundled-dataset loaders (`data`) and the
+  simulation-based VPC plots (`vpc_plot`, `pcvpc_plot`, `stratified_vpc_plot`)
+  plus the `gof_panel` alias.
+
+
 ## 0.2.9 — 2026-05-09
 
 ### Fixed
@@ -408,12 +445,3 @@ agreement (rtol 1e-3), and G_i vs. FD reference (rtol 1e-2).
 **Documentation**
 - Full Sphinx documentation with ReadTheDocs theme
 - Getting started, user guide, 7 annotated examples, API reference
-
-
-
-## 0.3.0 — 2026-06-26
-
-- ADVAN5/7 (general linear, matrix exponential)
-- NUTS/BAYES full posterior hardening — currently at experimental maturity
-- Trust-region optimizer for improved FOCEI convergence on non-convex surfaces
-- CDISC ADPPK domain export

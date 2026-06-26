@@ -1,8 +1,12 @@
-## Performance analysis and simulation review
+---
+orphan: true
+---
+
+# Performance analysis and simulation review
 
 Date: 2026-03-15
 
-### Scope and method
+## Scope and method
 
 This report is based on a static review of the main estimation, analysis, and
 simulation paths used by the application. I did not run profilers or large
@@ -23,7 +27,7 @@ robust path because it includes a FOCEI warm start before the IMP outer pass.
 and compare with the profiling report in
 `docs/user_guide/performance_profiling_report.md`.
 
-### Executive summary
+## Executive summary
 
 The biggest speed opportunities are concentrated in four places:
 
@@ -36,7 +40,7 @@ The biggest speed opportunities are concentrated in four places:
 4. **Bootstrap/SCM/SSE orchestration** rebuilds models and data structures many
    times, with some paths not using the available parallel capacity well.
 
-### Highest-priority opportunities
+## Highest-priority opportunities
 
 | Priority | Area | Evidence | Opportunity | Likely effect |
 | --- | --- | --- | --- | --- |
@@ -47,9 +51,9 @@ The biggest speed opportunities are concentrated in four places:
 | P1 | VPC | `src/openpkpd/simulation/vpc.py:319-410` does two groupby passes and repeated percentile calls | Replace row-group iteration with grouped array aggregation/pivoted quantile computation | Moderate speedup for larger replicate counts |
 | P1 | NPDE | `src/openpkpd/simulation/npde.py:170-205`, `252-272`, and `296-312` assemble per-subject matrices row by row and compute PDEs with Python loops | Use joins/pivots to build matrices and vectorized comparisons for PDE calculation | Moderate speedup, especially at `n_replicates >= 500` |
 
-### Detailed findings
+## Detailed findings
 
-#### 1. FOCE estimation is the highest-value target
+### 1. FOCE estimation is the highest-value target
 
 - `FOCEMethod.estimate()` calls `_inner_loop()` inside the outer optimizer
   objective and again after optimization (`src/openpkpd/estimation/foce.py:131-155`).
@@ -63,7 +67,7 @@ The biggest speed opportunities are concentrated in four places:
 **Recommended next step:** start here. Reusing workers and reducing gradient
 cost should improve not only direct fits, but also bootstrap, SCM, and SSE.
 
-#### 2. Observation-model evaluation is Python-bound in the innermost loops
+### 2. Observation-model evaluation is Python-bound in the innermost loops
 
 - `IndividualModel.evaluate_observation_model()` evaluates one observation at a
   time (`src/openpkpd/model/individual.py:240-283`).
@@ -78,7 +82,7 @@ cost should improve not only direct fits, but also bootstrap, SCM, and SSE.
 evaluation. Even partial batching or caching of the zero-EPS pass would reduce
 overhead materially.
 
-#### 3. Simulation spends a lot of time creating Python objects
+### 3. Simulation spends a lot of time creating Python objects
 
 - `SimulationEngine._simulate_one_replicate()` loops over every subject and
   observation and appends Python dict rows (`src/openpkpd/simulation/engine.py:236-299`).
@@ -91,7 +95,7 @@ overhead materially.
 single DataFrame; precompute stable per-subject values once; evaluate whether a
 process/backend strategy outperforms threads for real workloads.
 
-#### 4. VPC, NPDE, and NPC are more pandas-heavy than necessary
+### 4. VPC, NPDE, and NPC are more pandas-heavy than necessary
 
 - VPC simulated percentiles use nested groupby iteration and repeated quantile
   extraction (`src/openpkpd/simulation/vpc.py:319-410`).
@@ -110,7 +114,7 @@ process/backend strategy outperforms threads for real workloads.
 The NPC fallback is a particularly good low-risk fix because it is both easy and
 can avoid pathological slowdowns.
 
-#### 5. NCA has a clear algorithmic optimization path
+### 5. NCA has a clear algorithmic optimization path
 
 - `compute_dataset()` filters the full DataFrame once per subject
   (`src/openpkpd/nca/nca.py:380-408`).
@@ -126,7 +130,7 @@ can avoid pathological slowdowns.
 This is a good candidate for a contained optimization that does not require
 major architectural changes.
 
-#### 6. Bootstrap, SCM, and SSE repeat heavy rebuild work
+### 6. Bootstrap, SCM, and SSE repeat heavy rebuild work
 
 - Bootstrap resamples subjects by slicing/copying DataFrames subject by subject
   and rebuilds a new `PopulationModel` per replicate
@@ -140,7 +144,7 @@ major architectural changes.
 **Opportunity:** reduce payload size for workers, cache immutable build inputs,
 and wire SSE to a real parallel backend.
 
-### Application-level integration gaps
+## Application-level integration gaps
 
 - GUI bootstrap defaults to a single worker: `BootstrapConfig.n_jobs = 1`
   (`src/openpkpd_gui/services/bootstrap_service.py:22-29`).
@@ -150,7 +154,7 @@ and wire SSE to a real parallel backend.
 Even after core optimizations, exposing sensible parallel defaults in these user
 paths would improve perceived performance.
 
-### Suggested implementation order
+## Suggested implementation order
 
 1. Reuse FOCE worker pools and reduce finite-difference overhead.
 2. Batch/collapse observation-model work in `IndividualModel`.
@@ -159,7 +163,7 @@ paths would improve perceived performance.
 5. Optimize NCA grouping and lambda-z regression.
 6. Improve orchestration layers: bootstrap payloads, SCM worker model, SSE parallelism.
 
-### Recommendation
+## Recommendation
 
 If you want measurable results quickly, I would start with **FOCE worker reuse**
 and **observation-model batching** first, then benchmark VPC/NPDE on a large

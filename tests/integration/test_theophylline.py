@@ -149,3 +149,80 @@ $ESTIMATION METHOD=COND INTER MAXEVAL=9999
     assert cs.problem is not None
     assert len(cs.theta_records[0].specs) == 3
     assert cs.estimation_records[0].method == "FOCE"
+
+
+# Theophylline control stream written verbatim from the manuscript Step 1
+# SAEM listing. Initial estimates are on the absolute-dose scale (CL/F, V/F),
+# matching the bundled dataset (AMT in mg). See manuscript fix S5.
+_THEO_SAEM_CTL = """\
+$PROBLEM Theophylline 1-cmt oral
+$INPUT  ID TIME AMT DV EVID WT MDV
+$DATA   theophylline.csv IGNORE=@
+$SUBROUTINES ADVAN2 TRANS2
+$PK
+   KA = THETA(1)*EXP(ETA(1))
+   CL = THETA(2)*EXP(ETA(2))
+   V  = THETA(3)*EXP(ETA(3))
+   S2 = V
+$ERROR
+   Y = F*(1 + EPS(1))
+$THETA
+   (0, 1.5)    ; KA
+   (0, 0.08)   ; CL
+   (0, 30)     ; V
+$OMEGA
+   0.5 0.3 0.3
+$SIGMA
+   0.1
+$ESTIMATION METHOD=COND INTER MAXEVAL=9999 PRINT=5 NOABORT
+$COVARIANCE
+$TABLE ID TIME DV PRED IPRED CWRES NOPRINT ONEHEADER FILE=theo.tab
+"""
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_control_stream_saem_recovers_focei_optimum(tmp_path):
+    """Control-stream SAEM path recovers the theophylline FOCEI optimum.
+
+    Mirrors the manuscript Step 1 SAEM listing end-to-end: the bundled
+    theophylline dataset is exported as a NONMEM-style CSV (absolute mg doses),
+    parsed from a control stream with absolute-dose initial estimates, and fit
+    with SAEM. With the corrected initial estimates the run lands on the same
+    fixed effects as the FOCEI fit (KA ~ 1.57 /h, CL/F ~ 2.79 L/h,
+    V/F ~ 31.6 L), rather than the implausible optimum produced by the previous
+    weight-normalized initial estimates.
+
+    The assertions target the recovered estimates rather than
+    ``result.converged``: that flag reflects the SAEM phase-2 stability
+    tolerance (``phi_tol``), which is not necessarily satisfied within the
+    100 phase-2 iterations used here even when the estimates are correct.
+    """
+    from openpkpd.data import load_theophylline
+    from openpkpd.estimation.saem import SAEMMethod
+    from openpkpd.model.problem import Problem
+    from openpkpd.parser.control_stream import ControlStream
+
+    cols = ["ID", "TIME", "AMT", "DV", "EVID", "WT", "MDV"]
+    df = load_theophylline().df[cols]
+    csv_path = tmp_path / "theophylline.csv"
+    with open(csv_path, "w") as fh:
+        fh.write("@" + ",".join(cols) + "\n")
+        for _, row in df.iterrows():
+            fh.write(",".join(str(v) for v in row.tolist()) + "\n")
+
+    ctl_path = tmp_path / "theophylline.ctl"
+    ctl_path.write_text(_THEO_SAEM_CTL)
+
+    cs = ControlStream.from_file(str(ctl_path))
+    problem = Problem.from_control_stream(cs, dataset_path=str(csv_path))
+    result = SAEMMethod(
+        n_iter_phase1=200, n_iter_phase2=100, n_chains=2, seed=42
+    ).estimate(problem.population_model, problem.population_model.params)
+
+    assert len(result.theta_final) == 3
+    ka, cl, v = (float(t) for t in result.theta_final)
+    assert ka == pytest.approx(1.565, abs=0.25)
+    assert cl == pytest.approx(2.791, abs=0.25)
+    assert v == pytest.approx(31.55, abs=2.5)
+    assert np.isfinite(result.ofv)

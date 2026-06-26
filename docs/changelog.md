@@ -411,7 +411,7 @@ agreement (rtol 1e-3), and G_i vs. FD reference (rtol 1e-2).
 
 
 
-## Planned — 0.3.0
+## 0.3.0 — 2026-06-26
 
 - ADVAN5/7 (general linear, matrix exponential)
 - NUTS/BAYES full posterior hardening — currently at experimental maturity

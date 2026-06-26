@@ -84,7 +84,7 @@ from openpkpd.plots.pk import (
 )
 from openpkpd.plots.simulation import pcvpc_plot, stratified_vpc_plot, vpc_plot
 
-# Convenience alias: gof_panel is the four-panel GOF figure, identical to diagnostic_panel.
+# Convenience alias: gof_panel is the seven-panel GOF figure, identical to diagnostic_panel.
 gof_panel = diagnostic_panel
 
 __all__ = [

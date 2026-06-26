@@ -8,22 +8,26 @@ Usage:
 
 from __future__ import annotations
 
-import os
-import pathlib
+import importlib.resources as resources
 
 from openpkpd.data.dataset import NONMEMDataset
 
-_DATA_DIR = pathlib.Path(__file__).parent.parent.parent.parent / "tests" / "external_validation" / "data"
+# Bundled example datasets live inside the installed package
+# (src/openpkpd/data/datasets/) so they are packaged into the wheel and
+# resolve on a clean PyPI install, not just a source checkout.
+_DATASETS_DIR = "datasets"
 
 
 def _bundled(name: str) -> "NONMEMDataset":
-    path = _DATA_DIR / name
-    if not path.exists():
+    resource = resources.files(__package__).joinpath(_DATASETS_DIR, name)
+    if not resource.is_file():
         raise FileNotFoundError(
-            f"Bundled dataset '{name}' not found at {path}. "
-            "Ensure the repository is checked out with its test data."
+            f"Bundled dataset '{name}' not found at {resource}. "
+            "The OpenPKPD installation may be incomplete; reinstall with "
+            "'pip install --force-reinstall openpkpd'."
         )
-    return NONMEMDataset.from_csv(str(path))
+    with resources.as_file(resource) as path:
+        return NONMEMDataset.from_csv(str(path))
 
 
 def load_theophylline() -> "NONMEMDataset":

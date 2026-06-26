@@ -5,6 +5,21 @@ All notable changes to OpenPKPD are documented here. This project follows
 
 
 
+## 0.3.2 — 2026-06-26
+
+### Fixed
+
+- **Wheel packaging (bundled datasets)**: the example datasets are now copied
+  into the package tree at `src/openpkpd/data/datasets/` and resolved via
+  `importlib.resources`, so `openpkpd.data.load_theophylline()` and
+  `openpkpd.data.load_warfarin()` work on a clean `pip install`. Previously the
+  loader pointed at a repo-relative `tests/external_validation/data/` path that
+  was never packaged into the wheel, raising `FileNotFoundError` on the
+  tutorial's first dataset call. The packaged CSVs are byte-identical to the
+  validation copies under `tests/`.
+
+
+
 ## 0.3.1 — 2026-06-26
 
 ### Fixed

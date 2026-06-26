@@ -12,8 +12,8 @@ sys.path.insert(0, os.path.abspath("../src"))
 project = "OpenPKPD"
 author = "OpenPKPD contributors"
 copyright = "2025, OpenPKPD contributors"
-release = "0.3.1"
-version = "0.3.1"
+release = "0.3.2"
+version = "0.3.2"
 
 # ---------------------------------------------------------------------------
 # Extensions

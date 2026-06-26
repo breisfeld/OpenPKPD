@@ -297,7 +297,10 @@ poetry.toml
 .local/
 .xdg-data/
 artifacts/
-main.py
+# Root-level scratch CLI wrapper only; must stay anchored so it does not match
+# packaged modules such as src/openpkpd/cli/main.py or src/openpkpd_gui/app/main.py
+# (an unanchored "main.py" silently drops them from the maturin wheel build).
+/main.py
 
 ### AI ###
 AGENTS.md

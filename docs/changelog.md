@@ -5,6 +5,21 @@ All notable changes to OpenPKPD are documented here. This project follows
 
 
 
+## 0.3.1 — 2026-06-26
+
+### Fixed
+
+- **Wheel packaging (CLI and GUI entry points)**: anchored the `main.py`
+  ignore rule in `.gitignore` to `/main.py` so it matches only the root-level
+  scratch wrapper. The previously unanchored pattern caused maturin's
+  `.gitignore`-aware file walker to silently drop `openpkpd/cli/main.py` and
+  `openpkpd_gui/app/main.py` from the wheel, leaving both the `openpkpd` and
+  `openpkpd-gui` console scripts non-functional on a clean `pip install`
+  (`ModuleNotFoundError`). All 254 tracked source modules are now bundled and
+  both entry points resolve.
+
+
+
 ## 0.3.0 — 2026-06-26
 
 ### Added

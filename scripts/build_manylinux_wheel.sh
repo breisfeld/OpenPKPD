@@ -13,6 +13,13 @@
 #                 devtoolset-10 GCC include paths, so bindgen can't find stddef.h
 #                 when parsing SUNDIALS headers.  Add -I flags explicitly.
 #
+#   3. CMAKE_POLICY_VERSION_MINIMUM — the container's CMake is now 4.x, which
+#                 removed compatibility with cmake_minimum_required(VERSION < 3.5).
+#                 SUNDIALS 0.2.5's vendored try_compile projects still request an
+#                 older minimum, so configuration aborts.  CMake reads this env
+#                 var (3.31+) as the default minimum and propagates it to the
+#                 nested try_compile sub-builds.
+#
 # Usage (inside the maturin container):
 #   bash /io/scripts/build_manylinux_wheel.sh
 
@@ -39,6 +46,9 @@ GCC_INCDIR=$(/opt/rh/devtoolset-10/root/usr/bin/gcc -print-file-name=include)
 echo "    GCC_INCDIR=$GCC_INCDIR"
 export BINDGEN_EXTRA_CLANG_ARGS="-I$GCC_INCDIR -I/usr/include"
 
+echo "==> Setting CMake policy floor for SUNDIALS (CMake 4.x compat)"
+export CMAKE_POLICY_VERSION_MINIMUM=3.5
+
 echo "==> Building manylinux_2_28 wheel (CPython 3.12, native-cvodes)"
 maturin build \
     --manifest-path /io/rust/Cargo.toml \
@@ -47,5 +57,11 @@ maturin build \
     --compatibility manylinux_2_28 \
     --interpreter "$PYTHON312" \
     --out dist/
+
+# The container runs as root, so files written to the bind-mounted dist/ are
+# root-owned and block subsequent host-user steps (Windows wheel, sdist).
+# Restore ownership to match the mounted repo root (/io), i.e. the host user.
+echo "==> Restoring host ownership of dist/"
+chown -R "$(stat -c %u /io):$(stat -c %g /io)" /io/dist
 
 echo "==> Done.  Wheel written to dist/"

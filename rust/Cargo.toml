@@ -1,6 +1,6 @@
 [package]
 name = "openpkpd-core"
-version = "0.3.3"
+version = "0.3.4"
 edition = "2021"
 description = "Compiled inner-loop extensions for OpenPKPD"
 license = "AGPL-3.0-or-later"

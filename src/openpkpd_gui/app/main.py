@@ -6,9 +6,6 @@ import importlib.resources
 import sys
 
 from openpkpd_gui.app.runtime import load_qt_modules
-from openpkpd_gui.domain.workspace import Workspace
-from openpkpd_gui.shell.main_window import create_main_window
-
 
 
 def configure_application_style(app) -> None:
@@ -31,6 +28,17 @@ def configure_application_style(app) -> None:
 
 def main() -> int:
     """Launch the desktop GUI and return the Qt exit code."""
+    try:
+        from openpkpd_gui.domain.workspace import Workspace
+        from openpkpd_gui.shell.main_window import create_main_window
+    except ModuleNotFoundError as exc:  # pragma: no cover - environment specific
+        raise RuntimeError(
+            "The OpenPKPD desktop GUI requires optional dependencies that are "
+            f"not installed in this environment (missing module: {exc.name!r}). "
+            "The desktop GUI is an optional extra; install it with: "
+            'pip install "openpkpd[gui]"'
+        ) from exc
+
     _, _, qt_widgets = load_qt_modules()
     app = qt_widgets.QApplication.instance() or qt_widgets.QApplication(sys.argv)
     app.setApplicationName("OpenPKPD")

@@ -5,6 +5,21 @@ All notable changes to OpenPKPD are documented here. This project follows
 
 
 
+## 0.3.4 — 2026-06-26
+
+### Fixed
+
+- **GUI install hint now actually fires on a core-only install**: in 0.3.3 the
+  `openpkpd-gui` entry point eagerly imported the Qt shell at module load, so a
+  core-only environment died on a raw `ModuleNotFoundError` for `platformdirs`
+  (another `[gui]`-only dependency) *before* the actionable hint could run. The
+  GUI imports are now deferred into `main()` and wrapped, so any missing
+  `[gui]` dependency — `platformdirs`, `matplotlib`, or `PySide6` — surfaces the
+  same guidance: `pip install "openpkpd[gui]"`. Added a regression test that
+  blocks `platformdirs` and asserts the entry point reports the install command.
+
+
+
 ## 0.3.3 — 2026-06-26
 
 ### Changed

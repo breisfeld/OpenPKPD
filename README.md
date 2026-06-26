@@ -78,10 +78,12 @@ The detailed “which extra should I install, and why?” guidance lives in
 
 ## Desktop GUI
 
-Install the GUI extra, then launch the desktop application with:
+Install the GUI extra (Qt/PySide6 + matplotlib), then launch the desktop
+application with:
 
 ```bash
-openpkpd-gui
+pip install "openpkpd[gui]"   # one-time: installs PySide6 + matplotlib
+openpkpd-gui                   # launch the desktop application
 ```
 
 From a development checkout, these shortcuts are also supported:

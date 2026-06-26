@@ -5,6 +5,23 @@ All notable changes to OpenPKPD are documented here. This project follows
 
 
 
+## 0.3.3 — 2026-06-26
+
+### Changed
+
+- **Actionable GUI install hint**: when the optional desktop GUI is launched
+  without PySide6 installed, the error now names the exact remedy —
+  `pip install "openpkpd[gui]"` — instead of only stating that Qt modules are
+  unavailable. The message is shared by every GUI entry path (the
+  `openpkpd-gui` script, all GUI workflows, and the Qt-based PDF export), so the
+  guidance surfaces consistently. The desktop GUI remains an optional extra;
+  PySide6 is intentionally not a core dependency.
+- **README**: the Desktop GUI section now shows the `pip install "openpkpd[gui]"`
+  command alongside the `openpkpd-gui` launch command so the snippet is
+  self-contained.
+
+
+
 ## 0.3.2 — 2026-06-26
 
 ### Fixed

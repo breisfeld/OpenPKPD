@@ -9,7 +9,9 @@ def load_qt_modules():
         from PySide6 import QtCore, QtGui, QtWidgets
     except ModuleNotFoundError as exc:  # pragma: no cover - environment specific
         raise RuntimeError(
-            "PySide6 is not installed in this environment, so Qt GUI modules are unavailable."
+            "PySide6 is not installed in this environment, so Qt GUI modules are "
+            "unavailable. The desktop GUI is an optional extra; install it with: "
+            'pip install "openpkpd[gui]"'
         ) from exc
     except Exception as exc:  # pragma: no cover - environment specific
         raise RuntimeError(

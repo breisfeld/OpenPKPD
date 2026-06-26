@@ -13,3 +13,5 @@ def test_qt_runtime_status_is_consistent() -> None:
     else:
         assert error is not None
         assert "PySide6" in error
+        # The message must point the user at the actionable install command.
+        assert 'pip install "openpkpd[gui]"' in error
